@@ -328,6 +328,8 @@ int kernel_execve(const char *filename,
 	register unsigned long __a3 asm("$7");
 	unsigned long __v0;
 
+	current->thread.abi = &mips_abi;
+
 	__asm__ volatile ("					\n"
 	"	.set	noreorder				\n"
 	"	li	$2, %5		# __NR_execve		\n"

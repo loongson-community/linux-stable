@@ -22,6 +22,7 @@ struct mips_abi {
 	                       sigset_t *set, siginfo_t *info);
 	const unsigned long	rt_signal_return_offset;
 	const unsigned long	restart;
+	const int audit_arch;
 };
 
 #endif /* _ASM_ABI_H */
