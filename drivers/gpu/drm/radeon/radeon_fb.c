@@ -174,6 +174,9 @@ static int radeonfb_create_pinned_object(struct radeon_fbdev *rfbdev,
 	}
 	if (fb_tiled)
 		radeon_bo_check_tiling(rbo, 0, 0);
+#ifdef __mips__
+	rbo->tbo.mem.placement |= TTM_PL_FLAG_PRIV5;
+#endif
 	ret = radeon_bo_kmap(rbo, NULL);
 	radeon_bo_unreserve(rbo);
 	if (ret) {

@@ -492,9 +492,17 @@ static int ttm_bo_ioremap(struct ttm_buffer_object *bo,
 		map->virtual = (void *)(((u8 *)bo->mem.bus.addr) + offset);
 	} else {
 		map->bo_kmap_type = ttm_bo_map_iomap;
+#ifdef __mips__
+		if ((mem->placement & (TTM_PL_FLAG_WC | TTM_PL_FLAG_PRIV5)) == \
+				(TTM_PL_FLAG_WC | TTM_PL_FLAG_PRIV5))
+			map->virtual = ioremap_uncached_accelerated(
+					bo->mem.bus.base + bo->mem.bus.offset + offset,
+						  size);
+#else
 		if (mem->placement & TTM_PL_FLAG_WC)
 			map->virtual = ioremap_wc(bo->mem.bus.base + bo->mem.bus.offset + offset,
 						  size);
+#endif
 		else
 			map->virtual = ioremap_nocache(bo->mem.bus.base + bo->mem.bus.offset + offset,
 						       size);
