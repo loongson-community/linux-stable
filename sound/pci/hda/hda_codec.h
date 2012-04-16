@@ -900,6 +900,8 @@ int snd_hda_codec_configure(struct hda_codec *codec);
 /*
  * low level functions
  */
+int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
+			    unsigned int *res);
 unsigned int snd_hda_codec_read(struct hda_codec *codec, hda_nid_t nid,
 				int direct,
 				unsigned int verb, unsigned int parm);
