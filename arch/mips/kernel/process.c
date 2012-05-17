@@ -88,7 +88,12 @@ void start_thread(struct pt_regs * regs, unsigned long pc, unsigned long sp)
 	unsigned long status;
 
 	/* New thread loses kernel privileges. */
+#if defined(CONFIG_CPU_LOONGSON3)
+	status = regs->cp0_status & ~(ST0_CU0|ST0_CU1|ST0_CU2|ST0_FR|KU_MASK);
+#else
 	status = regs->cp0_status & ~(ST0_CU0|ST0_CU1|ST0_FR|KU_MASK);
+#endif
+
 #ifdef CONFIG_64BIT
 	status |= test_thread_flag(TIF_32BIT_REGS) ? 0 : ST0_FR;
 #endif
