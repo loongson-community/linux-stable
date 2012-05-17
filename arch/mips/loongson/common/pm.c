@@ -207,6 +207,14 @@ static int loongson_pm_begin(suspend_state_t state)
 	return 0;
 }
 
+static void loongson_pm_wake(void)
+{
+#ifdef CONFIG_CPU_LOONGSON3
+	extern void disable_unused_cpus(void);
+	disable_unused_cpus();
+#endif
+}
+
 static void loongson_pm_end(void)
 {
 #ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
@@ -219,6 +227,7 @@ static const struct platform_suspend_ops loongson_pm_ops = {
 	.valid	= loongson_pm_valid_state,
 	.begin	= loongson_pm_begin,
 	.enter	= loongson_pm_enter,
+	.wake	= loongson_pm_wake,
 	.end	= loongson_pm_end,
 };
 

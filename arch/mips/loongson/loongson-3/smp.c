@@ -302,6 +302,8 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
  */
 void __init loongson3_cpus_done(void)
 {
+	extern void disable_unused_cpus(void);
+	disable_unused_cpus();
 }
 
 #ifdef CONFIG_HOTPLUG_CPU

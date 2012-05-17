@@ -14,6 +14,7 @@
 #include <linux/suspend.h>
 #include <linux/interrupt.h>
 #include <linux/pm.h>
+#include <linux/cpu.h>
 #include <linux/i8042.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -101,3 +102,22 @@ void mach_resume(suspend_state_t state)
 		sci_interrupt_setup();
 	}
 }
+
+#ifdef CONFIG_HOTPLUG_CPU
+void __cpuinit disable_unused_cpus(void)
+{
+	int cpu;
+	struct cpumask tmp;
+
+	cpumask_complement(&tmp, cpu_online_mask);
+	cpumask_and(&tmp, &tmp, cpu_possible_mask);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_up(cpu);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_down(cpu);
+}
+#else
+void __cpuinit disable_unused_cpus(void) {}
+#endif
