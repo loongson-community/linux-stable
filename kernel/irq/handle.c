@@ -135,6 +135,11 @@ handle_irq_event_percpu(struct irq_desc *desc, struct irqaction *action)
 	irqreturn_t retval = IRQ_NONE;
 	unsigned int random = 0, irq = desc->irq_data.irq;
 
+	if(!action) {
+		printk("Too early interrupt from irq %d\n", irq);
+		return IRQ_HANDLED;
+	}
+
 	do {
 		irqreturn_t res;
 
