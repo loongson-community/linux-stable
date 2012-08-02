@@ -32,6 +32,7 @@
 
 DEFINE_PER_CPU(int, cpu_state);
 DEFINE_PER_CPU(uint32_t, core0_c0count);
+extern int cpufreq_enabled;
 
 #ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
 extern int autoplug_verbose;
@@ -278,6 +279,24 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
 {
 	volatile unsigned long startargs[4];
 
+#if defined(CONFIG_LOONGSON2_CPUFREQ) && defined(CONFIG_HOTPLUG_CPU)
+	if ((num_online_cpus() == 1) && (system_state != SYSTEM_BOOTING)) {
+		struct cpufreq_freqs freqs;
+		struct clk *cpuclk = clk_get(NULL, "cpu_clk");
+
+		freqs.cpu   = 0;
+		freqs.old   = cpuclk->rate;
+		freqs.new   = cpu_clock_freq / 1000;
+		freqs.flags = 0;
+
+		cpufreq_enabled = 0;
+		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
+		cpuclk->rate = cpu_clock_freq / 1000;
+		LOONGSON_CHIPCFG0 |= 0x7;	/* Set to highest frequency */
+		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+	}
+#endif
+
 	if (verbose || system_state == SYSTEM_BOOTING)
 		printk(KERN_INFO "Booting CPU#%d...\n", cpu);
 
@@ -325,6 +344,11 @@ static int loongson3_cpu_disable(void)
 	local_irq_enable();
 	flush_cache_all();
 	local_flush_tlb_all();
+
+#ifdef CONFIG_LOONGSON2_CPUFREQ
+	if (num_online_cpus() == 1 && (system_state != SYSTEM_BOOTING))
+		cpufreq_enabled = 1;
+#endif
 
 	return 0;
 }

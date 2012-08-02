@@ -21,6 +21,9 @@
 
 #include <loongson.h>
 
+int cpufreq_enabled = 0;
+EXPORT_SYMBOL(cpufreq_enabled);
+
 static uint nowait;
 
 static struct clk *cpuclk;
@@ -37,8 +40,10 @@ static struct notifier_block loongson2_cpufreq_notifier_block = {
 static int loongson2_cpu_freq_notifier(struct notifier_block *nb,
 					unsigned long val, void *data)
 {
+	preempt_disable();
 	if (val == CPUFREQ_POSTCHANGE)
 		current_cpu_data.udelay_val = loops_per_jiffy;
+	preempt_enable_no_resched();
 
 	return 0;
 }
@@ -63,6 +68,9 @@ static int loongson2_cpufreq_target(struct cpufreq_policy *policy,
 
 	if (!cpu_online(cpu))
 		return -ENODEV;
+
+	if (!cpufreq_enabled)
+		return 0;
 
 	cpus_allowed = current->cpus_allowed;
 	set_cpus_allowed_ptr(current, cpumask_of(cpu));
@@ -184,6 +192,9 @@ static struct platform_driver platform_driver = {
 static int __init cpufreq_init(void)
 {
 	int ret;
+
+	if (num_online_cpus() == 1) /* smp_init() has finished at this time */
+		cpufreq_enabled = 1;
 
 	/* Register platform stuff */
 	ret = platform_driver_register(&platform_driver);

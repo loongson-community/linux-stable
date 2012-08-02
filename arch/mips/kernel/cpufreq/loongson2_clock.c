@@ -158,6 +158,9 @@ void loongson2_cpu_wait(void)
 	u32 cpu_freq;
 	unsigned long flags;
 
+	if (num_online_cpus() > 1 || system_state != SYSTEM_RUNNING)
+		return;
+
 	spin_lock_irqsave(&loongson2_wait_lock, flags);
 	cpu_freq = LOONGSON_CHIPCFG0;
 	LOONGSON_CHIPCFG0 &= ~0x7;	/* Put CPU into wait mode */
