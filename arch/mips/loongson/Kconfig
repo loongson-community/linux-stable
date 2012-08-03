@@ -125,6 +125,15 @@ config LOONGSON_BIGMEM
 	select SWIOTLB
 	select ZONE_DMA32
 
+config LOONGSON3_CPUAUTOPLUG
+	tristate "Loongson3 CPUAutoplug Driver"
+	depends on CPU_LOONGSON3 && HOTPLUG_CPU
+	help
+	  This option adds a CPUAutoplug driver for Loongson-3 multi-core processors
+	  which cpu frequencies of all cores  should be configured together.
+
+	  If in doubt, say N.
+
 config IOMMU_HELPER
 	bool
 
