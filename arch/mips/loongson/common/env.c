@@ -37,7 +37,9 @@ u64 vgabios_addr;
 u64 poweroff_addr, restart_addr;
 
 enum loongson_cpu_type cputype;
-unsigned int nr_cpus_loongson = NR_CPUS;
+u32 nr_cpus_loongson = NR_CPUS;
+u32 nr_nodes_loongson = MAX_NUMNODES;
+int cores_per_node;
 
 u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
@@ -83,10 +85,18 @@ void __init prom_init_env(void)
 	eirq_source = (struct irq_source_routing_table *)((u64)loongson_p + loongson_p->irq_offset);
 
 	cputype = ecpu->cputype;
+	if (cputype == Loongson_3A)
+		cores_per_node = 4;
+	else if (cputype == Loongson_3B)
+		cores_per_node = 8;
+	else
+		cores_per_node = 1;
+
 	nr_cpus_loongson = ecpu->nr_cpus;
 	cpu_clock_freq = ecpu->cpu_clock_freq;
 	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
 		nr_cpus_loongson = NR_CPUS;
+	nr_nodes_loongson = (nr_cpus_loongson + cores_per_node - 1) / cores_per_node;
 
 	pci_mem_start_addr = eirq_source->pci_mem_start_addr;
 	pci_mem_end_addr = eirq_source->pci_mem_end_addr;
