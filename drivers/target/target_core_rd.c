@@ -463,6 +463,7 @@ static sector_t rd_get_blocks(struct se_device *dev)
 static struct se_subsystem_api rd_mcp_template = {
 	.name			= "rd_mcp",
 	.transport_type		= TRANSPORT_PLUGIN_VHBA_VDEV,
+	.write_cache_emulated	= 1,
 	.attach_hba		= rd_attach_hba,
 	.detach_hba		= rd_detach_hba,
 	.allocate_virtdevice	= rd_allocate_virtdevice,
