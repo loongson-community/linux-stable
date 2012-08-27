@@ -179,14 +179,15 @@ static int loongson_pm_valid_state(suspend_state_t state)
 {
 	switch (state) {
 	case PM_SUSPEND_ON:
-	case PM_SUSPEND_STANDBY:
 		return 1;
 
+	case PM_SUSPEND_STANDBY:
 	case PM_SUSPEND_MEM:
 		switch (mips_machtype) {
 		case MACH_LEMOTE_ML2F7:
 		case MACH_LEMOTE_YL2F89:
 		case MACH_LEMOTE_A1004:
+		case MACH_LEMOTE_A1201:
 			return 1;
 		default:
 			return 0;
@@ -210,7 +211,6 @@ static int loongson_pm_begin(suspend_state_t state)
 static void loongson_pm_wake(void)
 {
 #ifdef CONFIG_CPU_LOONGSON3
-	extern void disable_unused_cpus(void);
 	disable_unused_cpus();
 #endif
 }

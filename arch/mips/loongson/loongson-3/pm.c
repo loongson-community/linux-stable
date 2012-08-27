@@ -102,22 +102,3 @@ void mach_resume(suspend_state_t state)
 		sci_interrupt_setup();
 	}
 }
-
-#ifdef CONFIG_HOTPLUG_CPU
-void __cpuinit disable_unused_cpus(void)
-{
-	int cpu;
-	struct cpumask tmp;
-
-	cpumask_complement(&tmp, cpu_online_mask);
-	cpumask_and(&tmp, &tmp, cpu_possible_mask);
-
-	for_each_cpu(cpu, &tmp)
-		cpu_up(cpu);
-
-	for_each_cpu(cpu, &tmp)
-		cpu_down(cpu);
-}
-#else
-void __cpuinit disable_unused_cpus(void) {}
-#endif
