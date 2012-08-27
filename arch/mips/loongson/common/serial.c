@@ -51,6 +51,8 @@ static struct plat_serial8250_port uart8250_data[][2] = {
 	[MACH_LEMOTE_A1101]             {PORT_M(2, 25000000), {} },
 	[MACH_LEMOTE_A1201]             {PORT_M(2, 25000000), {} },
 	[MACH_LEMOTE_A1205]             {PORT_M(2, 25000000), {} },
+	[MACH_LEMOTE_A1214]             {PORT_M(2, 25000000), {} },
+	[MACH_LEMOTE_A1215]             {PORT_M(2, 25000000), {} },
 	[MACH_LOONGSON_END]             {},
 };
 
