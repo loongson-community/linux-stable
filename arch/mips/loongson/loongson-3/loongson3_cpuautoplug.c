@@ -290,7 +290,7 @@ static void decrease_cores(int cur_cpus)
 
 static void do_autoplug_timer(struct work_struct *work)
 {
-	cputime64_t cur_wall_time, cur_idle_time;
+	cputime64_t cur_wall_time = 0, cur_idle_time;
 	unsigned int idle_time, wall_time;
 	int delay, load;
 	int nr_cur_cpus = num_online_cpus();
@@ -317,6 +317,8 @@ static void do_autoplug_timer(struct work_struct *work)
 
 	/* based on cpu load */
 	cur_idle_time = get_idle_time(&cur_wall_time);
+	if (cur_wall_time == 0)
+		cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
 
 	wall_time = (unsigned int)(cur_wall_time - ap_info.prev_wall);
 	ap_info.prev_wall = cur_wall_time;
