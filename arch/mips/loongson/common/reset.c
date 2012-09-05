@@ -47,6 +47,7 @@ static void loongson_restart(char *command)
 	void (*fw_restart)(void) = (void *)restart_addr;
 
 	fw_restart();
+	while (1) {}
 #endif
 }
 
@@ -60,6 +61,7 @@ static void loongson_poweroff(void)
 	void (*fw_poweroff)(void) = (void *)poweroff_addr;
 
 	fw_poweroff();
+	while (1) {}
 #endif
 }
 
