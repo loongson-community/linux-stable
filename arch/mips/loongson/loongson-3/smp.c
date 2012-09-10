@@ -452,12 +452,14 @@ static int __cpuinit loongson3_cpu_callback(struct notifier_block *nfb,
 			printk(KERN_INFO "Disable clock for CPU#%d\n", cpu);
 		if (node == 0)
 			LOONGSON_CHIPCFG0 &= ~(1 << (12 + core_id));
+#ifdef CONFIG_NUMA
 		else if (node == 1)
 			LOONGSON_CHIPCFG1 &= ~(1 << (12 + core_id));
 		else if (node == 2)
 			LOONGSON_CHIPCFG2 &= ~(1 << (12 + core_id));
 		else if (node == 3)
 			LOONGSON_CHIPCFG3 &= ~(1 << (12 + core_id));
+#endif
 		break;
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
@@ -465,12 +467,14 @@ static int __cpuinit loongson3_cpu_callback(struct notifier_block *nfb,
 			printk(KERN_INFO "Enable clock for CPU#%d\n", cpu);
 		if (node == 0)
 			LOONGSON_CHIPCFG0 |= 1 << (12 + core_id);
+#ifdef CONFIG_NUMA
 		else if (node == 1)
 			LOONGSON_CHIPCFG1 |= 1 << (12 + core_id);
 		else if (node == 2)
 			LOONGSON_CHIPCFG2 |= 1 << (12 + core_id);
 		else if (node == 3)
 			LOONGSON_CHIPCFG3 |= 1 << (12 + core_id);
+#endif
 		break;
 	}
 
