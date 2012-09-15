@@ -198,7 +198,7 @@ void loongson3_ipi_interrupt(struct pt_regs *regs)
 	if (action & SMP_ASK_C0COUNT) {
 		BUG_ON(cpu != 0);
 		c0count = read_c0_count();
-		for (i=1; i<NR_CPUS; i++)
+		for (i=1; i < nr_cpus_loongson; i++)
 			per_cpu(core0_c0count, i) = c0count;
 	}
 }
@@ -218,7 +218,7 @@ void __cpuinit loongson3_init_secondary(void)
 	/* Set interrupt mask, but don't enable */
 	change_c0_status(ST0_IM, imask);
 
-	for (i = 0; i < NR_CPUS; i++) {
+	for (i = 0; i < nr_cpus_loongson; i++) {
 		loongson3_ipi_write32(0xffffffff, ipi_en0_regs[i]);
 	}
 
