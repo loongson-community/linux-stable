@@ -15,6 +15,12 @@
 
 #include "smpboot.h"
 
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+DECLARE_PER_CPU(int, cpu_adjusting);
+#endif
+
+atomic_t global_cfd_refcount = ATOMIC_INIT(0);
+
 #ifdef CONFIG_USE_GENERIC_SMP_HELPERS
 static struct {
 	struct list_head	queue;
@@ -326,11 +332,21 @@ int smp_call_function_single(int cpu, smp_call_func_t func, void *info,
 		func(info);
 		local_irq_restore(flags);
 	} else {
+		atomic_inc(&global_cfd_refcount);
+
 		if ((unsigned)cpu < nr_cpu_ids && cpu_online(cpu)) {
 			struct call_single_data *data = &d;
 
 			if (!wait)
 				data = &__get_cpu_var(csd_data);
+
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+			if (per_cpu(cpu_adjusting, cpu) < 0) {
+				put_cpu();
+				atomic_dec(&global_cfd_refcount);
+				return -ENXIO;
+			}
+#endif
 
 			csd_lock(data);
 
@@ -340,6 +356,8 @@ int smp_call_function_single(int cpu, smp_call_func_t func, void *info,
 		} else {
 			err = -ENXIO;	/* CPU not online */
 		}
+
+		atomic_dec(&global_cfd_refcount);
 	}
 
 	put_cpu();
@@ -449,7 +467,7 @@ void smp_call_function_many(const struct cpumask *mask,
 {
 	struct call_function_data *data;
 	unsigned long flags;
-	int refs, cpu, next_cpu, this_cpu = smp_processor_id();
+	int i, refs, cpu, next_cpu, this_cpu = smp_processor_id();
 
 	/*
 	 * Can deadlock when called with interrupts disabled.
@@ -479,6 +497,8 @@ void smp_call_function_many(const struct cpumask *mask,
 		smp_call_function_single(cpu, func, info, wait);
 		return;
 	}
+
+	atomic_inc(&global_cfd_refcount);
 
 	data = &__get_cpu_var(cfd_data);
 	csd_lock(&data->csd);
@@ -518,11 +538,17 @@ void smp_call_function_many(const struct cpumask *mask,
 	/* We rely on the "and" being processed before the store */
 	cpumask_and(data->cpumask, mask, cpu_online_mask);
 	cpumask_clear_cpu(this_cpu, data->cpumask);
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+	for_each_possible_cpu(i)
+		if (per_cpu(cpu_adjusting, i) < 0)
+			cpumask_clear_cpu(i, data->cpumask);
+#endif
 	refs = cpumask_weight(data->cpumask);
 
 	/* Some callers race with other cpus changing the passed mask */
 	if (unlikely(!refs)) {
 		csd_unlock(&data->csd);
+		atomic_dec(&global_cfd_refcount);
 		return;
 	}
 
@@ -554,6 +580,8 @@ void smp_call_function_many(const struct cpumask *mask,
 	/* Optionally wait for the CPUs to complete */
 	if (wait)
 		csd_lock_wait(&data->csd);
+
+	atomic_dec(&global_cfd_refcount);
 }
 EXPORT_SYMBOL(smp_call_function_many);
 
