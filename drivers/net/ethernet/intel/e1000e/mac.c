@@ -28,6 +28,35 @@
 
 #include "e1000.h"
 
+static s32 e1000_validate_mdi_setting_generic(struct e1000_hw *hw);
+static void e1000_set_lan_id_multi_port_pcie(struct e1000_hw *hw);
+static void e1000e_config_collision_dist_generic(struct e1000_hw *hw);
+static void e1000e_rar_set_generic(struct e1000_hw *hw, u8 *addr, u32 index);
+
+/**
+ *  e1000_init_mac_ops_generic - Initialize MAC function pointers
+ *  @hw: pointer to the HW structure
+ *
+ *  Setups up the function pointers to no-op functions
+ **/
+void e1000_init_mac_ops_generic(struct e1000_hw *hw)
+{
+	struct e1000_mac_info *mac = &hw->mac;
+	/* General Setup */
+	mac->ops.set_lan_id = e1000_set_lan_id_multi_port_pcie;
+	mac->ops.read_mac_addr = e1000_read_mac_addr_generic;
+	mac->ops.config_collision_dist = e1000e_config_collision_dist_generic;
+	/* LINK */
+	mac->ops.wait_autoneg = e1000_wait_autoneg;
+	/* Management */
+	mac->ops.mng_host_if_write = e1000_mng_host_if_write;
+	mac->ops.mng_write_cmd_header = e1000_mng_write_cmd_header;
+	mac->ops.mng_enable_host_if = e1000_mng_enable_host_if;
+	/* VLAN, MC, etc. */
+	mac->ops.rar_set = e1000e_rar_set_generic;
+	mac->ops.validate_mdi_setting = e1000_validate_mdi_setting_generic;
+}
+
 /**
  *  e1000e_get_bus_info_pcie - Get PCIe bus information
  *  @hw: pointer to the HW structure
@@ -40,16 +69,29 @@ s32 e1000e_get_bus_info_pcie(struct e1000_hw *hw)
 {
 	struct e1000_mac_info *mac = &hw->mac;
 	struct e1000_bus_info *bus = &hw->bus;
-	struct e1000_adapter *adapter = hw->adapter;
-	u16 pcie_link_status, cap_offset;
+	s32 ret_val;
+	u16 pcie_link_status;
 
-	cap_offset = adapter->pdev->pcie_cap;
-	if (!cap_offset) {
+	bus->type = e1000_bus_type_pci_express;
+
+	ret_val = e1000_read_pcie_cap_reg(hw, PCIE_LINK_STATUS,
+					  &pcie_link_status);
+	if (ret_val) {
 		bus->width = e1000_bus_width_unknown;
+		bus->speed = e1000_bus_speed_unknown;
 	} else {
-		pci_read_config_word(adapter->pdev,
-				     cap_offset + PCIE_LINK_STATUS,
-				     &pcie_link_status);
+		switch (pcie_link_status & PCIE_LINK_SPEED_MASK) {
+		case PCIE_LINK_SPEED_2500:
+			bus->speed = e1000_bus_speed_2500;
+			break;
+		case PCIE_LINK_SPEED_5000:
+			bus->speed = e1000_bus_speed_5000;
+			break;
+		default:
+			bus->speed = e1000_bus_speed_unknown;
+			break;
+		}
+
 		bus->width = (enum e1000_bus_width)((pcie_link_status &
 						     PCIE_LINK_WIDTH_MASK) >>
 						    PCIE_LINK_WIDTH_SHIFT);
@@ -68,7 +110,7 @@ s32 e1000e_get_bus_info_pcie(struct e1000_hw *hw)
  *  Determines the LAN function id by reading memory-mapped registers
  *  and swaps the port value if requested.
  **/
-void e1000_set_lan_id_multi_port_pcie(struct e1000_hw *hw)
+static void e1000_set_lan_id_multi_port_pcie(struct e1000_hw *hw)
 {
 	struct e1000_bus_info *bus = &hw->bus;
 	u32 reg;
@@ -229,7 +271,7 @@ s32 e1000_check_alt_mac_addr_generic(struct e1000_hw *hw)
  *  Sets the receive address array register at index to the address passed
  *  in by addr.
  **/
-void e1000e_rar_set_generic(struct e1000_hw *hw, u8 *addr, u32 index)
+static void e1000e_rar_set_generic(struct e1000_hw *hw, u8 *addr, u32 index)
 {
 	u32 rar_low, rar_high;
 
@@ -929,7 +971,7 @@ s32 e1000e_setup_fiber_serdes_link(struct e1000_hw *hw)
  *  Configures the collision distance to the default value and is used
  *  during link setup.
  **/
-void e1000e_config_collision_dist_generic(struct e1000_hw *hw)
+static void e1000e_config_collision_dist_generic(struct e1000_hw *hw)
 {
 	u32 tctl;
 
@@ -1110,8 +1152,8 @@ s32 e1000e_config_fc_after_link_up(struct e1000_hw *hw)
 		ret_val = e1e_rphy(hw, PHY_AUTONEG_ADV, &mii_nway_adv_reg);
 		if (ret_val)
 			return ret_val;
-		ret_val =
-		    e1e_rphy(hw, PHY_LP_ABILITY, &mii_nway_lp_ability_reg);
+		ret_val = e1e_rphy(hw, PHY_LP_ABILITY,
+				   &mii_nway_lp_ability_reg);
 		if (ret_val)
 			return ret_val;
 
@@ -1275,8 +1317,8 @@ s32 e1000e_get_speed_and_duplex_copper(struct e1000_hw *hw, u16 *speed,
  *  Sets the speed and duplex to gigabit full duplex (the only possible option)
  *  for fiber/serdes links.
  **/
-s32 e1000e_get_speed_and_duplex_fiber_serdes(struct e1000_hw *hw, u16 *speed,
-					     u16 *duplex)
+s32 e1000e_get_speed_and_duplex_fiber_serdes(struct e1000_hw *hw,
+					     u16 *speed, u16 *duplex)
 {
 	*speed = SPEED_1000;
 	*duplex = FULL_DUPLEX;
@@ -1699,11 +1741,28 @@ void e1000e_update_adaptive(struct e1000_hw *hw)
 			}
 		}
 	} else {
-		if (mac->in_ifs_mode &&
-		    (mac->tx_packet_delta <= MIN_NUM_XMITS)) {
+		if (mac->in_ifs_mode && (mac->tx_packet_delta <= MIN_NUM_XMITS)) {
 			mac->current_ifs_val = 0;
 			mac->in_ifs_mode = false;
 			ew32(AIT, 0);
 		}
 	}
+}
+
+/**
+ *  e1000_validate_mdi_setting_generic - Verify MDI/MDIx settings
+ *  @hw: pointer to the HW structure
+ *
+ *  Verify that when not using auto-negotiation that MDI/MDIx is correctly
+ *  set, which is forced to MDI mode only.
+ **/
+static s32 e1000_validate_mdi_setting_generic(struct e1000_hw *hw)
+{
+	if (!hw->mac.autoneg && (hw->phy.mdix == 0 || hw->phy.mdix == 3)) {
+		e_dbg("Invalid MDI setting detected\n");
+		hw->phy.mdix = 1;
+		return -E1000_ERR_CONFIG;
+	}
+
+	return 0;
 }
