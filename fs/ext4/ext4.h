@@ -2041,8 +2041,7 @@ extern int ext4_resize_fs(struct super_block *sb, ext4_fsblk_t n_blocks_count);
 extern int ext4_calculate_overhead(struct super_block *sb);
 extern int ext4_superblock_csum_verify(struct super_block *sb,
 				       struct ext4_super_block *es);
-extern void ext4_superblock_csum_set(struct super_block *sb,
-				     struct ext4_super_block *es);
+extern void ext4_superblock_csum_set(struct super_block *sb);
 extern void *ext4_kvmalloc(size_t size, gfp_t flags);
 extern void *ext4_kvzalloc(size_t size, gfp_t flags);
 extern void ext4_kvfree(void *ptr);
@@ -2325,9 +2324,7 @@ static inline void ext4_unlock_group(struct super_block *sb,
 
 static inline void ext4_mark_super_dirty(struct super_block *sb)
 {
-	struct ext4_super_block *es = EXT4_SB(sb)->s_es;
-
-	ext4_superblock_csum_set(sb, es);
+	ext4_superblock_csum_set(sb);
 	if (EXT4_SB(sb)->s_journal == NULL)
 		sb->s_dirt =1;
 }
