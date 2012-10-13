@@ -219,8 +219,6 @@ __setup("autoplug=", setup_autoplug);
 
 #endif
 
-static struct workqueue_struct *kautoplugd_wq;
-
 static inline cputime64_t get_idle_time_jiffy(cputime64_t *wall)
 {
 	unsigned int cpu;
@@ -342,21 +340,22 @@ static void do_autoplug_timer(struct work_struct *work)
 	load = 100 * (wall_time * nr_all_cpus - idle_time) / wall_time;
 
 	if (load < (nr_cur_cpus - 1) * 100 - DEC_THRESHOLD) {
-		if (ap_info.dec_reqs > 2){
+		if (ap_info.dec_reqs <= 2)
+			ap_info.dec_reqs++;
+		else {
 			ap_info.dec_reqs = 0;
 			decrease_cores(nr_cur_cpus);
 		}
-		else
-			ap_info.dec_reqs++;
 	}
-	else if (load > (nr_cur_cpus - 1) * 100 + INC_THRESHOLD) {
+	else {
 		ap_info.dec_reqs = 0;
-		increase_cores(nr_cur_cpus);
+		if (load > (nr_cur_cpus - 1) * 100 + INC_THRESHOLD)
+			increase_cores(nr_cur_cpus);
 	}
 
 	autoplug_adjusting = 0;
 out:
-	queue_delayed_work_on(0, kautoplugd_wq, &ap_info.work, delay);
+	schedule_delayed_work_on(0, &ap_info.work, delay);
 }
 
 static struct platform_device_id platform_device_ids[] = {
@@ -409,13 +408,8 @@ static int __init cpuautoplug_init(void)
 #else
 	delay = msecs_to_jiffies(ap_info.sampling_rate * 8);
 #endif
-	kautoplugd_wq = alloc_workqueue("kautoplug", WQ_NON_REENTRANT, 1);
-	if (!kautoplugd_wq) {
-		printk(KERN_ERR "Creation of kautoplugd failed\n");
-		return -EFAULT;
-	}
 	INIT_DELAYED_WORK_DEFERRABLE(&ap_info.work, do_autoplug_timer);
-	queue_delayed_work_on(0, kautoplugd_wq, &ap_info.work, delay);
+	schedule_delayed_work_on(0, &ap_info.work, delay);
 
 	return ret;
 }
@@ -423,7 +417,6 @@ static int __init cpuautoplug_init(void)
 static void __exit cpuautoplug_exit(void)
 {
 	cancel_delayed_work_sync(&ap_info.work);
-	destroy_workqueue(kautoplugd_wq);
 	platform_driver_unregister(&platform_driver);
 	sysfs_remove_group(&cpu_subsys.dev_root->kobj, &cpuclass_attr_group);
 }
