@@ -4,45 +4,56 @@
 #include <linux/platform_device.h>
 #include <loongson_hwmon.h>
 
-#define EMC1412_SMB_ADDR	0x4c
+struct i2c_client *emc1412_client[5] = {NULL};
+unsigned short normal_list[] = {0x1C, 0x4C, 0x5C, 0x6C, I2C_CLIENT_END};
 
-struct i2c_client *emc1412_client = NULL;
-
-static int __devinit emc1412_probe(struct platform_device *dev)
+static int emc1412_detect(struct i2c_client *client,
+			  struct i2c_board_info *info)
 {
-	struct i2c_adapter *adapter = NULL;
-	struct i2c_board_info info;
-	int i = 0, found = 0;
+	u8 vendor_id, device_id;
 
-	memset(&info, 0, sizeof(struct i2c_board_info));
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
+		return -ENODEV;
 
-	adapter = i2c_get_adapter(i++);
-	while (adapter) {
-		if (strncmp(adapter->name, "SMBus PIIX4", 11) == 0) {
-			found = 1;
-			break;
-		}
-
-		adapter = i2c_get_adapter(i++);
+	/* read ID */
+	device_id = i2c_smbus_read_byte_data(client, 0xFD);
+	if (device_id < 0) {
+		pr_err("Read i2c device %s error!\n", client->name);
+		return device_id;
 	}
+	vendor_id = i2c_smbus_read_byte_data(client, 0xFE);
+	if (vendor_id < 0) {
+		pr_err("Read i2c device %s error!\n", client->name);
+		return vendor_id;
+	}
+	if (vendor_id != 0x5D || device_id != 0x20)
+		return -ENODEV;
 
-	if (!found)
+	strncpy(info->type, "emc1412", I2C_NAME_SIZE);
+
+	return 0;
+}
+
+static int
+emc1412_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+	if (client == NULL)
 		goto fail;
 
-	info.addr = EMC1412_SMB_ADDR;
-	info.platform_data = "EMC1412 Temprature Sensor";
+	if (client->addr == 0x4c)
+		emc1412_client[0] = client;
+	if (client->addr == 0x6c)
+		emc1412_client[1] = client;
+	if (client->addr == 0x1c)
+		emc1412_client[2] = client;
+	if (client->addr == 0x5c)
+		emc1412_client[3] = client;
 
-	emc1412_client = i2c_new_device(adapter, &info);
-	if (emc1412_client == NULL) {
-		printk(KERN_ERR "failed to attach EMC1412 sensor\n");
-		goto fail;
-	}
-
-	printk(KERN_INFO "Success to attach EMC1412 sensor\n");
+	pr_info("Success to attach EMC1412 sensor\n");
 
 	return 0;
 fail:
-	printk(KERN_ERR "Fail to fount smbus controller attach EMC1412 sensor\n");
+	pr_warn("Fail to fount smbus controller attach EMC1412 sensor\n");
 
 	return 0;
 }
@@ -55,62 +66,59 @@ fail:
  * reg1 & reg10 between (0.125, 0.875)
  * to avoid use float, temprature will mult 1000
  */
-int emc1412_internal_temp(void)
+int emc1412_internal_temp(int id)
 {
 	u8 reg;
 	int temp;
+	struct i2c_client *client;
 
-	/* not ready ??? */
-	if (emc1412_client == NULL)
+	if (id < 2 || !(client = emc1412_client[id - 2]))
 		return NOT_VALID_TEMP;
 
-	temp = i2c_smbus_read_byte_data(emc1412_client, 0) * 1000;
-	reg = i2c_smbus_read_byte_data(emc1412_client, 0x29);
+	temp = i2c_smbus_read_byte_data(client, 0) * 1000;
+	reg = i2c_smbus_read_byte_data(client, 0x29);
 	temp += (reg >> 5) * 125;
 
 	return temp;
 }
-
-int emc1412_external_temp(void)
-{
-	u8 reg;
-	int temp;
-
-	/* not ready ??? */
-	if (emc1412_client == NULL)
-		return NOT_VALID_TEMP;
-
-	temp = i2c_smbus_read_byte_data(emc1412_client, 1) * 1000;
-	reg = i2c_smbus_read_byte_data(emc1412_client, 0x10);
-	temp += (reg >> 5) * 125;
-
-	return temp;
-}
-
 EXPORT_SYMBOL_GPL(emc1412_internal_temp);
+
+int emc1412_external_temp(int id)
+{
+	u8 reg;
+	int temp;
+	struct i2c_client *client;
+
+	/* not ready ??? */
+	if (id < 2 || !(client = emc1412_client[id - 2]))
+		return NOT_VALID_TEMP;
+
+	temp = i2c_smbus_read_byte_data(client, 1) * 1000;
+	reg = i2c_smbus_read_byte_data(client, 0x10);
+	temp += (reg >> 5) * 125;
+
+	return temp;
+}
 EXPORT_SYMBOL_GPL(emc1412_external_temp);
 
-static struct platform_driver emc1412_driver = {
-	.probe		= emc1412_probe,
+static const struct i2c_device_id emc1412_id[] = {
+	{ "emc1412", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, emc1412_id);
+
+static struct i2c_driver emc1412_driver = {
+	.class		= I2C_CLASS_HWMON,
 	.driver		= {
-		.name	= "EMC1412",
+		.name	= "emc1412",
 		.owner	= THIS_MODULE,
 	},
+	.id_table	= emc1412_id,
+	.probe		= emc1412_probe,
+	.detect		= emc1412_detect,
+	.address_list	= normal_list,
 };
-
-
-static int __init emc1412_init(void)
-{
-	return platform_driver_register(&emc1412_driver);
-}
-
-static void __exit emc1412_exit(void)
-{
-	platform_driver_unregister(&emc1412_driver);
-}
-
-late_initcall(emc1412_init);
-module_exit(emc1412_exit);
+module_i2c_driver(emc1412_driver);
 
 MODULE_AUTHOR("Xiang Yu <xiangy@lemote.com>");
 MODULE_DESCRIPTION("EMC1412 driver");

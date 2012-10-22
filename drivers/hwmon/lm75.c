@@ -283,7 +283,6 @@ static int lm75_detect(struct i2c_client *new_client,
 	if (conf & 0xe0)
 		return -ENODEV;
 
-#ifdef CONFIG_CPU_LOONGSON3
 	/* First check for LM75A */
 	if (i2c_smbus_read_byte_data(new_client, 7) == LM75A_ID) {
 		/* LM75A returns 0xff on unused registers so
@@ -321,7 +320,7 @@ static int lm75_detect(struct i2c_client *new_client,
 				!= LM75A_ID)
 			return -ENODEV;
 	}
-#endif
+
 	strlcpy(info->type, is_lm75a ? "lm75a" : "lm75", I2C_NAME_SIZE);
 
 	return 0;
