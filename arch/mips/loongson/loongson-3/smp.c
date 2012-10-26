@@ -327,10 +327,11 @@ void __init loongson3_cpus_done(void)
 #ifdef CONFIG_HOTPLUG_CPU
 
 extern void fixup_irqs(void);
+extern void (*flush_cache_all)(void);
 
 static int loongson3_cpu_disable(void)
 {
-	extern void (*flush_cache_all)(void);
+	unsigned long flags;
 	unsigned int cpu = smp_processor_id();
 
 	if (cpu == 0)
@@ -338,9 +339,9 @@ static int loongson3_cpu_disable(void)
 
 	set_cpu_online(cpu, false);
 	cpu_clear(cpu, cpu_callin_map);
-	local_irq_disable();
+	local_irq_save(flags);
 	fixup_irqs();
-	local_irq_enable();
+	local_irq_restore(flags);
 	flush_cache_all();
 	local_flush_tlb_all();
 
