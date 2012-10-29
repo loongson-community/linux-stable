@@ -212,8 +212,8 @@ void __cpuinit loongson3_init_secondary(void)
 	int i;
 	uint32_t initcount;
 	unsigned int cpu = smp_processor_id();
-	unsigned int imask = STATUSF_IP7 | STATUSF_IP6 | STATUSF_IP5 |
-			     STATUSF_IP4 | STATUSF_IP3 | STATUSF_IP2;
+	unsigned int imask = STATUSF_IP7 | STATUSF_IP6 |
+			     STATUSF_IP3 | STATUSF_IP2;
 
 	/* Set interrupt mask, but don't enable */
 	change_c0_status(ST0_IM, imask);
