@@ -222,6 +222,8 @@ void __cpuinit loongson3_init_secondary(void)
 		loongson3_ipi_write32(0xffffffff, ipi_en0_regs[i]);
 	}
 
+	cpu_data[cpu].package = cpu / cores_per_node;
+	cpu_data[cpu].core = cpu % cores_per_node;
 	per_cpu(cpu_state, cpu) = CPU_ONLINE;
 
 	i = 0;
