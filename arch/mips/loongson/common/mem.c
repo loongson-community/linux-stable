@@ -71,17 +71,17 @@ void __init prom_init_memory(void)
 			switch (mem_type) {
 			case SYSTEM_RAM_LOW:
 				add_memory_region(emap->map[i].mem_start,
-					emap->map[i].mem_size << 20,
+					(u64)emap->map[i].mem_size << 20,
 					BOOT_MEM_RAM);
 				break;
 			case SYSTEM_RAM_HIGH:
 				add_memory_region(emap->map[i].mem_start,
-					emap->map[i].mem_size << 20,
+					(u64)emap->map[i].mem_size << 20,
 					BOOT_MEM_RAM);
 				break;
 			case MEM_RESERVED:
 				add_memory_region(emap->map[i].mem_start,
-					emap->map[i].mem_size << 20,
+					(u64)emap->map[i].mem_size << 20,
 					BOOT_MEM_RESERVED);
 				break;
 			}
