@@ -257,9 +257,9 @@ static int iscsi_login_zero_tsih_s1(
 		kfree(sess);
 		return -ENOMEM;
 	}
-	spin_lock(&sess_idr_lock);
+	spin_lock_bh(&sess_idr_lock);
 	idr_get_new(&sess_idr, NULL, &sess->session_index);
-	spin_unlock(&sess_idr_lock);
+	spin_unlock_bh(&sess_idr_lock);
 
 	sess->creation_time = get_jiffies_64();
 	spin_lock_init(&sess->session_stats_lock);
