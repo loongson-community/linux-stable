@@ -15,6 +15,7 @@
 
 #include <loongson.h>
 
+extern int cpufreq_enabled;
 static LIST_HEAD(clock_list);
 static DEFINE_SPINLOCK(clock_lock);
 static DEFINE_MUTEX(clock_list_sem);
@@ -158,7 +159,7 @@ void loongson2_cpu_wait(void)
 	u32 cpu_freq;
 	unsigned long flags;
 
-	if (num_online_cpus() > 1 || system_state != SYSTEM_RUNNING)
+	if (!cpufreq_enabled || system_state != SYSTEM_RUNNING)
 		return;
 
 	spin_lock_irqsave(&loongson2_wait_lock, flags);
