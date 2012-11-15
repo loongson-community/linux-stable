@@ -864,23 +864,12 @@ static int __init kernel_init(void * unused)
 
 	do_basic_setup();
 
-#ifdef CONFIG_CPU_LOONGSON3
-	cpumask_t cpus_allowed;
-
-	cpus_allowed = current->cpus_allowed;
-	set_cpus_allowed_ptr(current, cpumask_of(0));
-#endif
-
 	/* Open the /dev/console on the rootfs, this should never fail */
 	if (sys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
 		printk(KERN_WARNING "Warning: unable to open an initial console.\n");
 
 	(void) sys_dup(0);
 	(void) sys_dup(0);
-
-#ifdef CONFIG_CPU_LOONGSON3
-	set_cpus_allowed_ptr(current, &cpus_allowed);
-#endif
 
 	/*
 	 * check if there is an early userspace init.  If yes, let it do all
