@@ -114,6 +114,9 @@ static unsigned long nid_to_addroffset(unsigned int nid)
 	return result;
 }
 
+extern unsigned int has_systab;
+extern unsigned long systab_addr;
+
 static void __init szmem(unsigned int node)
 {
 	u32 i, mem_type;
@@ -153,6 +156,11 @@ static void __init szmem(unsigned int node)
 				printk("Debug: node_id:%d, mem_type:%d, mem_start:0x%llx, mem_size:0x%llx MB\n",
 					(u32)node_id, mem_type, emap->map[i].mem_start, mem_size);
 				memblock_reserve(((node_id << 44) | emap->map[i].mem_start), mem_size << 20);
+				break;
+			case SMBIOS_TABLE:
+				has_systab = 1;
+				systab_addr = emap->map[i].mem_start &
+					0x000000000ffffffful;
 				break;
 			}
 		}
