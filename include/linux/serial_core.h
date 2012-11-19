@@ -47,6 +47,7 @@
 #define PORT_U6_16550A	19	/* ST-Ericsson U6xxx internal UART */
 #define PORT_TEGRA	20	/* NVIDIA Tegra internal UART */
 #define PORT_XR17D15X	21	/* Exar XR17D15x UART */
+#define PORT_XR17V35X	22	/* Exar XR17V35x UARTs */
 #define PORT_BRCM_TRUMANAGE	25
 #define PORT_ALTR_16550_F32 26 /* Altera 16550 UART with 32 FIFOs */
 #define PORT_ALTR_16550_F64 27 /* Altera 16550 UART with 64 FIFOs */
