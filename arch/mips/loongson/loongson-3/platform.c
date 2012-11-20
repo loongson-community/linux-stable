@@ -120,6 +120,7 @@ static int __init loongson3a_platform_init(void)
 	/* temprature info */
 	switch (mips_machtype) {
 	case MACH_LEMOTE_A1004:
+	case MACH_LEMOTE_A1217:
 		/* thermal sensor register and interface init */
 		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
@@ -200,6 +201,15 @@ static int __init loongson3a_platform_init(void)
 		loongson_temp_info.get_psy_temp = emc1412_external_temp;
 
 		/* fan sensor register and choose fan control policy */
+		platform_device_register(&sbx00_fan1);
+		platform_device_register(&sbx00_fan2);
+		loongson_fan1_ops.fan_policy = &constant_speed_70p_policy;
+		loongson_fan2_ops.fan_policy = &constant_speed_70p_policy;
+
+		break;
+	case MACH_LEMOTE_A1219:
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_nb_temp = emc1412_external_temp;
 		platform_device_register(&sbx00_fan1);
 		platform_device_register(&sbx00_fan2);
 		loongson_fan1_ops.fan_policy = &constant_speed_70p_policy;
