@@ -170,9 +170,10 @@ static void __init node_mem_init(unsigned int node)
 
 	get_pfn_range_for_nid(node, &start_pfn, &end_pfn);
 	freepfn = start_pfn;
-	if(node == 0)
-		freepfn = PFN_UP(__pa_symbol(&_end)); //kernel binary end address
-	printk("node%d's start_pfn is 0x%lx, end_pfn is 0x%lx, freepfn is 0x%lx\n",node,start_pfn,end_pfn,freepfn);
+	if (node == 0)
+		freepfn = PFN_UP(__pa_symbol(&_end)); /* kernel binary end address */
+	printk("Node%d's start_pfn is 0x%lx, end_pfn is 0x%lx, freepfn is 0x%lx\n",
+		node, start_pfn, end_pfn, freepfn);
 
 	__node_data[node] = prealloc__node_data + node;
 
@@ -183,6 +184,8 @@ static void __init node_mem_init(unsigned int node)
 	bootmap_size = init_bootmem_node(NODE_DATA(node), freepfn,
 					start_pfn, end_pfn);
 	free_bootmem_with_active_regions(node, end_pfn);
+	if (node == 0) /* used by finalize_initrd() */
+		max_low_pfn = end_pfn;
 
 	/* This is reserved for the kernel and bdata->node_bootmem_map */
 	reserve_bootmem_node(NODE_DATA(node), start_pfn << PAGE_SHIFT, \
@@ -190,7 +193,7 @@ static void __init node_mem_init(unsigned int node)
 		BOOTMEM_DEFAULT);
 
         /* Just for compatibility previous Loongson-3A kernel */
-	if(node == 0){
+	if (node == 0) {
 		/* Reserve the memory 0xff800000~0xffffffff for RS780E integrated GPU */
 		reserve_bootmem_node(NODE_DATA(node), \
 				(node_addrspace_offset | 0xff800000), 8 << 20, BOOTMEM_DEFAULT);
@@ -281,7 +284,7 @@ void __init mem_init(void)
 	       (unsigned long) (totalhigh_pages << (PAGE_SHIFT-10)));
 }
 
-/* All PCI device belongs to logical node0*/
+/* All PCI device belongs to logical Node-0 */
 int pcibus_to_node(struct pci_bus *bus)
 {
         return 0;
