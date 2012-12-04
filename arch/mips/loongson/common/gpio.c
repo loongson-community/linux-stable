@@ -1,5 +1,5 @@
 /*
- *  STLS2F GPIO Support
+ *  Loongson2F/3A GPIO Support
  *
  *  Copyright (c) 2008 Richard Liu,  STMicroelectronics  <richard.liu@st.com>
  *  Copyright (c) 2008-2010 Arnaud Patard <apatard@mandriva.com>
@@ -20,7 +20,15 @@
 #include <linux/gpio.h>
 
 #define STLS2F_N_GPIO		4
-#define STLS2F_GPIO_IN_OFFSET	16
+#define STLS3A_N_GPIO		16
+
+#ifdef CONFIG_CPU_LOONGSON3
+#define LOONGSON_GPIO_NR	STLS3A_N_GPIO
+#else
+#define LOONGSON_GPIO_NR	STLS2F_N_GPIO
+#endif
+
+#define LOONGSON_GPIO_IN_OFFSET	16
 
 static DEFINE_SPINLOCK(gpio_lock);
 
@@ -29,10 +37,10 @@ int gpio_get_value(unsigned gpio)
 	u32 val;
 	u32 mask;
 
-	if (gpio >= STLS2F_N_GPIO)
+	if (gpio >= LOONGSON_GPIO_NR)
 		return __gpio_get_value(gpio);
 
-	mask = 1 << (gpio + STLS2F_GPIO_IN_OFFSET);
+	mask = 1 << (gpio + LOONGSON_GPIO_IN_OFFSET);
 	spin_lock(&gpio_lock);
 	val = LOONGSON_GPIODATA;
 	spin_unlock(&gpio_lock);
@@ -46,7 +54,7 @@ void gpio_set_value(unsigned gpio, int state)
 	u32 val;
 	u32 mask;
 
-	if (gpio >= STLS2F_N_GPIO) {
+	if (gpio >= LOONGSON_GPIO_NR) {
 		__gpio_set_value(gpio, state);
 		return ;
 	}
@@ -66,19 +74,19 @@ EXPORT_SYMBOL(gpio_set_value);
 
 int gpio_cansleep(unsigned gpio)
 {
-	if (gpio < STLS2F_N_GPIO)
+	if (gpio < LOONGSON_GPIO_NR)
 		return 0;
 	else
 		return __gpio_cansleep(gpio);
 }
 EXPORT_SYMBOL(gpio_cansleep);
 
-static int ls2f_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
+static int loongson_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
 {
 	u32 temp;
 	u32 mask;
 
-	if (gpio >= STLS2F_N_GPIO)
+	if (gpio >= LOONGSON_GPIO_NR)
 		return -EINVAL;
 
 	spin_lock(&gpio_lock);
@@ -91,13 +99,13 @@ static int ls2f_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
 	return 0;
 }
 
-static int ls2f_gpio_direction_output(struct gpio_chip *chip,
+static int loongson_gpio_direction_output(struct gpio_chip *chip,
 		unsigned gpio, int level)
 {
 	u32 temp;
 	u32 mask;
 
-	if (gpio >= STLS2F_N_GPIO)
+	if (gpio >= LOONGSON_GPIO_NR)
 		return -EINVAL;
 
 	gpio_set_value(gpio, level);
@@ -111,29 +119,29 @@ static int ls2f_gpio_direction_output(struct gpio_chip *chip,
 	return 0;
 }
 
-static int ls2f_gpio_get_value(struct gpio_chip *chip, unsigned gpio)
+static int loongson_gpio_get_value(struct gpio_chip *chip, unsigned gpio)
 {
 	return gpio_get_value(gpio);
 }
 
-static void ls2f_gpio_set_value(struct gpio_chip *chip,
+static void loongson_gpio_set_value(struct gpio_chip *chip,
 		unsigned gpio, int value)
 {
 	gpio_set_value(gpio, value);
 }
 
-static struct gpio_chip ls2f_chip = {
-	.label                  = "ls2f",
-	.direction_input        = ls2f_gpio_direction_input,
-	.get                    = ls2f_gpio_get_value,
-	.direction_output       = ls2f_gpio_direction_output,
-	.set                    = ls2f_gpio_set_value,
+static struct gpio_chip loongson_chip = {
+	.label                  = "Loongson-gpio-chip",
+	.direction_input        = loongson_gpio_direction_input,
+	.get                    = loongson_gpio_get_value,
+	.direction_output       = loongson_gpio_direction_output,
+	.set                    = loongson_gpio_set_value,
 	.base                   = 0,
-	.ngpio                  = STLS2F_N_GPIO,
+	.ngpio                  = LOONGSON_GPIO_NR,
 };
 
-static int __init ls2f_gpio_setup(void)
+static int __init loongson_gpio_setup(void)
 {
-	return gpiochip_add(&ls2f_chip);
+	return gpiochip_add(&loongson_chip);
 }
-arch_initcall(ls2f_gpio_setup);
+arch_initcall(loongson_gpio_setup);
