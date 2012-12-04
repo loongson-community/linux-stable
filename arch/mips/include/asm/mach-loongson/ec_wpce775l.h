@@ -346,11 +346,17 @@ enum
 	SCI_EVENT_NUM_BATL,			/* 0x32, Battery Low capacity alarm, < 10% */
 	SCI_EVENT_NUM_BATVL,			/* 0x33, Battery VeryLow capacity alarm, < 5% */
 	SCI_EVENT_NUM_THROT,			/* 0x34, CPU Throttling event alarm, CPU Temperature > 85 or < 80. */
-	SCI_EVENT_NUM_POWER = 0x37		/* 0x37, Power button */
+	SCI_EVENT_NUM_POWER = 0x37,		/* 0x37, Power button */
+	SCI_EVENT_RESOLUTION_SETTING,		/* 0x38, Resolution Setting */
+	SCI_EVENT_MEDIA_RUN_PAUSE,		/* 0x39, Media Play or Pause */
+	SCI_EVENT_MEDIA_STOP,			/* 0x3A, Media Stop */
+	SCI_EVENT_MEDIA_LAST,			/* 0x3B, Media Play last one */
+	SCI_EVENT_MEDIA_NEXT,			/* 0x3C, Media Play next one */
+	SCI_EVENT_RECOVERY = 0x3D		/* 0x3D, Recovery Event */
 };
 
 #define SCI_EVENT_NUM_START		SCI_EVENT_NUM_WLAN
-#define SCI_EVENT_NUM_END		SCI_EVENT_NUM_POWER
+#define SCI_EVENT_NUM_END		SCI_EVENT_RECOVERY
 
 extern unsigned char app_access_ec_flag;
 
