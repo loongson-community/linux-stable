@@ -1254,9 +1254,9 @@ pci_fastcom335_setup(struct serial_private *priv,
 #define PCI_DEVICE_ID_INTEL_PATSBURG_KT 0x1d3d
 #define PCI_DEVICE_ID_BROADCOM_TRUMANAGE 0x160a
 #define PCI_DEVICE_ID_INTEL_QRK_UART	0x0936
-#define PCI_DEVICE_ID_COMMTECH_4222PCIE 0x0019
 #define PCI_DEVICE_ID_COMMTECH_4224PCIE	0x0020
 #define PCI_DEVICE_ID_COMMTECH_4228PCIE	0x0021
+#define PCI_DEVICE_ID_COMMTECH_4222PCIE	0x0022
 
 
 /* Unknown vendors/cards - this should not be in linux/pci_ids.h */
