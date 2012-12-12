@@ -17,7 +17,8 @@
 #include <ec_wpce775l.h>
 
 /* This spinlock is dedicated for 62&66 ports and super io port access. */
-DEFINE_SPINLOCK(index_access_lock);
+extern spinlock_t i8042_lock;
+#define index_access_lock i8042_lock
 DEFINE_SPINLOCK(port_access_lock);
 
 static int send_ec_command(unsigned char command)
@@ -82,7 +83,6 @@ void clean_ec_event_status(void)
 {
 	unsigned long flags;
 
-	udelay(EC_REG_DELAY);
 	spin_lock_irqsave(&port_access_lock, flags);
 	outl(0x4000, 0x810);
 	spin_unlock_irqrestore(&port_access_lock, flags);
