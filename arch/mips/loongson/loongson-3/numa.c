@@ -74,7 +74,7 @@ static int __init compute_node_distance(int row, int col)
 	if (col == row)
 		return 0;
 	else
-		return 1;
+		return 100;
 }
 
 static void __init init_topology_matrix(void)
