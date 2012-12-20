@@ -41,28 +41,30 @@ extern int autoplug_verbose;
 #define verbose 1
 #endif
 
-/* write a 64bit value to ipi register */
-void loongson3_ipi_write64(uint64_t action, void * addr)
-{
-	*((uint64_t *)addr) = action;
-};
-
 /* read a 64bit value from ipi register */
 uint64_t loongson3_ipi_read64(void * addr)
 {
-	return *((uint64_t *)addr);
+	return *((volatile uint64_t *)addr);
 };
 
-/* write a 32bit value to ipi register */
-void loongson3_ipi_write32(uint32_t action, void * addr)
+/* write a 64bit value to ipi register */
+void loongson3_ipi_write64(uint64_t action, void * addr)
 {
-	*((uint32_t *)addr) = action;
+	*((volatile uint64_t *)addr) = action;
+	__wbflush();
 };
 
 /* read a 32bit value from ipi register */
 uint32_t loongson3_ipi_read32(void * addr)
 {
-	return *((uint32_t *)addr);
+	return *((volatile uint32_t *)addr);
+};
+
+/* write a 32bit value to ipi register */
+void loongson3_ipi_write32(uint32_t action, void * addr)
+{
+	*((volatile uint32_t *)addr) = action;
+	__wbflush();
 };
 
 static void *ipi_set0_regs[] = {
@@ -173,7 +175,7 @@ static void loongson3_send_ipi_mask(const struct cpumask *mask, unsigned int act
 	unsigned int i;
 
 	for_each_cpu(i, mask)
-		loongson3_send_ipi_single(i, action);
+		loongson3_ipi_write32((u32)action, ipi_set0_regs[i]);
 }
 
 void loongson3_ipi_interrupt(struct pt_regs *regs)
