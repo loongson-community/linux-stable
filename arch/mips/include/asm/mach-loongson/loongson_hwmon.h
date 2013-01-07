@@ -54,6 +54,7 @@ struct loongson_fan_policy {
 	u8	adjust_period;
 
 	/* fan adjust usually depend on a temprature input */
+	u32	depend_data;
 	get_temp_fun	depend_temp;
 
 	/* up_step/down_step used when type is STEP_SPEED_POLICY */

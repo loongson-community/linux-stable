@@ -73,6 +73,7 @@ struct loongson_fan_policy kernel_helper_policy = {
 	.type = KERNEL_HELPER_POLICY,
 	.adjust_period = 1,
 	.depend_temp = loongson3_cpu_temp,
+	.depend_data = 1, /* CPU0 */
 };
 
 /*
@@ -105,6 +106,7 @@ struct loongson_fan_policy step_speed_policy = {
 	.type = STEP_SPEED_POLICY,
 	.adjust_period = 1,
 	.depend_temp = loongson3_cpu_temp,
+	.depend_data = 1, /* CPU0 */
 	.up_step_num = 5,
 	.down_step_num = 5,
 	.up_step = {

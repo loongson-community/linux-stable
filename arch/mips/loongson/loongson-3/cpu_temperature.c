@@ -1,4 +1,5 @@
 #include <linux/types.h>
+#include <loongson_hwmon.h>
 
 #ifdef CONFIG_64BIT
 #define CPU0_TEMPRATURE_SENSOR_REG 0x900000001fe0019c
@@ -18,10 +19,16 @@ int loongson3_cpu_temp(int id)
 	u32 reg;
 	void *addr;
 
-	if (id == 1)
+	switch (id) {
+	case 1:
 		addr = (void *)CPU0_TEMPRATURE_SENSOR_REG;
-	if (id == 6)
+		break;
+	case 6:
 		addr = (void *)CPU1_TEMPRATURE_SENSOR_REG;
+		break;
+	default:
+		return NOT_VALID_TEMP;
+	}
 
 	reg = *(volatile u32 *)addr;
 	reg = (reg >> 8) & 0xff;

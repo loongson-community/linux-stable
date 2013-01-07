@@ -214,7 +214,7 @@ static void fan1_adjust(struct work_struct *work)
 	struct loongson_fan_policy *policy;
 
 	policy = sbx00_fan1_ops.fan_policy;
-	current_temp =  policy->depend_temp(0) / 1000;
+	current_temp =  policy->depend_temp(policy->depend_data) / 1000;
 
 	if ((current_temp >= fan1_down_temp) &&
 		(current_temp <= fan1_up_temp))
