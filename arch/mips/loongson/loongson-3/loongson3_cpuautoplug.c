@@ -390,7 +390,7 @@ static int __init cpuautoplug_init(void)
 
 	pr_info("cpuautoplug: Loongson-3A CPU autoplug driver.\n");
 
-	ap_info.maxcpus = setup_max_cpus;
+	ap_info.maxcpus = setup_max_cpus > nr_cpu_ids ? nr_cpu_ids : setup_max_cpus;
 	ap_info.mincpus = 1;
 	ap_info.dec_reqs = 0;
 	ap_info.sampling_rate = 720;  /* 720 ms */
