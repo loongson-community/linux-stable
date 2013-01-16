@@ -8,7 +8,7 @@
 #include <asm/hpet.h>
 #include <asm/time.h>
 
-#define SMBUS_CFG_BASE		0x90000efdfe00a000
+#define SMBUS_CFG_BASE		(ht_control_base + 0x0300a000)
 #define SMBUS_PCI_REGB4		0xb4
 #define SMBUS_PCI_REG40		0x40
 #define SMBUS_PCI_REG64		0x64

@@ -256,6 +256,9 @@ static inline void do_perfcnt_IRQ(void)
   #define LOONGSON_CHIPCFG0		(*(volatile u32 *)(TO_UNCAC(LOONGSON_REG_BASE) + 0x180))
 #endif
 
+/* Freq Control register for Loongson-3B and successor */
+#define LOONGSON_FREQCTRL		(*(volatile u32 *)(TO_UNCAC(LOONGSON_REG_BASE) + 0x1d0))
+
 /* pcimap */
 
 #define LOONGSON_PCIMAP_PCIMAP_LO0	0x0000003f
