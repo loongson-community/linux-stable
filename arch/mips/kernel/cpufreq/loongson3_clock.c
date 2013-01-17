@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2006 - 2008 Lemote Inc. & Insititute of Computing Technology
+ * Copyright (C) 2006 - 2013 Lemote Inc. & Insititute of Computing Technology
  * Author: Yanhua, yanh@lemote.com
+ *         Chen Huacai, chenhc@lemote.com
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -8,6 +9,8 @@
  */
 
 #include <linux/module.h>
+#include <linux/err.h>
+#include <linux/slab.h>
 #include <linux/cpufreq.h>
 #include <linux/platform_device.h>
 
@@ -25,7 +28,7 @@ enum {
 	DC_87PT, DC_DISABLE, DC_RESV
 };
 
-struct cpufreq_frequency_table loongson2_clockmod_table[] = {
+struct cpufreq_frequency_table loongson3_clockmod_table[] = {
 	{DC_RESV, CPUFREQ_ENTRY_INVALID},
 	{DC_ZERO, CPUFREQ_ENTRY_INVALID},
 	{DC_25PT, 0},
@@ -37,17 +40,27 @@ struct cpufreq_frequency_table loongson2_clockmod_table[] = {
 	{DC_DISABLE, 0},
 	{DC_RESV, CPUFREQ_TABLE_END},
 };
-EXPORT_SYMBOL_GPL(loongson2_clockmod_table);
+EXPORT_SYMBOL_GPL(loongson3_clockmod_table);
 
-static struct clk cpu_clk = {
-	.name = "cpu_clk",
-	.flags = CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES,
-	.rate = 800000000,
-};
+static struct clk cpu_clks[NR_CPUS];
+static char clk_names[NR_CPUS][10];
+
+struct clk *cpu_clk_get(int cpu)
+{
+	return &cpu_clks[cpu];
+}
 
 struct clk *clk_get(struct device *dev, const char *id)
 {
-	return &cpu_clk;
+	int i;
+	struct clk *clk;
+
+	for_each_possible_cpu(i) {
+		clk = &cpu_clks[i];
+		if (strcmp(clk->name, id) == 0)
+			return clk;
+	}
+	return ERR_PTR(-ENXIO);
 }
 EXPORT_SYMBOL(clk_get);
 
@@ -110,22 +123,31 @@ int clk_set_rate_ex(struct clk *clk, unsigned long rate, int algo_id)
 	if (unlikely(clk->flags & CLK_RATE_PROPAGATES))
 		propagate_rate(clk);
 
-	for (i = 0; loongson2_clockmod_table[i].frequency != CPUFREQ_TABLE_END;
+	for (i = 0; loongson3_clockmod_table[i].frequency != CPUFREQ_TABLE_END;
 	     i++) {
-		if (loongson2_clockmod_table[i].frequency ==
+		if (loongson3_clockmod_table[i].frequency ==
 		    CPUFREQ_ENTRY_INVALID)
 			continue;
-		if (rate == loongson2_clockmod_table[i].frequency)
+		if (rate == loongson3_clockmod_table[i].frequency)
 			break;
 	}
-	if (rate != loongson2_clockmod_table[i].frequency)
+	if (rate != loongson3_clockmod_table[i].frequency)
 		return -ENOTSUPP;
 
 	clk->rate = rate;
 
-	regval = LOONGSON_CHIPCFG0;
-	regval = (regval & ~0x7) | (loongson2_clockmod_table[i].index - 1);
-	LOONGSON_CHIPCFG0 = regval;
+	if (cputype == Loongson_3A) {
+		regval = LOONGSON_CHIPCFG0;
+		regval = (regval & ~0x7) | (loongson3_clockmod_table[i].index - 1);
+		LOONGSON_CHIPCFG0 = regval;
+	}
+	else if (cputype == Loongson_3B) {
+		int cpu = clk - cpu_clks;
+		regval = LOONGSON_FREQCTRL;
+		regval = (regval & ~(0x7 << (cpu*4))) |
+			((loongson3_clockmod_table[i].index - 1) << (cpu*4));
+		LOONGSON_FREQCTRL = regval;
+	}
 
 	return ret;
 }
@@ -147,25 +169,27 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL_GPL(clk_round_rate);
 
-/*
- * This is the simple version of Loongson-2 wait, Maybe we need do this in
- * interrupt disabled content
- */
-
-DEFINE_SPINLOCK(loongson2_wait_lock);
-void loongson2_cpu_wait(void)
+static int loongson3_clock_init(void)
 {
-	u32 cpu_freq;
-	unsigned long flags;
+	int i;
 
-	spin_lock_irqsave(&loongson2_wait_lock, flags);
-	cpu_freq = LOONGSON_CHIPCFG0;
-	LOONGSON_CHIPCFG0 &= ~0x7;	/* Put CPU into wait mode */
-	LOONGSON_CHIPCFG0 = cpu_freq;	/* Restore CPU state */
-	spin_unlock_irqrestore(&loongson2_wait_lock, flags);
+	for_each_possible_cpu(i) {
+		sprintf(clk_names[i], "cpu%d_clk", i);
+		cpu_clks[i].name = clk_names[i];
+		cpu_clks[i].flags = CLK_ALWAYS_ENABLED | CLK_RATE_PROPAGATES;
+		cpu_clks[i].rate = cpu_clock_freq / 1000;
+	}
+
+	/* clock table init */
+	for (i = 2;
+	     (loongson3_clockmod_table[i].frequency != CPUFREQ_TABLE_END);
+	     i++)
+		loongson3_clockmod_table[i].frequency = ((cpu_clock_freq / 1000) * i) / 8;
+
+	return 0;
 }
-EXPORT_SYMBOL_GPL(loongson2_cpu_wait);
+arch_initcall(loongson3_clock_init);
 
-MODULE_AUTHOR("Yanhua <yanh@lemote.com>");
-MODULE_DESCRIPTION("cpufreq driver for Loongson 2F");
+MODULE_AUTHOR("Huacai Chen <chenhc@lemote.com>");
+MODULE_DESCRIPTION("CPUFreq driver for Loongson 3A/3B");
 MODULE_LICENSE("GPL");

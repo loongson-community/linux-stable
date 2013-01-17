@@ -32,7 +32,8 @@
 
 DEFINE_PER_CPU(int, cpu_state);
 DEFINE_PER_CPU(uint32_t, core0_c0count);
-extern int cpufreq_enabled;
+extern void maybe_enable_cpufreq(void);
+extern void maybe_disable_cpufreq(void);
 
 static void *ipi_set0_regs[16];
 static void *ipi_clear0_regs[16];
@@ -290,31 +291,6 @@ void __init loongson3_prepare_cpus(unsigned int max_cpus)
 {
 	init_cpu_present(cpu_possible_mask);
 	per_cpu(cpu_state, smp_processor_id()) = CPU_ONLINE;
-}
-
-void maybe_enable_cpufreq(void)
-{
-	if ((num_online_cpus() == 1) && (system_state != SYSTEM_BOOTING))
-		cpufreq_enabled = 1;
-}
-
-void maybe_disable_cpufreq(void)
-{
-	if ((num_online_cpus() == 1) && (system_state != SYSTEM_BOOTING)) {
-		struct cpufreq_freqs freqs;
-		struct clk *cpuclk = clk_get(NULL, "cpu_clk");
-
-		freqs.cpu   = 0;
-		freqs.old   = cpuclk->rate;
-		freqs.new   = cpu_clock_freq / 1000;
-		freqs.flags = 0;
-
-		cpufreq_enabled = 0;
-		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
-		cpuclk->rate = cpu_clock_freq / 1000;
-		LOONGSON_CHIPCFG0 |= 0x7;	/* Set to highest frequency */
-		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
-	}
 }
 
 /*
