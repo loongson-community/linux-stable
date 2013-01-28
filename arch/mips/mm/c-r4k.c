@@ -1515,4 +1515,19 @@ void __cpuinit r4k_cache_init(void)
 	local_r4k___flush_cache_all(NULL);
 
 	coherency_setup();
+
+	if (current_cpu_type() == CPU_LOONGSON3) {
+		/* Loongson-3 maintains cache coherency by hardware */
+		__flush_cache_all	= cache_noop;
+		__flush_cache_vmap	= cache_noop;
+		__flush_cache_vunmap	= cache_noop;
+		__flush_kernel_vmap_range = (void *)cache_noop;
+		flush_cache_mm		= (void *)cache_noop;
+		flush_cache_page	= (void *)cache_noop;
+		flush_cache_range	= (void *)cache_noop;
+		flush_cache_sigtramp	= (void *)cache_noop;
+		flush_icache_all	= (void *)cache_noop;
+		flush_data_cache_page	= (void *)cache_noop;
+		local_flush_data_cache_page	= (void *)cache_noop;
+	}
 }
