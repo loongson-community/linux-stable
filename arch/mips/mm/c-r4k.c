@@ -61,13 +61,6 @@ static inline void r4k_on_each_cpu(void (*func) (void *info), void *info)
 #define cpu_has_safe_index_cacheops 1
 #endif
 
-/* Loongson-3 maintain cache coherency by hardware */
-#if defined(CONFIG_CPU_LOONGSON3)
-#define cpu_has_coherent_cache 1
-#else
-#define cpu_has_coherent_cache 0
-#endif
-
 /*
  * Must die.
  */
@@ -349,14 +342,10 @@ static void __cpuinit r4k_blast_scache_setup(void)
 
 static inline void local_r4k___flush_cache_all(void * args)
 {
-#if defined(CONFIG_CPU_LOONGSON2)
+#if defined(CONFIG_CPU_LOONGSON2) || defined(CONFIG_CPU_LOONGSON3)
 	r4k_blast_scache();
 	return;
 #endif
-
-	if (cpu_has_coherent_cache)
-		return;
-
 	r4k_blast_dcache();
 	r4k_blast_icache();
 
@@ -394,17 +383,11 @@ static inline int has_valid_asid(const struct mm_struct *mm)
 
 static void r4k__flush_cache_vmap(void)
 {
-	if (cpu_has_coherent_cache)
-		return;
-
 	r4k_blast_dcache();
 }
 
 static void r4k__flush_cache_vunmap(void)
 {
-	if (cpu_has_coherent_cache)
-		return;
-
 	r4k_blast_dcache();
 }
 
@@ -424,12 +407,8 @@ static inline void local_r4k_flush_cache_range(void * args)
 static void r4k_flush_cache_range(struct vm_area_struct *vma,
 	unsigned long start, unsigned long end)
 {
-	int exec __maybe_unused;
+	int exec = vma->vm_flags & VM_EXEC;
 
-	if (cpu_has_coherent_cache)
-		return;
-
-	exec = vma->vm_flags & VM_EXEC;
 	if (cpu_has_dc_aliases || (exec && !cpu_has_ic_fills_f_dc))
 		r4k_on_each_cpu(local_r4k_flush_cache_range, vma);
 }
@@ -549,10 +528,7 @@ static inline void local_r4k_flush_cache_page(void *args)
 static void r4k_flush_cache_page(struct vm_area_struct *vma,
 	unsigned long addr, unsigned long pfn)
 {
-	struct flush_cache_page_args args __maybe_unused;
-
-	if (cpu_has_coherent_cache)
-		return;
+	struct flush_cache_page_args args;
 
 	args.vma = vma;
 	args.addr = addr;
@@ -568,9 +544,6 @@ static inline void local_r4k_flush_data_cache_page(void * addr)
 
 static void r4k_flush_data_cache_page(unsigned long addr)
 {
-	if (cpu_has_coherent_cache)
-		return;
-
 	if (in_atomic())
 		local_r4k_flush_data_cache_page((void *)addr);
 	else
@@ -735,9 +708,6 @@ static void local_r4k_flush_cache_sigtramp(void * arg)
 
 static void r4k_flush_cache_sigtramp(unsigned long addr)
 {
-	if (cpu_has_coherent_cache)
-		return;
-
 	r4k_on_each_cpu(local_r4k_flush_cache_sigtramp, (void *) addr);
 }
 
@@ -1561,4 +1531,19 @@ void __cpuinit r4k_cache_init(void)
 #endif
 	coherency_setup();
 	board_cache_error_setup = r4k_cache_error_setup;
+
+	if (current_cpu_type() == CPU_LOONGSON3) {
+		/* Loongson-3 maintains cache coherency by hardware */
+		__flush_cache_all	= cache_noop;
+		__flush_cache_vmap	= cache_noop;
+		__flush_cache_vunmap	= cache_noop;
+		__flush_kernel_vmap_range = (void *)cache_noop;
+		flush_cache_mm		= (void *)cache_noop;
+		flush_cache_page	= (void *)cache_noop;
+		flush_cache_range	= (void *)cache_noop;
+		flush_cache_sigtramp	= (void *)cache_noop;
+		flush_icache_all	= (void *)cache_noop;
+		flush_data_cache_page	= (void *)cache_noop;
+		local_flush_data_cache_page	= (void *)cache_noop;
+	}
 }
