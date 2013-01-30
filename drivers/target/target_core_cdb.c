@@ -416,16 +416,31 @@ check_scsi_name:
 	return 0;
 }
 
+static bool
+target_check_dev_wce(struct se_device *dev)
+{
+	bool wce = false;
+
+	if (dev->transport->get_write_cache)
+		wce = dev->transport->get_write_cache(dev);
+	else if (dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0)
+		wce = true;
+
+	return wce;
+}
+
 /* Extended INQUIRY Data VPD Page */
 static int
 target_emulate_evpd_86(struct se_cmd *cmd, unsigned char *buf)
 {
+	struct se_device *dev = cmd->se_dev;
+
 	buf[3] = 0x3c;
 	/* Set HEADSUP, ORDSUP, SIMPSUP */
 	buf[5] = 0x07;
 
 	/* If WriteCache emulation is enabled, set V_SUP */
-	if (cmd->se_dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0)
+	if (target_check_dev_wce(dev))
 		buf[6] = 0x01;
 	return 0;
 }
@@ -840,7 +855,7 @@ target_modesense_caching(struct se_device *dev, unsigned char *p)
 {
 	p[0] = 0x08;
 	p[1] = 0x12;
-	if (dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0)
+	if (target_check_dev_wce(dev))
 		p[2] = 0x04; /* Write Cache Enable */
 	p[12] = 0x20; /* Disabled Read Ahead */
 
@@ -922,7 +937,7 @@ int target_emulate_modesense(struct se_task *task)
 		    (cmd->se_deve->lun_flags & TRANSPORT_LUNFLAGS_READ_ONLY)))
 			target_modesense_write_protect(&buf[3], type);
 
-		if ((dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0) &&
+		if ((target_check_dev_wce(dev)) &&
 		    (dev->se_sub_dev->se_dev_attrib.emulate_fua_write > 0))
 			target_modesense_dpofua(&buf[3], type);
 
@@ -938,7 +953,7 @@ int target_emulate_modesense(struct se_task *task)
 		    (cmd->se_deve->lun_flags & TRANSPORT_LUNFLAGS_READ_ONLY)))
 			target_modesense_write_protect(&buf[2], type);
 
-		if ((dev->se_sub_dev->se_dev_attrib.emulate_write_cache > 0) &&
+		if ((target_check_dev_wce(dev)) &&
 		    (dev->se_sub_dev->se_dev_attrib.emulate_fua_write > 0))
 			target_modesense_dpofua(&buf[2], type);
 
