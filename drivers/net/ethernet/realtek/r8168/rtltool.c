@@ -341,8 +341,6 @@ int rtltool_ioctl(struct rtl8168_private *tp, struct ifreq *ifr)
 		}
 		break;
 
-		break;
-
 	case RTL_WRITE_OOB_MAC:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
@@ -358,9 +356,6 @@ int rtltool_ioctl(struct rtl8168_private *tp, struct ifreq *ifr)
 			ret = -EOPNOTSUPP;
 		}
 		OOB_mutex_unlock(tp);
-
-		break;
-
 		break;
 
 	default:
