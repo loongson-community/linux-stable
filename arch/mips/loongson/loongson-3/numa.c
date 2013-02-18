@@ -139,6 +139,8 @@ static void __init szmem(unsigned int node)
 					(u32)node_id, mem_type, emap->map[i].mem_start, mem_size);
 				printk("       start_pfn:0x%llx, end_pfn:0x%llx, num_physpages:0x%lx\n",
 					start_pfn, end_pfn, num_physpages);
+				add_memory_region((node_id << 44) + emap->map[i].mem_start,
+					(u64)emap->map[i].mem_size << 20, BOOT_MEM_RAM);
 				memblock_add_node(PFN_PHYS(start_pfn), PFN_PHYS(end_pfn - start_pfn), node);
 				break;
 			case SYSTEM_RAM_HIGH:
@@ -150,11 +152,15 @@ static void __init szmem(unsigned int node)
 					(u32)node_id, mem_type, emap->map[i].mem_start, mem_size);
 				printk("       start_pfn:0x%llx, end_pfn:0x%llx, num_physpages:0x%lx\n",
 					start_pfn, end_pfn, num_physpages);
+				add_memory_region((node_id << 44) + emap->map[i].mem_start,
+					(u64)emap->map[i].mem_size << 20, BOOT_MEM_RAM);
 				memblock_add_node(PFN_PHYS(start_pfn), PFN_PHYS(end_pfn - start_pfn), node);
 				break;
 			case MEM_RESERVED:
 				printk("Debug: node_id:%d, mem_type:%d, mem_start:0x%llx, mem_size:0x%llx MB\n",
 					(u32)node_id, mem_type, emap->map[i].mem_start, mem_size);
+				add_memory_region((node_id << 44) + emap->map[i].mem_start,
+					(u64)emap->map[i].mem_size << 20, BOOT_MEM_RESERVED);
 				memblock_reserve(((node_id << 44) | emap->map[i].mem_start), mem_size << 20);
 				break;
 			case SMBIOS_TABLE:
@@ -201,7 +207,7 @@ static void __init node_mem_init(unsigned int node)
 		BOOTMEM_DEFAULT);
 
         /* Just for compatibility previous Loongson-3A kernel */
-	if (node == 0) {
+	if (node == 0 && node_end_pfn(0) >= (0xffffffff >> PAGE_SHIFT)) {
 		/* Reserve the memory 0xff800000~0xffffffff for RS780E integrated GPU */
 		reserve_bootmem_node(NODE_DATA(node), \
 				(node_addrspace_offset | 0xff800000), 8 << 20, BOOTMEM_DEFAULT);
