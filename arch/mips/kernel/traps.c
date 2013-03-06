@@ -1613,6 +1613,8 @@ void __cpuinit per_cpu_trap_init(bool is_boot_cpu)
 	}
 #endif /* CONFIG_MIPS_MT_SMTC */
 
+	cpu_data[cpu].asid_cache =
+		(cpu_data[cpu].asid_cache & ASID_VERSION_MASK) + ASID_FIRST_VERSION;
 	if (!cpu_data[cpu].asid_cache)
 		cpu_data[cpu].asid_cache = ASID_FIRST_VERSION;
 
