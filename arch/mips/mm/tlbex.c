@@ -1411,17 +1411,17 @@ u32 handle_tlbl[FASTPATH_SIZE] __cacheline_aligned;
 u32 handle_tlbs[FASTPATH_SIZE] __cacheline_aligned;
 u32 handle_tlbm[FASTPATH_SIZE] __cacheline_aligned;
 #ifdef CONFIG_MIPS_PGD_C0_CONTEXT
-u32 tlbmiss_handler_setup_pgd[16] __cacheline_aligned;
+u32 tlbmiss_handler_setup_pgd_array[16] __cacheline_aligned;
 
 static void __cpuinit build_r4000_setup_pgd(void)
 {
 	const int a0 = 4;
 	const int a1 = 5;
-	u32 *p = tlbmiss_handler_setup_pgd;
+	u32 *p = tlbmiss_handler_setup_pgd_array;
 	struct uasm_label *l = labels;
 	struct uasm_reloc *r = relocs;
 
-	memset(tlbmiss_handler_setup_pgd, 0, sizeof(tlbmiss_handler_setup_pgd));
+	memset(tlbmiss_handler_setup_pgd_array, 0, sizeof(tlbmiss_handler_setup_pgd_array));
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
 
@@ -1449,14 +1449,14 @@ static void __cpuinit build_r4000_setup_pgd(void)
 		uasm_i_jr(&p, 31);
 		UASM_i_MTC0(&p, a0, 31, pgd_reg);
 	}
-	if (p - tlbmiss_handler_setup_pgd > ARRAY_SIZE(tlbmiss_handler_setup_pgd))
-		panic("tlbmiss_handler_setup_pgd space exceeded");
+	if (p - tlbmiss_handler_setup_pgd_array > ARRAY_SIZE(tlbmiss_handler_setup_pgd_array))
+		panic("tlbmiss_handler_setup_pgd_array space exceeded");
 	uasm_resolve_relocs(relocs, labels);
-	pr_debug("Wrote tlbmiss_handler_setup_pgd (%u instructions).\n",
-		 (unsigned int)(p - tlbmiss_handler_setup_pgd));
+	pr_debug("Wrote tlbmiss_handler_setup_pgd_array (%u instructions).\n",
+		 (unsigned int)(p - tlbmiss_handler_setup_pgd_array));
 
-	dump_handler(tlbmiss_handler_setup_pgd,
-		     ARRAY_SIZE(tlbmiss_handler_setup_pgd));
+	dump_handler(tlbmiss_handler_setup_pgd_array,
+		     ARRAY_SIZE(tlbmiss_handler_setup_pgd_array));
 }
 #endif
 
@@ -2163,7 +2163,7 @@ void __cpuinit flush_tlb_handlers(void)
 	local_flush_icache_range((unsigned long)handle_tlbm,
 			   (unsigned long)handle_tlbm + sizeof(handle_tlbm));
 #ifdef CONFIG_MIPS_PGD_C0_CONTEXT
-	local_flush_icache_range((unsigned long)tlbmiss_handler_setup_pgd,
-			   (unsigned long)tlbmiss_handler_setup_pgd + sizeof(handle_tlbm));
+	local_flush_icache_range((unsigned long)tlbmiss_handler_setup_pgd_array,
+			   (unsigned long)tlbmiss_handler_setup_pgd_array + sizeof(handle_tlbm));
 #endif
 }
