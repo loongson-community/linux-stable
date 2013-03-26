@@ -108,6 +108,10 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(irq_rx_path_in_lpi_mode_n),
 	STMMAC_STAT(irq_rx_path_exit_lpi_mode_n),
 	STMMAC_STAT(phy_eee_wakeup_error_n),
+	/* PCS */
+	STMMAC_STAT(irq_pcs_ane_n),
+	STMMAC_STAT(irq_pcs_link_n),
+	STMMAC_STAT(irq_rgmii_n),
 };
 #define STMMAC_STATS_LEN ARRAY_SIZE(stmmac_gstrings_stats)
 
