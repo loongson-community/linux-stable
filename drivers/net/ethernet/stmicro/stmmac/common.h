@@ -95,6 +95,10 @@ struct stmmac_extra_stats {
 	unsigned long poll_n;
 	unsigned long sched_timer_n;
 	unsigned long normal_irq_n;
+	/* PCS */
+	unsigned long irq_pcs_ane_n;
+	unsigned long irq_pcs_link_n;
+	unsigned long irq_rgmii_n;
 };
 
 /* CSR Frequency Access Defines*/

@@ -93,6 +93,10 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(poll_n),
 	STMMAC_STAT(sched_timer_n),
 	STMMAC_STAT(normal_irq_n),
+	/* PCS */
+	STMMAC_STAT(irq_pcs_ane_n),
+	STMMAC_STAT(irq_pcs_link_n),
+	STMMAC_STAT(irq_rgmii_n),
 };
 #define STMMAC_STATS_LEN ARRAY_SIZE(stmmac_gstrings_stats)
 

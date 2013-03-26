@@ -214,6 +214,14 @@ static void dwmac1000_irq_status(void __iomem *ioaddr)
 		 * status register. */
 		readl(ioaddr + GMAC_PMT);
 	}
+	if ((intr_status & pcs_ane_irq) || (intr_status & pcs_link_irq)) {
+		CHIP_DBG(KERN_DEBUG "GMAC PCS ANE IRQ\n");
+		readl(ioaddr + GMAC_AN_STATUS);
+	}
+	if (intr_status & rgmii_irq) {
+		CHIP_DBG(KERN_DEBUG "GMAC RGMII IRQ status\n");
+		readl(ioaddr + GMAC_S_R_GMII);
+	}
 }
 
 static const struct stmmac_ops dwmac1000_ops = {
