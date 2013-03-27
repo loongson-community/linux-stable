@@ -2526,9 +2526,11 @@ static int usb_disable_function_remotewakeup(struct usb_device *udev)
  * Linux (2.6) currently has NO mechanisms to initiate that:  no khubd
  * timer, no SRP, no requests through sysfs.
  *
- * If CONFIG_USB_SUSPEND isn't enabled, devices only really suspend when
- * the root hub for their bus goes into global suspend ... so we don't
- * (falsely) update the device power state to say it suspended.
+ * If CONFIG_USB_SUSPEND isn't enabled, non-SuperSpeed devices really get
+ * suspended only when their bus goes into global suspend (i.e., the root
+ * hub is suspended).  Nevertheless, we change @udev->state to
+ * USB_STATE_SUSPENDED as this is the device's "logical" state.  The actual
+ * upstream port setting is stored in @udev->port_is_suspended.
  *
  * Returns 0 on success, else negative errno.
  */
@@ -2537,6 +2539,7 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 	struct usb_hub	*hub = hdev_to_hub(udev->parent);
 	int		port1 = udev->portnum;
 	int		status;
+	bool		really_suspend = true;
 
 	/* enable remote wakeup when appropriate; this lets the device
 	 * wake up the upstream hub (including maybe the root hub).
@@ -2584,9 +2587,19 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 		status = set_port_feature(hub->hdev,
 				port1 | (USB_SS_PORT_LS_U3 << 3),
 				USB_PORT_FEAT_LINK_STATE);
-	else
+	else if (PMSG_IS_AUTO(msg))
 		status = set_port_feature(hub->hdev, port1,
 						USB_PORT_FEAT_SUSPEND);
+	/*
+	 * For system suspend, we do not need to enable the suspend feature
+	 * on individual USB-2 ports.  The devices will automatically go
+	 * into suspend a few ms after the root hub stops sending packets.
+	 * The USB 2.0 spec calls this "global suspend".
+	 */
+	else {
+		really_suspend = false;
+		status = 0;
+	}
 	if (status) {
 		dev_dbg(hub->intfdev, "can't suspend port %d, status %d\n",
 				port1, status);
@@ -2618,7 +2631,8 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 				(PMSG_IS_AUTO(msg) ? "auto-" : ""),
 				udev->do_remote_wakeup);
 		usb_set_device_state(udev, USB_STATE_SUSPENDED);
-		msleep(10);
+		if (really_suspend)
+			msleep(10);
 	}
 	usb_mark_last_busy(hub->hdev);
 	return status;
