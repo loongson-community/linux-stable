@@ -1,7 +1,7 @@
 VERSION = 3
 PATCHLEVEL = 5
 SUBLEVEL = 0
-EXTRAVERSION = -7.lemote
+EXTRAVERSION = -8.lemote
 NAME = Saber-toothed Squirrel
 
 # *DOCUMENTATION*
