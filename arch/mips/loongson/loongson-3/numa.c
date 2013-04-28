@@ -165,8 +165,10 @@ static void __init szmem(unsigned int node)
 				break;
 			case SMBIOS_TABLE:
 				has_systab = 1;
-				systab_addr = emap->map[i].mem_start &
-					0x000000000ffffffful;
+				systab_addr = emap->map[i].mem_start;
+				add_memory_region((node_id << 44) + emap->map[i].mem_start,
+					0x2000, BOOT_MEM_RESERVED);
+				memblock_reserve(((node_id << 44) | emap->map[i].mem_start), 0x2000);
 				break;
 			}
 		}
