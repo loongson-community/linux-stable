@@ -93,7 +93,7 @@ static int iwl_nvm_read_chunk(struct iwl_mvm *mvm, u16 section,
 	struct iwl_rx_packet *pkt;
 	struct iwl_host_cmd cmd = {
 		.id = NVM_ACCESS_CMD,
-		.flags = CMD_SYNC | CMD_WANT_SKB,
+		.flags = CMD_SYNC | CMD_WANT_SKB | CMD_SEND_IN_RFKILL,
 		.data = { &nvm_access_cmd, },
 	};
 	int ret, bytes_read, offset_read;
