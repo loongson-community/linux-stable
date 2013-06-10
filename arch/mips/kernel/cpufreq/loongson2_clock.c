@@ -123,9 +123,9 @@ int clk_set_rate_ex(struct clk *clk, unsigned long rate, int algo_id)
 
 	clk->rate = rate;
 
-	regval = LOONGSON_CHIPCFG0;
+	regval = LOONGSON_CHIPCFG(0);
 	regval = (regval & ~0x7) | (loongson2_clockmod_table[i].index - 1);
-	LOONGSON_CHIPCFG0 = regval;
+	LOONGSON_CHIPCFG(0) = regval;
 
 	return ret;
 }
@@ -159,9 +159,9 @@ void loongson2_cpu_wait(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&loongson2_wait_lock, flags);
-	cpu_freq = LOONGSON_CHIPCFG0;
-	LOONGSON_CHIPCFG0 &= ~0x7;	/* Put CPU into wait mode */
-	LOONGSON_CHIPCFG0 = cpu_freq;	/* Restore CPU state */
+	cpu_freq = LOONGSON_CHIPCFG(0);
+	LOONGSON_CHIPCFG(0) &= ~0x7;	/* Put CPU into wait mode */
+	LOONGSON_CHIPCFG(0) = cpu_freq;	/* Restore CPU state */
 	spin_unlock_irqrestore(&loongson2_wait_lock, flags);
 }
 EXPORT_SYMBOL_GPL(loongson2_cpu_wait);

@@ -246,18 +246,15 @@ static inline void do_perfcnt_IRQ(void)
 #define LOONGSON_PXARB_CFG		LOONGSON_REG(LOONGSON_REGBASE + 0x68)
 #define LOONGSON_PXARB_STATUS		LOONGSON_REG(LOONGSON_REGBASE + 0x6c)
 
-/* Chip Config of each NUMA node */
-#ifdef CONFIG_NUMA
-  #define LOONGSON_CHIPCFG0		(*(volatile u32 *)((TO_UNCAC(LOONGSON_REG_BASE) + 0x180) | NODE0_ADDRSPACE_OFFSET))
-  #define LOONGSON_CHIPCFG1		(*(volatile u32 *)((TO_UNCAC(LOONGSON_REG_BASE) + 0x180) | NODE1_ADDRSPACE_OFFSET))
-  #define LOONGSON_CHIPCFG2		(*(volatile u32 *)((TO_UNCAC(LOONGSON_REG_BASE) + 0x180) | NODE2_ADDRSPACE_OFFSET))
-  #define LOONGSON_CHIPCFG3		(*(volatile u32 *)((TO_UNCAC(LOONGSON_REG_BASE) + 0x180) | NODE3_ADDRSPACE_OFFSET))
-#else
-  #define LOONGSON_CHIPCFG0		(*(volatile u32 *)(TO_UNCAC(LOONGSON_REG_BASE) + 0x180))
-#endif
+#define MAX_PACKAGES 4
 
-/* Freq Control register for Loongson-3B and successor */
-#define LOONGSON_FREQCTRL		(*(volatile u32 *)(TO_UNCAC(LOONGSON_REG_BASE) + 0x1d0))
+/* Chip Config registor of each physical cpu package, for Loongson-2F and successor */
+extern u64 loongson_chipcfg[MAX_PACKAGES];
+#define LOONGSON_CHIPCFG(id) (*(volatile u32 *)(loongson_chipcfg[id]))
+
+/* Freq Control register of each physical cpu package, for Loongson-3B and successor */
+extern u64 loongson_freqctrl[MAX_PACKAGES];
+#define LOONGSON_FREQCTRL(id) (*(volatile u32 *)(loongson_freqctrl[id]))
 
 /* pcimap */
 
