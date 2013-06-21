@@ -2127,6 +2127,20 @@ static void __cpuinit build_r4000_tlb_modify_handler(void)
 	dump_handler(handle_tlbm, ARRAY_SIZE(handle_tlbm));
 }
 
+static void __cpuinit flush_tlb_handlers(void)
+{
+	local_flush_icache_range((unsigned long)handle_tlbl,
+			   (unsigned long)handle_tlbl + sizeof(handle_tlbl));
+	local_flush_icache_range((unsigned long)handle_tlbs,
+			   (unsigned long)handle_tlbs + sizeof(handle_tlbs));
+	local_flush_icache_range((unsigned long)handle_tlbm,
+			   (unsigned long)handle_tlbm + sizeof(handle_tlbm));
+#ifdef CONFIG_MIPS_PGD_C0_CONTEXT
+	local_flush_icache_range((unsigned long)tlbmiss_handler_setup_pgd_array,
+			   (unsigned long)tlbmiss_handler_setup_pgd_array + sizeof(handle_tlbm));
+#endif
+}
+
 void __cpuinit build_tlb_refill_handler(void)
 {
 	/*
@@ -2157,6 +2171,7 @@ void __cpuinit build_tlb_refill_handler(void)
 			build_r3000_tlb_load_handler();
 			build_r3000_tlb_store_handler();
 			build_r3000_tlb_modify_handler();
+			flush_tlb_handlers();
 			run_once++;
 		}
 #else
@@ -2184,23 +2199,10 @@ void __cpuinit build_tlb_refill_handler(void)
 			build_r4000_tlb_modify_handler();
 			if (!cpu_has_local_ebase)
 				build_r4000_tlb_refill_handler();
+			flush_tlb_handlers();
 			run_once++;
 		}
 		if (cpu_has_local_ebase)
 			build_r4000_tlb_refill_handler();
 	}
-}
-
-void __cpuinit flush_tlb_handlers(void)
-{
-	local_flush_icache_range((unsigned long)handle_tlbl,
-			   (unsigned long)handle_tlbl + sizeof(handle_tlbl));
-	local_flush_icache_range((unsigned long)handle_tlbs,
-			   (unsigned long)handle_tlbs + sizeof(handle_tlbs));
-	local_flush_icache_range((unsigned long)handle_tlbm,
-			   (unsigned long)handle_tlbm + sizeof(handle_tlbm));
-#ifdef CONFIG_MIPS_PGD_C0_CONTEXT
-	local_flush_icache_range((unsigned long)tlbmiss_handler_setup_pgd_array,
-			   (unsigned long)tlbmiss_handler_setup_pgd_array + sizeof(handle_tlbm));
-#endif
 }
