@@ -201,9 +201,6 @@ int dump_task_fpu(struct task_struct *t, elf_fpregset_t *fpr)
 	return 1;
 }
 
-/*
- *
- */
 struct mips_frame_info {
 	void		*func;
 	unsigned long	func_size;
