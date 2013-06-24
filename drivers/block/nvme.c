@@ -1297,8 +1297,7 @@ static int nvme_kthread(void *data)
 				if (!nvmeq)
 					continue;
 				spin_lock_irq(&nvmeq->q_lock);
-				if (nvme_process_cq(nvmeq))
-					printk("process_cq did something\n");
+				nvme_process_cq(nvmeq);
 				nvme_timeout_ios(nvmeq);
 				nvme_resubmit_bios(nvmeq);
 				spin_unlock_irq(&nvmeq->q_lock);
