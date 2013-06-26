@@ -83,6 +83,7 @@ config LEMOTE_MACH3A
 	select SYS_SUPPORTS_LITTLE_ENDIAN
 	select LOONGSON_MC146818
 	select UEFI_FIRMWARE_INTERFACE
+	select PHYS48_TO_HT40
 	help
 		Lemote Loongson 3A family machines utilize the 3A revision of
 		Loongson processor and RS780/SBX00 chipset.
@@ -146,6 +147,10 @@ config SWIOTLB
 	select IOMMU_HELPER
 	select NEED_SG_DMA_LENGTH
 	select NEED_DMA_MAP_STATE
+
+config PHYS48_TO_HT40
+	bool
+	default y if CPU_LOONGSON3
 
 config LOONGSON_MC146818
 	bool
