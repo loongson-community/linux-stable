@@ -192,6 +192,7 @@ void ttm_bo_add_to_lru(struct ttm_buffer_object *bo)
 		}
 	}
 }
+EXPORT_SYMBOL(ttm_bo_add_to_lru);
 
 int ttm_bo_del_from_lru(struct ttm_buffer_object *bo)
 {
@@ -358,20 +359,17 @@ int ttm_bo_reserve_slowpath(struct ttm_buffer_object *bo,
 }
 EXPORT_SYMBOL(ttm_bo_reserve_slowpath);
 
-void ttm_bo_unreserve_locked(struct ttm_buffer_object *bo)
-{
-	ttm_bo_add_to_lru(bo);
-	atomic_set(&bo->reserved, 0);
-	wake_up_all(&bo->event_queue);
-}
-
 void ttm_bo_unreserve(struct ttm_buffer_object *bo)
 {
 	struct ttm_bo_global *glob = bo->glob;
 
-	spin_lock(&glob->lru_lock);
-	ttm_bo_unreserve_locked(bo);
-	spin_unlock(&glob->lru_lock);
+	if (!(bo->mem.placement & TTM_PL_FLAG_NO_EVICT)) {
+		spin_lock(&glob->lru_lock);
+		ttm_bo_add_to_lru(bo);
+		spin_unlock(&glob->lru_lock);
+	}
+	atomic_set(&bo->reserved, 0);
+	wake_up_all(&bo->event_queue);
 }
 EXPORT_SYMBOL(ttm_bo_unreserve);
 

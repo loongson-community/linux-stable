@@ -228,7 +228,9 @@ void ttm_eu_fence_buffer_objects(struct list_head *list, void *sync_obj)
 		bo = entry->bo;
 		entry->old_sync_obj = bo->sync_obj;
 		bo->sync_obj = driver->sync_obj_ref(sync_obj);
-		ttm_bo_unreserve_locked(bo);
+		ttm_bo_add_to_lru(bo);
+		atomic_set(&bo->reserved, 0);
+		wake_up_all(&bo->event_queue);
 		entry->reserved = false;
 	}
 	spin_unlock(&bdev->fence_lock);
