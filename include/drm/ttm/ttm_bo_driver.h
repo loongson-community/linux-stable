@@ -888,15 +888,7 @@ extern int ttm_bo_reserve_nolru(struct ttm_buffer_object *bo,
  */
 extern void ttm_bo_unreserve(struct ttm_buffer_object *bo);
 
-/**
- * ttm_bo_unreserve_locked
- *
- * @bo: A pointer to a struct ttm_buffer_object.
- *
- * Unreserve a previous reservation of @bo.
- * Needs to be called with struct ttm_bo_global::lru_lock held.
- */
-extern void ttm_bo_unreserve_locked(struct ttm_buffer_object *bo);
+extern void ttm_bo_add_to_lru(struct ttm_buffer_object *bo);
 
 /*
  * ttm_bo_util.c
