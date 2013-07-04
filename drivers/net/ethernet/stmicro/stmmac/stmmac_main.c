@@ -1579,7 +1579,7 @@ static int stmmac_open(struct net_device *dev)
 		if (ret) {
 			pr_err("%s: Cannot attach to PHY (error: %d)\n",
 			       __func__, ret);
-			goto open_error;
+			goto phy_error;
 		}
 	}
 
@@ -1593,7 +1593,7 @@ static int stmmac_open(struct net_device *dev)
 	ret = stmmac_init_dma_engine(priv);
 	if (ret < 0) {
 		pr_err("%s: DMA initialization failed\n", __func__);
-		goto open_error;
+		goto init_error;
 	}
 
 	/* Copy the MAC addr into the HW  */
@@ -1612,7 +1612,7 @@ static int stmmac_open(struct net_device *dev)
 	if (unlikely(ret < 0)) {
 		pr_err("%s: ERROR: allocating the IRQ %d (error: %d)\n",
 		       __func__, dev->irq, ret);
-		goto open_error;
+		goto init_error;
 	}
 
 	/* Request the Wake IRQ in case of another line is used for WoL */
@@ -1622,7 +1622,7 @@ static int stmmac_open(struct net_device *dev)
 		if (unlikely(ret < 0)) {
 			pr_err("%s: ERROR: allocating the WoL IRQ %d (%d)\n",
 			       __func__, priv->wol_irq, ret);
-			goto open_error_wolirq;
+			goto wolirq_error;
 		}
 	}
 
@@ -1633,7 +1633,7 @@ static int stmmac_open(struct net_device *dev)
 		if (unlikely(ret < 0)) {
 			pr_err("%s: ERROR: allocating the LPI IRQ %d (%d)\n",
 			       __func__, priv->lpi_irq, ret);
-			goto open_error_lpiirq;
+			goto lpiirq_error;
 		}
 	}
 
@@ -1691,17 +1691,17 @@ static int stmmac_open(struct net_device *dev)
 
 	return 0;
 
-open_error_lpiirq:
+lpiirq_error:
 	if (priv->wol_irq != dev->irq)
 		free_irq(priv->wol_irq, dev);
-
-open_error_wolirq:
+wolirq_error:
 	free_irq(dev->irq, dev);
 
-open_error:
+init_error:
+	free_dma_desc_resources(priv);
 	if (priv->phydev)
 		phy_disconnect(priv->phydev);
-
+phy_error:
 	clk_disable_unprepare(priv->stmmac_clk);
 
 	return ret;
