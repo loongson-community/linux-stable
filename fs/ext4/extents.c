@@ -4326,9 +4326,20 @@ void ext4_ext_truncate(struct inode *inode)
 
 	last_block = (inode->i_size + sb->s_blocksize - 1)
 			>> EXT4_BLOCK_SIZE_BITS(sb);
+retry:
 	err = ext4_es_remove_extent(inode, last_block,
 				    EXT_MAX_BLOCKS - last_block);
+	if (err == ENOMEM) {
+		cond_resched();
+		congestion_wait(BLK_RW_ASYNC, HZ/50);
+		goto retry;
+	}
+	if (err) {
+		ext4_std_error(inode->i_sb, err);
+		return;
+	}
 	err = ext4_ext_remove_space(inode, last_block, EXT_MAX_BLOCKS - 1);
+	ext4_std_error(inode->i_sb, err);
 
 	/* In a multi-transaction truncate, we only make the final
 	 * transaction synchronous.
