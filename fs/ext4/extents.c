@@ -4329,7 +4329,7 @@ void ext4_ext_truncate(struct inode *inode)
 retry:
 	err = ext4_es_remove_extent(inode, last_block,
 				    EXT_MAX_BLOCKS - last_block);
-	if (err == ENOMEM) {
+	if (err == -ENOMEM) {
 		cond_resched();
 		congestion_wait(BLK_RW_ASYNC, HZ/50);
 		goto retry;
