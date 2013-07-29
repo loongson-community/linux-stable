@@ -788,6 +788,10 @@
 #define RLC_MC_CNTL                                       0xC344
 #define RLC_UCODE_CNTL                                    0xC348
 
+#define    RLC_CGCG_CGLS_CTRL              0xC404
+#  define CGCG_EN                  (1 << 0)
+#  define CGLS_EN                  (1 << 1)
+
 #define PA_SC_RASTER_CONFIG                             0x28350
 #       define RASTER_CONFIG_RB_MAP_0                   0
 #       define RASTER_CONFIG_RB_MAP_1                   1

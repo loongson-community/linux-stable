@@ -4420,13 +4420,17 @@ static void si_rlc_start(struct radeon_device *rdev)
 
 static int si_rlc_resume(struct radeon_device *rdev)
 {
-	u32 i;
+	u32 i, data;
 	const __be32 *fw_data;
 
 	if (!rdev->rlc_fw)
 		return -EINVAL;
 
 	si_rlc_stop(rdev);
+
+	data = RREG32(RLC_CGCG_CGLS_CTRL);
+	data &= ~(CGCG_EN | CGLS_EN);
+	WREG32(RLC_CGCG_CGLS_CTRL, data);
 
 	WREG32(RLC_RL_BASE, 0);
 	WREG32(RLC_RL_SIZE, 0);
