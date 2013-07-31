@@ -813,7 +813,7 @@ void task_numa_fault(int node, int pages, bool migrated)
 {
 	struct task_struct *p = current;
 
-	if (!sched_feat_numa(NUMA))
+	if (!numabalancing_enabled)
 		return;
 
 	/* FIXME: Allocate task-specific structure for placement policy here */
@@ -5778,7 +5778,7 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 		entity_tick(cfs_rq, se, queued);
 	}
 
-	if (sched_feat_numa(NUMA))
+	if (numabalancing_enabled)
 		task_tick_numa(rq, curr);
 
 	update_rq_runnable_avg(rq, 1);
