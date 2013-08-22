@@ -2431,8 +2431,10 @@ int r600_startup(struct radeon_device *rdev)
 		return r;
 
 	r = radeon_ib_ring_tests(rdev);
-	if (r)
+	if (r) {
+		rdev->need_recover = 1;
 		return r;
+	}
 
 	r = r600_audio_init(rdev);
 	if (r) {

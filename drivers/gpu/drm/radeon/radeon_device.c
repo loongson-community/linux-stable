@@ -942,6 +942,24 @@ int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 	return 0;
 }
 
+void radeon_recover_callback(struct work_struct *work)
+{
+	int resched;
+	struct radeon_device *rdev = container_of(to_delayed_work(work),
+			struct radeon_device, recover_work);
+
+	printk("Radeon GPU Recover...\n");
+	radeon_save_bios_scratch_regs(rdev);
+	resched = ttm_bo_lock_delayed_workqueue(&rdev->mman.bdev);
+	radeon_pm_suspend(rdev);
+	radeon_suspend(rdev);
+	radeon_resume(rdev);
+	radeon_restore_bios_scratch_regs(rdev);
+	radeon_pm_resume(rdev);
+	drm_helper_resume_force_mode(rdev->ddev);
+	ttm_bo_unlock_delayed_workqueue(&rdev->mman.bdev, resched);
+}
+
 int radeon_resume_kms(struct drm_device *dev)
 {
 	struct drm_connector *connector;
@@ -981,6 +999,11 @@ int radeon_resume_kms(struct drm_device *dev)
 	}
 
 	drm_kms_helper_poll_enable(dev);
+
+	if (rdev->need_recover) {
+		rdev->need_recover = 0;
+		schedule_delayed_work_on(0, &rdev->recover_work, msecs_to_jiffies(2000));
+	}
 	return 0;
 }
 

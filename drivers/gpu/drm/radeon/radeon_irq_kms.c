@@ -176,6 +176,8 @@ static bool radeon_msi_ok(struct radeon_device *rdev)
 	return true;
 }
 
+extern void radeon_recover_callback(struct work_struct *work);
+
 int radeon_irq_kms_init(struct radeon_device *rdev)
 {
 	int i;
@@ -183,6 +185,9 @@ int radeon_irq_kms_init(struct radeon_device *rdev)
 
 	INIT_WORK(&rdev->hotplug_work, radeon_hotplug_work_func);
 	INIT_WORK(&rdev->audio_work, r600_audio_update_hdmi);
+
+	rdev->need_recover = 0;
+	INIT_DELAYED_WORK_DEFERRABLE(&rdev->recover_work, radeon_recover_callback);
 
 	spin_lock_init(&rdev->irq.sw_lock);
 	for (i = 0; i < rdev->num_crtc; i++)
