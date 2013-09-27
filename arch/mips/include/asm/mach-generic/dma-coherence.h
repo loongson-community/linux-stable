@@ -59,11 +59,7 @@ static inline int plat_dma_mapping_error(struct device *dev,
 
 static inline int plat_device_is_coherent(struct device *dev)
 {
-#ifdef CONFIG_DMA_COHERENT
-	return 1;
-#else
 	return coherentio;
-#endif
 }
 
 #endif /* __ASM_MACH_GENERIC_DMA_COHERENCE_H */
