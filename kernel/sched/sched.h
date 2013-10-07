@@ -544,11 +544,6 @@ DECLARE_PER_CPU(struct rq, runqueues);
 #ifdef CONFIG_NUMA_BALANCING
 extern int migrate_task_to(struct task_struct *p, int cpu);
 extern int migrate_swap(struct task_struct *, struct task_struct *);
-extern void task_numa_free(struct task_struct *p);
-#else /* CONFIG_NUMA_BALANCING */
-static inline void task_numa_free(struct task_struct *p)
-{
-}
 #endif /* CONFIG_NUMA_BALANCING */
 
 #ifdef CONFIG_SMP
