@@ -145,11 +145,18 @@ static inline unsigned long change_pmd_range(struct vm_area_struct *vma,
 		if (pmd_trans_huge(*pmd)) {
 			if (next - addr != HPAGE_PMD_SIZE)
 				split_huge_page_pmd(vma, addr, pmd);
-			else if (change_huge_pmd(vma, pmd, addr, newprot,
-						 prot_numa)) {
-				pages += HPAGE_PMD_NR;
-				nr_huge_updates++;
-				continue;
+			else {
+				int nr_ptes = change_huge_pmd(vma, pmd, addr,
+						newprot, prot_numa);
+
+				if (nr_ptes) {
+					if (nr_ptes == HPAGE_PMD_NR) {
+						pages += HPAGE_PMD_NR;
+						nr_huge_updates++;
+					}
+
+					continue;
+				}
 			}
 			/* fall through */
 		}
