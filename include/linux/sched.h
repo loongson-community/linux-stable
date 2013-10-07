@@ -1049,6 +1049,8 @@ struct task_struct {
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;
+
+	int wake_cpu;
 #endif
 	int on_rq;
 
