@@ -596,7 +596,7 @@ static int radeon_uvd_send_msg(struct radeon_device *rdev,
 		return r;
 	}
 
-	r = radeon_ib_get(rdev, ring, &ib, NULL, 16);
+	r = radeon_ib_get(rdev, ring, &ib, NULL, 64);
 	if (r) {
 		ttm_eu_backoff_reservation(&head);
 		return r;
