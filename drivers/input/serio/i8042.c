@@ -86,7 +86,9 @@ module_param_named(debug, i8042_debug, bool, 0600);
 MODULE_PARM_DESC(debug, "Turn i8042 debugging mode on and off");
 #endif
 
-static bool i8042_bypass_aux_irq_test;
+static bool i8042_bypass_aux_irq_test = true;
+module_param_named(bypass_aux_test, i8042_bypass_aux_irq_test, bool, 0600);
+MODULE_PARM_DESC(debug, "Turn i8042 aux irq test off");
 
 #include "i8042.h"
 
