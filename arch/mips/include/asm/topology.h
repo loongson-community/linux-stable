@@ -10,4 +10,17 @@
 
 #include <topology.h>
 
+#ifndef topology_physical_package_id
+#define topology_physical_package_id(cpu)	(cpu_data[cpu].package)
+#endif
+#ifndef topology_core_id
+#define topology_core_id(cpu)			(cpu_data[cpu].core)
+#endif
+#ifndef topology_core_cpumask
+#define topology_core_cpumask(cpu)		(&cpu_core_map[cpu])
+#endif
+#ifndef topology_thread_cpumask
+#define topology_thread_cpumask(cpu)		(&cpu_sibling_map[cpu])
+#endif
+
 #endif /* __ASM_TOPOLOGY_H */
