@@ -31,6 +31,7 @@
 #include <linux/seccomp.h>
 #include <linux/ftrace.h>
 
+#include <asm/abi.h>
 #include <asm/byteorder.h>
 #include <asm/cpu.h>
 #include <asm/cpu-info.h>
@@ -929,7 +930,7 @@ asmlinkage long syscall_trace_enter(struct pt_regs *regs, long syscall)
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
 		trace_sys_enter(regs, regs->regs[2]);
 
-	audit_syscall_entry(syscall_get_arch(),
+	audit_syscall_entry(current->thread.abi->audit_arch,
 			    syscall,
 			    regs->regs[4], regs->regs[5],
 			    regs->regs[6], regs->regs[7]);
