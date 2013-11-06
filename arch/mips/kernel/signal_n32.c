@@ -15,6 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
+#include <linux/audit.h>
 #include <linux/cache.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -153,5 +154,12 @@ struct mips_abi mips_abi_n32 = {
 	.setup_rt_frame = setup_rt_frame_n32,
 	.rt_signal_return_offset =
 		offsetof(struct mips_vdso, n32_rt_signal_trampoline),
-	.restart	= __NR_N32_restart_syscall
+	.restart	= __NR_N32_restart_syscall,
+#ifdef __BIG_ENDIAN
+	.audit_arch	= AUDIT_ARCH_MIPS64N32,
+#elif defined(__LITTLE_ENDIAN)
+	.audit_arch	= AUDIT_ARCH_MIPSEL64N32,
+#else
+# error "Neither big nor little endian ???"
+#endif
 };
