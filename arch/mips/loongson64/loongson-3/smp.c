@@ -38,6 +38,13 @@ static void *ipi_en0_regs[16];
 static void *ipi_mailbox_buf[16];
 static uint32_t core0_c0count[NR_CPUS];
 
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+extern int autoplug_verbose;
+#define verbose autoplug_verbose
+#else
+#define verbose 1
+#endif
+
 /* read a 32bit value from ipi register */
 #define loongson3_ipi_read32(addr) readl(addr)
 /* read a 64bit value from ipi register */
@@ -349,7 +356,8 @@ static void loongson3_smp_finish(void)
 	local_irq_enable();
 	loongson3_ipi_write64(0,
 			(void *)(ipi_mailbox_buf[cpu_logical_map(cpu)]+0x0));
-	pr_info("CPU#%d finished, CP0_ST=%x\n",
+	if (verbose || system_state == SYSTEM_BOOTING)
+		pr_info("CPU#%d finished, CP0_ST=%x\n",
 			smp_processor_id(), read_c0_status());
 }
 
@@ -406,7 +414,8 @@ static void loongson3_boot_secondary(int cpu, struct task_struct *idle)
 {
 	unsigned long startargs[4];
 
-	pr_info("Booting CPU#%d...\n", cpu);
+	if (verbose || system_state == SYSTEM_BOOTING)
+		pr_info("Booting CPU#%d...\n", cpu);
 
 	/* startargs[] are initial PC, SP and GP for secondary CPU */
 	startargs[0] = (unsigned long)&smp_bootstrap;
@@ -414,7 +423,8 @@ static void loongson3_boot_secondary(int cpu, struct task_struct *idle)
 	startargs[2] = (unsigned long)task_thread_info(idle);
 	startargs[3] = 0;
 
-	pr_debug("CPU#%d, func_pc=%lx, sp=%lx, gp=%lx\n",
+	if (verbose || system_state == SYSTEM_BOOTING)
+		pr_debug("CPU#%d, func_pc=%lx, sp=%lx, gp=%lx\n",
 			cpu, startargs[0], startargs[1], startargs[2]);
 
 	loongson3_ipi_write64(startargs[3],
@@ -735,12 +745,14 @@ static int loongson3_cpu_callback(struct notifier_block *nfb,
 	switch (action) {
 	case CPU_POST_DEAD:
 	case CPU_POST_DEAD_FROZEN:
-		pr_info("Disable clock for CPU#%d\n", cpu);
+		if (verbose || system_state == SYSTEM_BOOTING)
+			pr_info("Disable clock for CPU#%d\n", cpu);
 		loongson3_disable_clock(cpu);
 		break;
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
-		pr_info("Enable clock for CPU#%d\n", cpu);
+		if (verbose || system_state == SYSTEM_BOOTING)
+			pr_info("Enable clock for CPU#%d\n", cpu);
 		loongson3_enable_clock(cpu);
 		break;
 	}
