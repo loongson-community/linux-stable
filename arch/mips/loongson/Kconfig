@@ -87,6 +87,7 @@ config LOONGSON_MACH3X
 	select LOONGSON_MC146818
 	select ZONE_DMA32
 	select LEFI_FIRMWARE_INTERFACE
+	select PHYS48_TO_HT40
 	help
 		Generic Loongson 3 family machines utilize the 3A/3B revision
 		of Loongson processor and RS780/SBX00 chipset.
@@ -147,6 +148,10 @@ config LOONGSON3_CPUAUTOPLUG
 	  which cpu frequencies of all cores  should be configured together.
 
 	  If in doubt, say N.
+
+config PHYS48_TO_HT40
+	bool
+	default y if CPU_LOONGSON3
 
 config LOONGSON_MC146818
 	bool
