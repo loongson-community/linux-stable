@@ -337,6 +337,8 @@ int snd_hda_codec_update_widgets(struct hda_codec *codec);
 /*
  * low level functions
  */
+int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
+			    unsigned int *res);
 unsigned int snd_hda_codec_read(struct hda_codec *codec, hda_nid_t nid,
 				int flags,
 				unsigned int verb, unsigned int parm);
