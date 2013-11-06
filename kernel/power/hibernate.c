@@ -675,6 +675,7 @@ int hibernate(void)
 	sys_sync();
 	printk("done.\n");
 
+	system_state = SYSTEM_SUSPEND_DISK;
 	error = freeze_processes();
 	if (error)
 		goto Exit;
@@ -715,6 +716,7 @@ int hibernate(void)
  Thaw:
 	unlock_device_hotplug();
 	thaw_processes();
+	system_state = SYSTEM_RUNNING;
 
 	/* Don't bother checking whether freezer_test_done is true */
 	freezer_test_done = false;
@@ -859,6 +861,7 @@ static int software_resume(void)
  Thaw:
 	unlock_device_hotplug();
 	thaw_processes();
+	system_state = SYSTEM_RUNNING;
  Finish:
 	pm_notifier_call_chain(PM_POST_RESTORE);
 	pm_restore_console();
