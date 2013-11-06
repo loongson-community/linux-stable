@@ -358,4 +358,6 @@ extern unsigned long _loongson_addrwincfg_base;
 
 #endif	/* ! CONFIG_CPU_SUPPORTS_ADDRWINCFG */
 
+void loongson_suspend_lowlevel(void);
+
 #endif /* __ASM_MACH_LOONGSON64_LOONGSON_H */
