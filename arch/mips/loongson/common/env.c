@@ -33,6 +33,7 @@ u64 loongson_chipcfg[MAX_PACKAGES] = {0xffffffffbfc00180};
 u64 loongson_freqctrl[MAX_PACKAGES];
 
 unsigned long long smp_group[4];
+int cpufreq_workaround = 0;
 int cpuhotplug_workaround = 0;
 
 #define parse_even_earlier(res, option, p)				\
@@ -98,6 +99,7 @@ void __init prom_init_env(void)
 		loongson_chipcfg[2] = 0x900020001fe00180;
 		loongson_chipcfg[3] = 0x900030001fe00180;
 		loongson_sysconf.ht_control_base = 0x90000EFDFB000000;
+		cpufreq_workaround = 1;
 	} else if (ecpu->cputype == Loongson_3B) {
 		loongson_sysconf.cores_per_node = 4; /* One chip has 2 nodes */
 		loongson_sysconf.cores_per_package = 8;
