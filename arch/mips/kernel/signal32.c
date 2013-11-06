@@ -7,6 +7,7 @@
  * Copyright (C) 1994 - 2000, 2006  Ralf Baechle
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
  */
+#include <linux/audit.h>
 #include <linux/cache.h>
 #include <linux/compat.h>
 #include <linux/sched.h>
@@ -407,6 +408,13 @@ struct mips_abi mips_abi_32 = {
 	.setup_frame	= setup_frame_32,
 	.setup_rt_frame = setup_rt_frame_32,
 	.restart	= __NR_O32_restart_syscall,
+#ifdef __BIG_ENDIAN
+	.audit_arch	= AUDIT_ARCH_MIPS,
+#elif defined(__LITTLE_ENDIAN)
+	.audit_arch	= AUDIT_ARCH_MIPSEL,
+#else
+# error "Neither big nor little endian ???"
+#endif
 
 	.off_sc_fpregs = offsetof(struct sigcontext32, sc_fpregs),
 	.off_sc_fpc_csr = offsetof(struct sigcontext32, sc_fpc_csr),
