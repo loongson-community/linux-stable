@@ -35,6 +35,8 @@ u64 loongson_chiptemp[MAX_PACKAGES];
 u64 loongson_freqctrl[MAX_PACKAGES];
 
 unsigned long long smp_group[4];
+unsigned int has_systab = 0;
+unsigned long systab_addr;
 
 #define parse_even_earlier(res, option, p)				\
 do {									\
