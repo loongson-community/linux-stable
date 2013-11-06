@@ -1058,6 +1058,9 @@ static int patch_conexant_auto(struct hda_codec *codec)
 		snd_hda_pick_fixup(codec, cxt5051_fixup_models,
 				   cxt5051_fixups, cxt_fixups);
 		break;
+	/* CX20631 node1b's default value is not same as datasheet, cause rear mic not work */
+	case 0x14f15097:
+		snd_hda_codec_set_pincfg(codec, 0x1b, 0x01a190f0);
 	default:
 		codec->pin_amp_workaround = 1;
 		snd_hda_pick_fixup(codec, cxt5066_fixup_models,
