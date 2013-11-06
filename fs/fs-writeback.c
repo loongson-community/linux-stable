@@ -1319,6 +1319,8 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 		if (!was_dirty) {
 			bool wakeup_bdi = false;
 			bdi = inode_to_bdi(inode);
+			if(!bdi)
+				goto out_unlock_inode;
 
 			spin_unlock(&inode->i_lock);
 			spin_lock(&bdi->wb.list_lock);
