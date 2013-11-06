@@ -198,6 +198,8 @@ static int loongson_pm_enter(suspend_state_t state)
 
 static int loongson_pm_valid_state(suspend_state_t state)
 {
+	extern u32 suspend_addr;
+
 	switch (state) {
 	case PM_SUSPEND_ON:
 		return 1;
@@ -207,10 +209,9 @@ static int loongson_pm_valid_state(suspend_state_t state)
 		switch (mips_machtype) {
 		case MACH_LEMOTE_ML2F7:
 		case MACH_LEMOTE_YL2F89:
-		case MACH_LEMOTE_A1004:
-		case MACH_LEMOTE_A1201:
-		case MACH_LEMOTE_A1217:
 			return 1;
+		case MACH_LOONGSON_GENERIC:
+			return !!suspend_addr;
 		default:
 			return 0;
 		}

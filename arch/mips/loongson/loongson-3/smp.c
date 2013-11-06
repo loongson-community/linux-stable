@@ -27,6 +27,7 @@
 #include <asm/clock.h>
 #include <asm/tlbflush.h>
 #include <loongson.h>
+#include <workarounds.h>
 
 #include "smp.h"
 
@@ -317,7 +318,7 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
 	volatile unsigned long startargs[4];
 
 #if defined(CONFIG_LOONGSON3_CPUFREQ) && defined(CONFIG_HOTPLUG_CPU)
-	if (cpufreq_workaround)
+	if (loongson_workarounds & WORKAROUND_CPUFREQ)
 		maybe_disable_cpufreq();
 #endif
 
@@ -376,7 +377,7 @@ static int loongson3_cpu_disable(void)
 static void loongson3_cpu_die(unsigned int cpu)
 {
 #ifdef CONFIG_LOONGSON3_CPUFREQ
-	if (cpufreq_workaround)
+	if (loongson_workarounds & WORKAROUND_CPUFREQ)
 		maybe_enable_cpufreq();
 #endif
 
@@ -540,7 +541,7 @@ void loongson3_disable_clock(int cpu)
 		LOONGSON_CHIPCFG(package_id) &= ~(1 << (12 + core_id));
 	}
 	else if(cputype == Loongson_3B) {
-		if (!cpuhotplug_workaround)
+		if (!(loongson_workarounds & WORKAROUND_CPUHOTPLUG))
 			LOONGSON_FREQCTRL(package_id) &= ~(1 << (core_id * 4 + 3));
 	}
 }
@@ -554,7 +555,7 @@ void loongson3_enable_clock(int cpu)
 		LOONGSON_CHIPCFG(package_id) |= 1 << (12 + core_id);
 	}
 	else if(cputype == Loongson_3B){
-		if (!cpuhotplug_workaround)
+		if (!(loongson_workarounds & WORKAROUND_CPUHOTPLUG))
 			LOONGSON_FREQCTRL(package_id) |= 1 << (core_id * 4 + 3);
 	}
 }
