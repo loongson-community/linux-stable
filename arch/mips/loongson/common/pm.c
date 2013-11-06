@@ -26,6 +26,10 @@ static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
 static unsigned int __maybe_unused cached_autoplug_enabled;
 
+u32 loongson_nr_nodes;
+u32 loongson_cores_per_node;
+u64 loongson_suspend_addr;
+
 uint64_t cmos_read64(unsigned long addr)
 {
 	unsigned char bytes[8];
@@ -181,6 +185,9 @@ static int loongson_pm_enter(suspend_state_t state)
 		break;
 	case PM_SUSPEND_MEM:
 #ifdef CONFIG_CPU_LOONGSON3
+		loongson_nr_nodes = loongson_sysconf.nr_nodes;
+		loongson_cores_per_node = loongson_sysconf.cores_per_node;
+		loongson_suspend_addr = loongson_sysconf.suspend_addr;
 		loongson_suspend_lowlevel();
 		cmos_write64(0x0, 0x40);  /* clear pc in cmos */
 		cmos_write64(0x0, 0x48);  /* clear sp in cmos */
@@ -206,10 +213,9 @@ static int loongson_pm_valid_state(suspend_state_t state)
 		switch (mips_machtype) {
 		case MACH_LEMOTE_ML2F7:
 		case MACH_LEMOTE_YL2F89:
-		case MACH_LEMOTE_A1004:
-		case MACH_LEMOTE_A1201:
-		case MACH_LEMOTE_A1217:
 			return 1;
+		case MACH_LOONGSON_GENERIC:
+			return !!loongson_sysconf.suspend_addr;
 		default:
 			return 0;
 		}

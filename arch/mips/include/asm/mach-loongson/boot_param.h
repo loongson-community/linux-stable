@@ -43,16 +43,50 @@ struct efi_cpuinfo_loongson {
 	u32 processor_id; /* PRID, e.g. 6305, 6306 */
 	u32 cputype;  /* Loongson_3A/3B, etc. */
 	u32 total_node;   /* num of total numa nodes */
-	u32 cpu_startup_core_id; /* Core id */
+	u16 cpu_startup_core_id; /* Core id */
+	u16 reserved_cores_mask;
 	u32 cpu_clock_freq; /* cpu_clock */
 	u32 nr_cpus;
 	char cpuname[64];
+} __packed;
+
+#define MAX_UARTS 64
+struct uart_device {
+	u32 iotype; /* see include/linux/serial_core.h */
+	u32 uartclk;
+	u32 int_offset;
+	u64 uart_base;
+} __packed;
+
+#define MAX_SENSORS 64
+#define SENSOR_TEMPER  0x00000001
+#define SENSOR_VOLTAGE 0x00000002
+#define SENSOR_FAN     0x00000004
+struct sensor_device {
+	char name[32];  /* a formal name */
+	char label[64]; /* a flexible description */
+	u32 type;       /* SENSOR_* */
+	u32 id;         /* instance id of a sensor-class */
+	u32 fan_policy; /* see arch/mips/include/asm/mach-loongson/loongson_hwmon.h */
+	u32 fan_percent;/* only for constant speed policy */
+	u64 base_addr;  /* base address of device registers */
 } __packed;
 
 struct system_loongson {
 	u16 vers;     /* version of system_loongson */
 	u32 ccnuma_smp; /* 0: no numa; 1: has numa */
 	u32 sing_double_channel; /* 1:single; 2:double */
+	u32 nr_uarts;
+	struct uart_device uarts[MAX_UARTS];
+	u32 nr_sensors;
+	struct sensor_device sensors[MAX_SENSORS];
+	char has_ec;
+	char ec_name[32];
+	u64 ec_base_addr;
+	char has_tcm;
+	char tcm_name[32];
+	u64 tcm_base_addr;
+	u64 workarounds; /* see workarounds.h */
 } __packed;
 
 struct irq_source_routing_table {
@@ -151,6 +185,8 @@ struct loongson_system_configuration {
 	u32 nr_nodes;
 	int cores_per_node;
 	int cores_per_package;
+	u16 boot_cpu_id;
+	u16 reserved_cpus_mask;
 	enum loongson_cpu_type cputype;
 	u64 ht_control_base;
 	u64 pci_mem_start_addr;
@@ -165,6 +201,10 @@ struct loongson_system_configuration {
 
 extern struct efi_memory_map_loongson *loongson_memmap;
 extern struct loongson_system_configuration loongson_sysconf;
-extern int cpufreq_workaround;
-extern int cpuhotplug_workaround;
+
+extern u32 loongson_nr_uarts;
+extern struct uart_device loongson_uarts[MAX_UARTS];
+extern char loongson_ecname[32];
+extern u32 loongson_nr_sensors;
+extern struct sensor_device loongson_sensors[MAX_SENSORS];
 #endif
