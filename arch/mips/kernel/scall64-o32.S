@@ -472,9 +472,9 @@ sys_call_table:
 	PTR	compat_sys_clock_nanosleep	/* 4265 */
 	PTR	sys_tgkill
 	PTR	compat_sys_utimes
-	PTR	sys_ni_syscall			/* sys_mbind */
-	PTR	sys_ni_syscall			/* sys_get_mempolicy */
-	PTR	sys_ni_syscall			/* 4270 sys_set_mempolicy */
+	PTR	sys_mbind
+	PTR	sys_get_mempolicy
+	PTR	sys_set_mempolicy		/* 4270 */
 	PTR	compat_sys_mq_open
 	PTR	sys_mq_unlink
 	PTR	compat_sys_mq_timedsend

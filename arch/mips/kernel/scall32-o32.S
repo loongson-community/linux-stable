@@ -516,8 +516,8 @@ einval:	li	v0, -ENOSYS
 	sys	sys_tgkill		3
 	sys	sys_utimes		2
 	sys	sys_mbind		4
-	sys	sys_ni_syscall		0	/* sys_get_mempolicy */
-	sys	sys_ni_syscall		0	/* 4270 sys_set_mempolicy */
+	sys	sys_get_mempolicy	5
+	sys	sys_set_mempolicy	0	/* 4270 */
 	sys	sys_mq_open		4
 	sys	sys_mq_unlink		1
 	sys	sys_mq_timedsend	5
