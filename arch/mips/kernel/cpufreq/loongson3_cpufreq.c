@@ -51,7 +51,7 @@ void maybe_disable_cpufreq(void)
 		cpufreq_enabled = 0;
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 		cpuclk->rate = cpu_clock_freq / 1000;
-		LOONGSON_CHIPCFG0 |= 0x7;	/* Set to highest frequency */
+		LOONGSON_CHIPCFG(0) |= 0x7;	/* Set to highest frequency */
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
 }
@@ -210,15 +210,18 @@ void loongson3_cpu_wait(void)
 
 	local_irq_save(flags);
 	if (cputype == Loongson_3A) {
-		cpu_freq = LOONGSON_CHIPCFG0;
-		LOONGSON_CHIPCFG0 &= ~0x7;	/* Put CPU into wait mode */
-		LOONGSON_CHIPCFG0 = cpu_freq;	/* Restore CPU state */
+		cpu_freq = LOONGSON_CHIPCFG(0);
+		LOONGSON_CHIPCFG(0) &= ~0x7;	/* Put CPU into wait mode */
+		LOONGSON_CHIPCFG(0) = cpu_freq;	/* Restore CPU state */
 	}
 	else if (cputype == Loongson_3B) {
 		int cpu = smp_processor_id();
-		cpu_freq = LOONGSON_FREQCTRL;
-		LOONGSON_FREQCTRL &= ~(0x7 << (cpu*4)); /* Put CPU into wait mode */
-		LOONGSON_FREQCTRL = cpu_freq;           /* Restore CPU state */
+		uint64_t core_id = cpu_data[cpu].core;
+		uint64_t package_id = cpu_data[cpu].package;
+
+		cpu_freq = LOONGSON_FREQCTRL(package_id);
+		LOONGSON_FREQCTRL(package_id) &= ~(0x7 << (core_id*4)); /* Put CPU into wait mode */
+		LOONGSON_FREQCTRL(package_id) = cpu_freq;           /* Restore CPU state */
 	}
 	local_irq_restore(flags);
 }
