@@ -326,6 +326,64 @@ void sumo_pm_init_profile(struct radeon_device *rdev)
 }
 
 /**
+ * btc_pm_init_profile - Initialize power profiles callback.
+ *
+ * @rdev: radeon_device pointer
+ *
+ * Initialize the power states used in profile mode
+ * (BTC, cayman).
+ * Used for profile mode only.
+ */
+void btc_pm_init_profile(struct radeon_device *rdev)
+{
+	int idx;
+
+	/* default */
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_ps_idx = rdev->pm.default_power_state_index;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_ps_idx = rdev->pm.default_power_state_index;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_DEFAULT_IDX].dpms_on_cm_idx = 2;
+	/* starting with BTC, there is one state that is used for both
+	 * MH and SH.  Difference is that we always use the high clock index for
+	 * mclk.
+	 */
+	if (rdev->flags & RADEON_IS_MOBILITY)
+		idx = radeon_pm_get_type_index(rdev, POWER_STATE_TYPE_BATTERY, 0);
+	else
+		idx = radeon_pm_get_type_index(rdev, POWER_STATE_TYPE_PERFORMANCE, 0);
+	/* low sh */
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_LOW_SH_IDX].dpms_on_cm_idx = 0;
+	/* mid sh */
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_MID_SH_IDX].dpms_on_cm_idx = 1;
+	/* high sh */
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_HIGH_SH_IDX].dpms_on_cm_idx = 2;
+	/* low mh */
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_LOW_MH_IDX].dpms_on_cm_idx = 0;
+	/* mid mh */
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_MID_MH_IDX].dpms_on_cm_idx = 1;
+	/* high mh */
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_ps_idx = idx;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_off_cm_idx = 0;
+	rdev->pm.profiles[PM_PROFILE_HIGH_MH_IDX].dpms_on_cm_idx = 2;
+}
+
+/**
  * evergreen_pm_misc - set additional pm hw parameters callback.
  *
  * @rdev: radeon_device pointer
@@ -1121,7 +1179,7 @@ void evergreen_pcie_gart_tlb_flush(struct radeon_device *rdev)
 	}
 }
 
-int evergreen_pcie_gart_enable(struct radeon_device *rdev)
+static int evergreen_pcie_gart_enable(struct radeon_device *rdev)
 {
 	u32 tmp;
 	int r;
@@ -1180,7 +1238,7 @@ int evergreen_pcie_gart_enable(struct radeon_device *rdev)
 	return 0;
 }
 
-void evergreen_pcie_gart_disable(struct radeon_device *rdev)
+static void evergreen_pcie_gart_disable(struct radeon_device *rdev)
 {
 	u32 tmp;
 
@@ -1205,7 +1263,7 @@ void evergreen_pcie_gart_disable(struct radeon_device *rdev)
 	radeon_gart_table_vram_unpin(rdev);
 }
 
-void evergreen_pcie_gart_fini(struct radeon_device *rdev)
+static void evergreen_pcie_gart_fini(struct radeon_device *rdev)
 {
 	evergreen_pcie_gart_disable(rdev);
 	radeon_gart_table_vram_free(rdev);
@@ -1213,7 +1271,7 @@ void evergreen_pcie_gart_fini(struct radeon_device *rdev)
 }
 
 
-void evergreen_agp_enable(struct radeon_device *rdev)
+static void evergreen_agp_enable(struct radeon_device *rdev)
 {
 	u32 tmp;
 
@@ -1568,7 +1626,7 @@ static int evergreen_cp_start(struct radeon_device *rdev)
 	return 0;
 }
 
-int evergreen_cp_resume(struct radeon_device *rdev)
+static int evergreen_cp_resume(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	u32 tmp;
@@ -2344,22 +2402,10 @@ int evergreen_asic_reset(struct radeon_device *rdev)
 
 u32 evergreen_get_vblank_counter(struct radeon_device *rdev, int crtc)
 {
-	switch (crtc) {
-	case 0:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC0_REGISTER_OFFSET);
-	case 1:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC1_REGISTER_OFFSET);
-	case 2:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC2_REGISTER_OFFSET);
-	case 3:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC3_REGISTER_OFFSET);
-	case 4:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC4_REGISTER_OFFSET);
-	case 5:
-		return RREG32(CRTC_STATUS_FRAME_COUNT + EVERGREEN_CRTC5_REGISTER_OFFSET);
-	default:
+	if (crtc >= rdev->num_crtc)
 		return 0;
-	}
+	else
+		return RREG32(CRTC_STATUS_FRAME_COUNT + crtc_offsets[crtc]);
 }
 
 void evergreen_disable_interrupt_state(struct radeon_device *rdev)
@@ -2552,10 +2598,6 @@ int evergreen_irq_set(struct radeon_device *rdev)
 		DRM_DEBUG("evergreen_irq_set: hdmi 5\n");
 		afmt6 |= AFMT_AZ_FORMAT_WTRIG_MASK;
 	}
-	if (rdev->irq.gui_idle) {
-		DRM_DEBUG("gui idle\n");
-		grbm_int_cntl |= GUI_IDLE_INT_ENABLE;
-	}
 
 	if (rdev->family >= CHIP_CAYMAN) {
 		cayman_cp_int_cntl_setup(rdev, 0, cp_int_cntl);
@@ -2737,7 +2779,7 @@ static void evergreen_irq_ack(struct radeon_device *rdev)
 	}
 }
 
-void evergreen_irq_disable(struct radeon_device *rdev)
+static void evergreen_irq_disable(struct radeon_device *rdev)
 {
 	r600_disable_interrupts(rdev);
 	/* Wait and acknowledge irq */
@@ -3090,7 +3132,6 @@ restart_ih:
 			break;
 		case 233: /* GUI IDLE */
 			DRM_DEBUG("IH: GUI idle\n");
-			wake_up(&rdev->irq.idle_queue);
 			break;
 		default:
 			DRM_DEBUG("Unhandled interrupt: %d %d\n", src_id, src_data);
