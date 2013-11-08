@@ -161,7 +161,11 @@
  * AUDIT_LIST commands must be implemented. */
 #define AUDIT_MAX_FIELDS   64
 #define AUDIT_MAX_KEY_LEN  256
+#ifdef __mips__
+#define AUDIT_BITMASK_SIZE 256
+#else
 #define AUDIT_BITMASK_SIZE 64
+#endif
 #define AUDIT_WORD(nr) ((__u32)((nr)/32))
 #define AUDIT_BIT(nr)  (1 << ((nr) - AUDIT_WORD(nr)*32))
 
@@ -176,6 +180,18 @@
 #define AUDIT_CLASS_WRITE_32 7
 #define AUDIT_CLASS_SIGNAL 8
 #define AUDIT_CLASS_SIGNAL_32 9
+
+/*
+ * WARNING: Not officially assigned by upstream yet; the names of these
+ * constants might change breaking source compatibility.  The values might
+ * change breaking binary compatibility.  With the audit package being the
+ * only known user at this time the potencial problem is small
+ */
+#define AUDIT_CLASS_DIR_WRITE_N32	10
+#define AUDIT_CLASS_CHATTR_N32		11
+#define AUDIT_CLASS_READ_N32		12
+#define AUDIT_CLASS_WRITE_N32		13
+#define AUDIT_CLASS_SIGNAL_N32		14
 
 /* This bitmask is used to validate user input.  It represents all bits that
  * are currently used in an audit field constant understood by the kernel.
@@ -323,6 +339,7 @@ enum {
 /* distinguish syscall tables */
 #define __AUDIT_ARCH_64BIT 0x80000000
 #define __AUDIT_ARCH_LE	   0x40000000
+#define __AUDIT_ARCH_ALT   0x20000000		/* indicates alternative ABI  */
 #define AUDIT_ARCH_ALPHA	(EM_ALPHA|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_ARM		(EM_ARM|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_ARMEB	(EM_ARM)
@@ -336,7 +353,9 @@ enum {
 #define AUDIT_ARCH_MIPS		(EM_MIPS)
 #define AUDIT_ARCH_MIPSEL	(EM_MIPS|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_MIPS64	(EM_MIPS|__AUDIT_ARCH_64BIT)
-#define AUDIT_ARCH_MIPSEL64	(EM_MIPS|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)
+#define AUDIT_ARCH_MIPS64EL	(EM_MIPS|__AUDIT_ARCH_64BIT|__AUDIT_ARCH_LE)
+#define AUDIT_ARCH_MIPS64_N32	(EM_MIPS|__AUDIT_ARCH_ALT)
+#define AUDIT_ARCH_MIPS64EL_N32	(EM_MIPS|__AUDIT_ARCH_ALT|__AUDIT_ARCH_LE)
 #define AUDIT_ARCH_OPENRISC	(EM_OPENRISC)
 #define AUDIT_ARCH_PARISC	(EM_PARISC)
 #define AUDIT_ARCH_PARISC64	(EM_PARISC|__AUDIT_ARCH_64BIT)
