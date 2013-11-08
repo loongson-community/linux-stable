@@ -18,6 +18,7 @@
 #define LOONGSON_INT_CORE0_INT0		0x11 /* route to int 0 of core 0 */
 #define LOONGSON_INT_CORE0_INT1		0x21 /* route to int 1 of core 0 */
 
+extern unsigned long long smp_group[4];
 extern void loongson3_send_irq_by_ipi(int cpu, int irqs);
 extern void loongson3_ipi_interrupt(struct pt_regs *regs);
 unsigned int ht_irq[] = {0, 1, 3, 4, 5, 6, 7, 8, 12, 14, 15};
@@ -70,6 +71,51 @@ static struct irqaction cascade_irqaction = {
 	.name = "cascade",
 };
 
+static inline void mask_loongson_irq(struct irq_data *d)
+{
+	clear_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
+	irq_disable_hazard();
+	if (d->irq == LOONGSON_UART_IRQ) {
+		int cpu = smp_processor_id();
+		int node_id = cpu / cores_per_node;
+		int core_id = cpu % cores_per_node;
+		u64 intenclr_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_INTENCLR);
+		u64 introuter_lpc_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_LPC);
+
+		*(volatile u32 *)intenclr_addr = 1 << 10;
+		*(volatile u8 *)introuter_lpc_addr = 0x10 + (1<<core_id);
+	}
+}
+
+static inline void unmask_loongson_irq(struct irq_data *d)
+{
+	if (d->irq == LOONGSON_UART_IRQ) {
+		int cpu = smp_processor_id();
+		int node_id = cpu / cores_per_node;
+		int core_id = cpu % cores_per_node;
+		u64 intenset_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_INTENSET);
+		u64 introuter_lpc_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_LPC);
+
+		*(volatile u32 *)intenset_addr = 1 << 10;
+		*(volatile u8 *)introuter_lpc_addr = 0x10 + (1<<core_id);
+	}
+	set_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
+	irq_enable_hazard();
+}
+
+static struct irq_chip loongson_irq_chip = {
+	.name		= "Loongson",
+	.irq_ack	= mask_loongson_irq,
+	.irq_mask	= mask_loongson_irq,
+	.irq_mask_ack	= mask_loongson_irq,
+	.irq_unmask	= unmask_loongson_irq,
+	.irq_eoi	= unmask_loongson_irq,
+};
+
 void irq_router_init(void)
 {
 	int i;
@@ -92,6 +138,8 @@ void __init mach_init_irq(void)
 	irq_router_init();
 	mips_cpu_irq_init();
 	init_i8259_irqs();
+	irq_set_chip_and_handler(LOONGSON_UART_IRQ,
+			&loongson_irq_chip, handle_level_irq);
 
 	/* setup i8259 irq */
 	setup_irq(LOONGSON_I8259_IRQ, &cascade_irqaction);

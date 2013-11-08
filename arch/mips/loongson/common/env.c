@@ -41,7 +41,7 @@ u64 loongson_chipcfg[MAX_PACKAGES] = {0xffffffffbfc00180};
 u64 loongson_chiptemp[MAX_PACKAGES];
 u64 loongson_freqctrl[MAX_PACKAGES];
 
-unsigned long long smp_group0, smp_group1, smp_group2, smp_group3;
+unsigned long long smp_group[4];
 
 enum loongson_cpu_type cputype;
 u32 nr_cpus_loongson = NR_CPUS;
@@ -107,10 +107,10 @@ void __init prom_init_env(void)
 	if (cputype == Loongson_3A) {
 		cores_per_node = 4;
 		cores_per_package = 4;
-		smp_group0 = 0x900000003ff01000;
-		smp_group1 = 0x900010003ff01000;
-		smp_group2 = 0x900020003ff01000;
-		smp_group3 = 0x900030003ff01000;
+		smp_group[0] = 0x900000003ff01000;
+		smp_group[1] = 0x900010003ff01000;
+		smp_group[2] = 0x900020003ff01000;
+		smp_group[3] = 0x900030003ff01000;
 		ht_control_base = 0x90000EFDFB000000;
 		loongson_chipcfg[0] = 0x900000001fe00180;
 		loongson_chipcfg[1] = 0x900010001fe00180;
@@ -125,10 +125,10 @@ void __init prom_init_env(void)
 	else if (cputype == Loongson_3B) {
 		cores_per_node = 4; /* Loongson 3B has two node in one package */
 		cores_per_package = 8;
-		smp_group0 = 0x900000003ff01000;
-		smp_group1 = 0x900010003ff05000;
-		smp_group2 = 0x900020003ff09000;
-		smp_group3 = 0x900030003ff0d000;
+		smp_group[0] = 0x900000003ff01000;
+		smp_group[1] = 0x900010003ff05000;
+		smp_group[2] = 0x900020003ff09000;
+		smp_group[3] = 0x900030003ff0d000;
 		ht_control_base = 0x90001EFDFB000000;
 		loongson_chipcfg[0] = 0x900000001fe00180;
 		loongson_chipcfg[1] = 0x900020001fe00180;

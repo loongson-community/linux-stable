@@ -38,19 +38,6 @@
 
 static inline void unmask_mips_irq(struct irq_data *d)
 {
-#ifdef CONFIG_CPU_LOONGSON3
-	if (d->irq == 58) {
-		int cpu = smp_processor_id();
-		if (cputype == Loongson_3A) {
-			*(volatile unsigned int *)((cpu/4) ? 0x900010003ff01428:0x900000003ff01428) = (0x1<<10);
-			*(volatile unsigned char *)((cpu/4) ? 0x900010003ff0140a:0x900000003ff0140a) = 0x10+(1<<(cpu%4));
-		}
-		else if (cputype == Loongson_3B) {
-			*(volatile unsigned int *)((cpu/4) ? 0x900010003ff05428:0x900000003ff01428) = (0x1<<10);
-			*(volatile unsigned char *)((cpu/4) ? 0x900010003ff0540a:0x900000003ff0140a) = 0x10+(1<<(cpu%4));
-		}
-	}
-#endif
 	set_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
 	irq_enable_hazard();
 }
@@ -59,19 +46,6 @@ static inline void mask_mips_irq(struct irq_data *d)
 {
 	clear_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
 	irq_disable_hazard();
-#ifdef CONFIG_CPU_LOONGSON3
-	if (d->irq == 58) {
-		int cpu = smp_processor_id();
-		if (cputype == Loongson_3A) {
-			*(volatile unsigned int *)((cpu/4) ? 0x900010003ff0142c:0x900000003ff0142c) = (0x1<<10);
-			*(volatile unsigned char *)((cpu/4) ? 0x900010003ff0140a:0x900000003ff0140a) = 0x10+(1<<(cpu%4));
-		}
-		else if (cputype == Loongson_3B) {
-			*(volatile unsigned int *)((cpu/4) ? 0x900010003ff0542c:0x900000003ff0142c) = (0x1<<10);
-			*(volatile unsigned char *)((cpu/4) ? 0x900010003ff0540a:0x900000003ff0140a) = 0x10+(1<<(cpu%4));
-		}
-	}
-#endif
 }
 
 static struct irq_chip mips_cpu_irq_controller = {
