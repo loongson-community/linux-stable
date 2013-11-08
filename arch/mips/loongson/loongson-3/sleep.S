@@ -14,6 +14,7 @@
 #include <asm/stackframe.h>
 
 	.extern cmos_write64
+	.extern suspend_addr
 
 	.text
 	.set noreorder
@@ -101,7 +102,7 @@ flushL2:
 	bnez  t1, flushL2
 	addiu t1, t1, -1
 
-	dli v0, 0xffffffffbfc00500 /* Call PMON's STR sleep routine */
+	ld  v0, suspend_addr /* Call BIOS's STR sleep routine */
 	jr  v0
 	nop
 END(loongson_suspend_lowlevel)

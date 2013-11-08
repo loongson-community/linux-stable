@@ -142,9 +142,10 @@ phys_addr_t dma_to_phys(struct device *dev, dma_addr_t daddr)
 
 static int loongson_dma_set_mask(struct device *dev, u64 mask)
 {
-	/* Loongson doesn't support DMA above 40-bit */
-	if (mask > DMA_BIT_MASK(40)) {
-		*dev->dma_mask = DMA_BIT_MASK(40);
+	extern u32 loongson_dma_mask_bits;
+
+	if (mask > DMA_BIT_MASK(loongson_dma_mask_bits)) {
+		*dev->dma_mask = DMA_BIT_MASK(loongson_dma_mask_bits);
 		return -EIO;
 	}
 
