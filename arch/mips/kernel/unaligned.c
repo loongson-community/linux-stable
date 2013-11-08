@@ -83,6 +83,7 @@
 #include <asm/branch.h>
 #include <asm/byteorder.h>
 #include <asm/cop2.h>
+#include <asm/fpu.h>
 #include <asm/inst.h>
 #include <asm/uaccess.h>
 
@@ -101,6 +102,9 @@ static u32 unaligned_action;
 #define unaligned_action UNALIGNED_ACTION_QUIET
 #endif
 extern void show_registers(struct pt_regs *regs);
+
+extern int fpu_emulator_cop1Handler(struct pt_regs *xcp,
+	struct mips_fpu_struct *ctx, int has_fpu);
 
 static void emulate_load_store_insn(struct pt_regs *regs,
 	void __user *addr, unsigned int __user *pc)
@@ -447,10 +451,16 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	case ldc1_op:
 	case swc1_op:
 	case sdc1_op:
-		/*
-		 * I herewith declare: this does not happen.  So send SIGBUS.
-		 */
-		goto sigbus;
+		die_if_kernel("Unaligned FP access in kernel code", regs);
+		BUG_ON(!used_math());
+
+		lose_fpu(1);	/* save the FPU state for the emulator */
+		res = fpu_emulator_cop1Handler(regs, &current->thread.fpu, 1);
+		own_fpu(1);	/* restore FPU state */
+		if (res == 0)
+			break;
+		force_sig(res, current);
+		return;
 
 	/*
 	 * COP2 is available to implementor for application specific use.
