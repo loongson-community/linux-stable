@@ -58,6 +58,10 @@ int radeon_driver_unload_kms(struct drm_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_CPU_LOONGSON3
+extern void turn_on_lvds(void);
+extern void turn_off_lvds(void);
+#endif
 /**
  * radeon_driver_load_kms - Main load function for KMS.
  *
@@ -76,6 +80,9 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	struct radeon_device *rdev;
 	int r, acpi_status;
 
+#ifdef CONFIG_CPU_LOONGSON3
+	turn_off_lvds();
+#endif
 	rdev = kzalloc(sizeof(struct radeon_device), GFP_KERNEL);
 	if (rdev == NULL) {
 		return -ENOMEM;
@@ -102,6 +109,10 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 		dev_err(&dev->pdev->dev, "Fatal error during GPU init\n");
 		goto out;
 	}
+
+#ifdef CONFIG_CPU_LOONGSON3
+	turn_on_lvds();
+#endif
 
 	/* Call ACPI methods */
 	acpi_status = radeon_acpi_init(rdev);
