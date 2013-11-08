@@ -2920,6 +2920,12 @@ static const struct hda_verb cxt5066_init_verbs_hp_laptop[] = {
 	{ } /* end */
 };
 
+static unsigned int cxt5066_raw_init_verbs_lemote_aio_a1205[] = {
+	0x273f01c, /* Set speaker power to 1.5W@8ohm */
+	0x2729003, /* Set High pass filter to 90Hz */
+	-1 /* end */
+};
+
 /* initialize jack-sensing, too */
 static int cxt5066_init(struct hda_codec *codec)
 {
@@ -4493,6 +4499,7 @@ enum {
 	CXT_PINCFG_LEMOTE_A1205,
 	CXT_FIXUP_STEREO_DMIC,
 	CXT_FIXUP_INC_MIC_BOOST,
+	CXT_FIXUP_SET_RAW_VERBS,
 };
 
 static void cxt_fixup_stereo_dmic(struct hda_codec *codec,
@@ -4513,6 +4520,19 @@ static void cxt5066_increase_mic_boost(struct hda_codec *codec,
 				  (0x4 << AC_AMPCAP_NUM_STEPS_SHIFT) |
 				  (0x27 << AC_AMPCAP_STEP_SIZE_SHIFT) |
 				  (0 << AC_AMPCAP_MUTE_SHIFT));
+}
+
+static void cxt5066_set_raw_verbs(struct hda_codec *codec,
+				   const struct hda_fixup *fix, int action)
+{
+	struct conexant_spec *spec = codec->spec;
+
+	if (action != HDA_FIXUP_ACT_PRE_PROBE)
+		return;
+
+	spec->raw_init_verbs[spec->num_raw_init_verbs] =
+		cxt5066_raw_init_verbs_lemote_aio_a1205;
+	spec->num_raw_init_verbs++;
 }
 
 /* ThinkPad X200 & co with cxt5051 */
@@ -4561,6 +4581,8 @@ static const struct hda_fixup cxt_fixups[] = {
 	},
 	[CXT_PINCFG_LEMOTE_A1205] = {
 		.type = HDA_FIXUP_PINS,
+		.chained = true,
+		.chain_id = CXT_FIXUP_SET_RAW_VERBS,
 		.v.pins = cxt_pincfg_lemote,
 	},
 	[CXT_FIXUP_STEREO_DMIC] = {
@@ -4570,6 +4592,10 @@ static const struct hda_fixup cxt_fixups[] = {
 	[CXT_FIXUP_INC_MIC_BOOST] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = cxt5066_increase_mic_boost,
+	},
+	[CXT_FIXUP_SET_RAW_VERBS] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = cxt5066_set_raw_verbs,
 	},
 };
 
