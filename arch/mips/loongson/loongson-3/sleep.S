@@ -15,6 +15,8 @@
 
 	.extern cmos_write64
 	.extern suspend_addr
+	.extern cores_per_node
+	.extern nr_nodes_loongson
 
 	.text
 	.set noreorder
@@ -76,6 +78,7 @@
 LEAF(loongson_suspend_lowlevel)
 	SETUP_SLEEP
 
+	/* t0:address t1:L1 entries */
 	li t0, 0x80000000
 	li t1, 512
 flushL1:
@@ -91,16 +94,26 @@ flushL1:
 	bnez  t1, flushL1
 	addiu t1, t1, -1
 
-	li t0, 0x80000000
-	li t1, 32768
-flushL2:
-	cache 3, 0(t0)
-	cache 3, 1(t0)
-	cache 3, 2(t0)
-	cache 3, 3(t0)
-	addiu t0, t0, 0x20
-	bnez  t1, flushL2
-	addiu t1, t1, -1
+	/* t0:nr_nodes t1:address t2:L2 entries */
+	lw  t0, nr_nodes_loongson
+	dli t1, 0x9800000000000000
+flushL2_all:
+	lw  t2, cores_per_node
+	li  t3, 8192
+	mult t2, t3
+	mflo t2
+flushL2_node:
+	cache  3, 0(t1)
+	cache  3, 1(t1)
+	cache  3, 2(t1)
+	cache  3, 3(t1)
+	daddiu t1, t1, 0x20
+	bnez   t2, flushL2_node
+	addiu  t2, t2, -1
+	dli    t8, 0x100000000000
+	daddu  t1, t1, t8
+	bnez   t0, flushL2_all
+	addiu  t0, t0, -1
 
 	ld  v0, suspend_addr /* Call BIOS's STR sleep routine */
 	jr  v0

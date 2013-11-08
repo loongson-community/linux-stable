@@ -18,9 +18,9 @@
 	.set	push
 	.set	mips64
 	/* Set LPA on LOONGSON3 config3 */
-	mfc0	t0, $6, 4
+	mfc0	t0, $16, 3
 	or	t0, (0x1 << 7)
-	mtc0	t0, $6, 4
+	mtc0	t0, $16, 3
 	/* Set ELPA on LOONGSON3 pagegrain */
 	li	t0, (0x1 << 29)
 	mtc0	t0, $5, 1
@@ -37,9 +37,9 @@
 	.set	push
 	.set	mips64
 	/* Set LPA on LOONGSON3 config3 */
-	mfc0	t0, $6, 4
+	mfc0	t0, $16, 3
 	or	t0, (0x1 << 7)
-	mtc0	t0, $6, 4
+	mtc0	t0, $16, 3
 	/* Set ELPA on LOONGSON3 pagegrain */
 	li	t0, (0x1 << 29)
 	mtc0	t0, $5, 1
