@@ -222,11 +222,9 @@ struct zs_pool {
 /*
  * By default, zsmalloc uses a copy-based object mapping method to access
  * allocations that span two pages. However, if a particular architecture
- * 1) Implements local_flush_tlb_kernel_range() and 2) Performs VM mapping
- * faster than copying, then it should be added here so that
- * USE_PGTABLE_MAPPING is defined. This causes zsmalloc to use page table
- * mapping rather than copying
- * for object mapping.
+ * performs VM mapping faster than copying, then it should be added here
+ * so that USE_PGTABLE_MAPPING is defined. This causes zsmalloc to use
+ * page table mapping rather than copying for object mapping.
 */
 #if defined(CONFIG_ARM)
 #define USE_PGTABLE_MAPPING
@@ -659,11 +657,8 @@ static inline void __zs_unmap_object(struct mapping_area *area,
 				struct page *pages[2], int off, int size)
 {
 	unsigned long addr = (unsigned long)area->vm_addr;
-	unsigned long end = addr + (PAGE_SIZE * 2);
 
-	flush_cache_vunmap(addr, end);
-	unmap_kernel_range_noflush(addr, PAGE_SIZE * 2);
-	local_flush_tlb_kernel_range(addr, end);
+	unmap_kernel_range(addr, PAGE_SIZE * 2);
 }
 
 #else /* USE_PGTABLE_MAPPING */
