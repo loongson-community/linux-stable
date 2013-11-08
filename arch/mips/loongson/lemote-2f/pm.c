@@ -138,12 +138,12 @@ int wakeup_loongson(void)
 	return 0;
 }
 
-void __weak mach_suspend(void)
+void mach_suspend(void)
 {
 	disable_mfgpt0_counter();
 }
 
-void __weak mach_resume(void)
+void mach_resume(void)
 {
 	enable_mfgpt0_counter();
 }
