@@ -39,6 +39,13 @@ static void *ipi_status0_regs[16];
 static void *ipi_en0_regs[16];
 static void *ipi_mailbox_buf[16];
 
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+extern int autoplug_verbose;
+#define verbose autoplug_verbose
+#else
+#define verbose 1
+#endif
+
 /* read a 64bit value from ipi register */
 uint64_t loongson3_ipi_read64(void * addr)
 {
@@ -250,7 +257,8 @@ void __cpuinit loongson3_smp_finish(void)
 	write_c0_compare(read_c0_count() + mips_hpt_frequency/HZ);
 	local_irq_enable();
 	loongson3_ipi_write64(0, (void *)(ipi_mailbox_buf[smp_processor_id()]+0x0));
-	printk(KERN_INFO "CPU#%d finished, CP0_ST=%x\n",
+	if (verbose || system_state == SYSTEM_BOOTING)
+		printk(KERN_INFO "CPU#%d finished, CP0_ST=%x\n",
 			smp_processor_id(), read_c0_status());
 }
 
@@ -292,7 +300,8 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
 {
 	volatile unsigned long startargs[4];
 
-	printk(KERN_INFO "Booting CPU#%d...\n", cpu);
+	if (verbose || system_state == SYSTEM_BOOTING)
+		printk(KERN_INFO "Booting CPU#%d...\n", cpu);
 
 	/* startargs[] are initial PC, SP and GP for secondary CPU */
 	startargs[0] = (unsigned long)&smp_bootstrap;
@@ -300,7 +309,8 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
 	startargs[2] = (unsigned long)task_thread_info(idle);
 	startargs[3] = 0;
 
-	printk(KERN_DEBUG "CPU#%d, func_pc=%lx, sp=%lx, gp=%lx\n",
+	if (verbose || system_state == SYSTEM_BOOTING)
+		printk(KERN_DEBUG "CPU#%d, func_pc=%lx, sp=%lx, gp=%lx\n",
 			cpu, startargs[0], startargs[1], startargs[2]);
 
 	loongson3_ipi_write64(startargs[3], (void *)(ipi_mailbox_buf[cpu]+0x18));
@@ -549,12 +559,14 @@ static int __cpuinit loongson3_cpu_callback(struct notifier_block *nfb,
 	switch (action) {
 	case CPU_POST_DEAD:
 	case CPU_POST_DEAD_FROZEN:
-		printk(KERN_INFO "Disable clock for CPU#%d\n", cpu);
+		if (verbose || system_state == SYSTEM_BOOTING)
+			printk(KERN_INFO "Disable clock for CPU#%d\n", cpu);
 		loongson3_disable_clock(cpu);
 		break;
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
-		printk(KERN_INFO "Enable clock for CPU#%d\n", cpu);
+		if (verbose || system_state == SYSTEM_BOOTING)
+			printk(KERN_INFO "Enable clock for CPU#%d\n", cpu);
 		loongson3_enable_clock(cpu);
 		break;
 	}
