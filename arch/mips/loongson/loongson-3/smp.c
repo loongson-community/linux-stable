@@ -519,47 +519,29 @@ void play_dead(void)
 
 void loongson3_disable_clock(int cpu)
 {
-	unsigned int node = cpu / cores_per_node;
-	unsigned int core_id = cpu % cores_per_node;
+	uint64_t core_id = cpu_data[cpu].core;
+	uint64_t package_id = cpu_data[cpu].package;
 
 	if (cputype == Loongson_3A) {
-		if (node == 0)
-			LOONGSON_CHIPCFG0 &= ~(1 << (12 + core_id));
-#ifdef CONFIG_NUMA
-		else if (node == 1)
-			LOONGSON_CHIPCFG1 &= ~(1 << (12 + core_id));
-		else if (node == 2)
-			LOONGSON_CHIPCFG2 &= ~(1 << (12 + core_id));
-		else if (node == 3)
-			LOONGSON_CHIPCFG3 &= ~(1 << (12 + core_id));
-#endif
+		LOONGSON_CHIPCFG(package_id) &= ~(1 << (12 + core_id));
 	}
 	else if(cputype == Loongson_3B) {
 		if (!cpuhotplug_workaround)
-			LOONGSON_FREQCTRL &= ~(1 << (cpu * 4 + 3));
+			LOONGSON_FREQCTRL(package_id) &= ~(1 << (core_id * 4 + 3));
 	}
 }
 
 void loongson3_enable_clock(int cpu)
 {
-	unsigned int node = cpu / cores_per_node;
-	unsigned int core_id = cpu % cores_per_node;
+	uint64_t core_id = cpu_data[cpu].core;
+	uint64_t package_id = cpu_data[cpu].package;
 
 	if (cputype == Loongson_3A) {
-		if (node == 0)
-			LOONGSON_CHIPCFG0 |= 1 << (12 + core_id);
-#ifdef CONFIG_NUMA
-		else if (node == 1)
-			LOONGSON_CHIPCFG1 |= 1 << (12 + core_id);
-		else if (node == 2)
-			LOONGSON_CHIPCFG2 |= 1 << (12 + core_id);
-		else if (node == 3)
-			LOONGSON_CHIPCFG3 |= 1 << (12 + core_id);
-#endif
+		LOONGSON_CHIPCFG(package_id) |= 1 << (12 + core_id);
 	}
 	else if(cputype == Loongson_3B){
 		if (!cpuhotplug_workaround)
-			LOONGSON_FREQCTRL |= 1 << (cpu * 4 + 3);
+			LOONGSON_FREQCTRL(package_id) |= 1 << (core_id * 4 + 3);
 	}
 }
 

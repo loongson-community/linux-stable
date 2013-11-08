@@ -35,6 +35,10 @@ u64 pci_mem_start_addr, pci_mem_end_addr;
 u64 loongson_pciio_base;
 u64 vgabios_addr;
 u64 poweroff_addr, restart_addr;
+
+u64 loongson_chipcfg[MAX_PACKAGES] = {0xffffffffbfc00180};
+u64 loongson_freqctrl[MAX_PACKAGES];
+
 unsigned long long smp_group[4];
 
 enum loongson_cpu_type cputype;
@@ -99,6 +103,10 @@ void __init prom_init_env(void)
 		smp_group[2] = 0x900020003ff01000;
 		smp_group[3] = 0x900030003ff01000;
 		ht_control_base = 0x90000EFDFB000000;
+		loongson_chipcfg[0] = 0x900000001fe00180;
+		loongson_chipcfg[1] = 0x900010001fe00180;
+		loongson_chipcfg[2] = 0x900020001fe00180;
+		loongson_chipcfg[3] = 0x900030001fe00180;
 		cpufreq_workaround = 1;
 	}
 	else if (cputype == Loongson_3B) {
@@ -109,11 +117,20 @@ void __init prom_init_env(void)
 		smp_group[2] = 0x900020003ff09000;
 		smp_group[3] = 0x900030003ff0d000;
 		ht_control_base = 0x90001EFDFB000000;
+		loongson_chipcfg[0] = 0x900000001fe00180;
+		loongson_chipcfg[1] = 0x900020001fe00180;
+		loongson_chipcfg[2] = 0x900040001fe00180;
+		loongson_chipcfg[3] = 0x900060001fe00180;
+		loongson_freqctrl[0] = 0x900000001fe001d0;
+		loongson_freqctrl[1] = 0x900020001fe001d0;
+		loongson_freqctrl[2] = 0x900040001fe001d0;
+		loongson_freqctrl[3] = 0x900060001fe001d0;
 		cpuhotplug_workaround = 1;
 	}
 	else {
 		cores_per_node = 1;
 		cores_per_package = 1;
+		loongson_chipcfg[0] = 0x900000001fe00180;
 	}
 
 	nr_cpus_loongson = ecpu->nr_cpus;
