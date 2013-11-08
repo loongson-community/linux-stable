@@ -7,18 +7,20 @@
 #define MAX_TEMP	255
 #define NOT_VALID_TEMP	999
 
-typedef int (*get_temp_fun)(void);
+typedef int (*get_temp_fun)(int);
 
 struct loongson_temp_info {
-	int (*get_cpu_temp)(void); /* get cpu temprature */
-	int (*get_nb_temp)(void);  /* get North Bridge temprature */
-	int (*get_sb_temp)(void);  /* get South Bridge temprature */
-	int (*get_mb_temp)(void);  /* get main board temprature */
+	int (*get_cpu0_temp)(int id); /* get cpu0 temprature */
+	int (*get_cpu1_temp)(int id); /* get cpu1 temperature */
+	int (*get_nb_temp)(int id);   /* get North Bridge temprature */
+	int (*get_sb_temp)(int id);   /* get South Bridge temprature */
+	int (*get_mb_temp)(int id);   /* get main board temprature */
+	int (*get_psy_temp)(int id);  /* get Power Supply temperature */
 };
 
-extern int loongson3_cpu_temp(void);
-extern int emc1412_external_temp(void);
-extern int emc1412_internal_temp(void);
+extern int loongson3_cpu_temp(int);
+extern int emc1412_external_temp(int);
+extern int emc1412_internal_temp(int);
 
 extern struct loongson_temp_info loongson_temp_info;
 
@@ -52,6 +54,7 @@ struct loongson_fan_policy {
 	u8	adjust_period;
 
 	/* fan adjust usually depend on a temprature input */
+	u32	depend_data;
 	get_temp_fun	depend_temp;
 
 	/* up_step/down_step used when type is STEP_SPEED_POLICY */
@@ -79,6 +82,7 @@ struct loongson_fan_ops {
 	struct loongson_fan_policy *fan_policy;
 };
 
-extern struct loongson_fan_ops loongson_fan1_ops, loongson_fan2_ops;
+extern struct loongson_fan_ops
+loongson_fan1_ops, loongson_fan2_ops, loongson_fan3_ops;
 
 #endif /* __LOONGSON_HWMON_H_*/
