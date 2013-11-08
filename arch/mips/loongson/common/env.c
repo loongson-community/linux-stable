@@ -18,37 +18,53 @@
  * option) any later version.
  */
 #include <linux/module.h>
-
 #include <asm/bootinfo.h>
-
 #include <loongson.h>
+#include <boot_param.h>
 
-unsigned long cpu_clock_freq;
+struct boot_params *boot_p;
+struct loongson_params *loongson_p;
+
+struct efi_cpuinfo_loongson *ecpu;
+struct efi_memory_map_loongson *emap;
+struct system_loongson *esys;
+struct irq_source_routing_table *eirq_source;
+
+u64 ht_control_base;
+u64 pci_mem_start_addr, pci_mem_end_addr;
+u64 loongson_pciio_base;
+u64 vgabios_addr;
+u64 poweroff_addr, restart_addr;
+
+enum loongson_cpu_type cputype;
+unsigned int nr_cpus_loongson = NR_CPUS;
+
+u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
-unsigned long memsize, highmemsize;
 
 #define parse_even_earlier(res, option, p)				\
 do {									\
 	unsigned int tmp __maybe_unused;				\
 									\
 	if (strncmp(option, (char *)p, strlen(option)) == 0)		\
-		tmp = strict_strtol((char *)p + strlen(option"="), 10, &res); \
+		tmp = kstrtou32((char *)p + strlen(option"="), 10, &res); \
 } while (0)
 
 void __init prom_init_env(void)
 {
 	/* pmon passes arguments in 32bit pointers */
-	int *_prom_envp;
-	unsigned long bus_clock;
 	unsigned int processor_id;
+
+#ifndef CONFIG_UEFI_FIRMWARE_INTERFACE
+	int *_prom_envp;
 	long l;
+	extern u32 memsize, highmemsize;
 
 	/* firmware arguments are initialized in head.S */
 	_prom_envp = (int *)fw_arg2;
 
 	l = (long)*_prom_envp;
 	while (l != 0) {
-		parse_even_earlier(bus_clock, "busclock", l);
 		parse_even_earlier(cpu_clock_freq, "cpuclock", l);
 		parse_even_earlier(memsize, "memsize", l);
 		parse_even_earlier(highmemsize, "highmemsize", l);
@@ -57,8 +73,32 @@ void __init prom_init_env(void)
 	}
 	if (memsize == 0)
 		memsize = 256;
-	if (bus_clock == 0)
-		bus_clock = 66000000;
+#else
+	/* firmware arguments are initialized in head.S */
+	boot_p = (struct boot_params *)fw_arg2;
+	loongson_p = &(boot_p->efi.smbios.lp);
+
+	ecpu	= (struct efi_cpuinfo_loongson *)((u64)loongson_p + loongson_p->cpu_offset);
+	emap 	= (struct efi_memory_map_loongson *)((u64)loongson_p + loongson_p->memory_offset);
+	eirq_source = (struct irq_source_routing_table *)((u64)loongson_p + loongson_p->irq_offset);
+
+	cputype = ecpu->cputype;
+	nr_cpus_loongson = ecpu->nr_cpus;
+	cpu_clock_freq = ecpu->cpu_clock_freq;
+	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
+		nr_cpus_loongson = NR_CPUS;
+
+	pci_mem_start_addr = eirq_source->pci_mem_start_addr;
+	pci_mem_end_addr = eirq_source->pci_mem_end_addr;
+	loongson_pciio_base = eirq_source->pci_io_start_addr;
+
+	poweroff_addr = boot_p->reset_system.Shutdown;
+	restart_addr = boot_p->reset_system.ResetWarm;
+	pr_info("Shutdown Addr: %llx Reset Addr: %llx\n", poweroff_addr, restart_addr);
+
+	ht_control_base = 0x90000EFDFB000000; /* has no interface now */
+	vgabios_addr = boot_p->efi.smbios.vga_bios;
+#endif
 	if (cpu_clock_freq == 0) {
 		processor_id = (&current_cpu_data)->processor_id;
 		switch (processor_id & PRID_REV_MASK) {
@@ -68,12 +108,13 @@ void __init prom_init_env(void)
 		case PRID_REV_LOONGSON2F:
 			cpu_clock_freq = 797000000;
 			break;
+		case PRID_REV_LOONGSON3A:
+			cpu_clock_freq = 900000000;
+			break;
 		default:
 			cpu_clock_freq = 100000000;
 			break;
 		}
 	}
-
-	pr_info("busclock=%ld, cpuclock=%ld, memsize=%ld, highmemsize=%ld\n",
-		bus_clock, cpu_clock_freq, memsize, highmemsize);
+	pr_info("CpuClock = %u\n", cpu_clock_freq);
 }

@@ -36,17 +36,33 @@ static inline void loongson_reboot(void)
 
 static void loongson_restart(char *command)
 {
+#ifndef CONFIG_UEFI_FIRMWARE_INTERFACE
 	/* do preparation for reboot */
 	mach_prepare_reboot();
 
 	/* reboot via jumping to boot base address */
 	loongson_reboot();
+#else
+	extern u64 restart_addr;
+	void (*fw_restart)(void) = (void *)restart_addr;
+
+	fw_restart();
+	while (1) {}
+#endif
 }
 
 static void loongson_poweroff(void)
 {
+#ifndef CONFIG_UEFI_FIRMWARE_INTERFACE
 	mach_prepare_shutdown();
 	unreachable();
+#else
+	extern u64 poweroff_addr;
+	void (*fw_poweroff)(void) = (void *)poweroff_addr;
+
+	fw_poweroff();
+	while (1) {}
+#endif
 }
 
 static void loongson_halt(void)
