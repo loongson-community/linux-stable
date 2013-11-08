@@ -51,8 +51,8 @@ static int show_rcubarrier(struct seq_file *m, void *unused)
 	struct rcu_state *rsp;
 
 	for_each_rcu_flavor(rsp)
-		seq_printf(m, "%s: %c bcc: %d nbd: %lu\n",
-			   rsp->name, rsp->rcu_barrier_in_progress ? 'B' : '.',
+		seq_printf(m, "%s: bcc: %d nbd: %lu\n",
+			   rsp->name,
 			   atomic_read(&rsp->barrier_cpu_count),
 			   rsp->n_barrier_done);
 	return 0;
@@ -86,12 +86,11 @@ static void print_one_rcu_data(struct seq_file *m, struct rcu_data *rdp)
 {
 	if (!rdp->beenonline)
 		return;
-	seq_printf(m, "%3d%cc=%lu g=%lu pq=%d pgp=%lu qp=%d",
+	seq_printf(m, "%3d%cc=%lu g=%lu pq=%d qp=%d",
 		   rdp->cpu,
 		   cpu_is_offline(rdp->cpu) ? '!' : ' ',
 		   rdp->completed, rdp->gpnum,
-		   rdp->passed_quiesce, rdp->passed_quiesce_gpnum,
-		   rdp->qs_pending);
+		   rdp->passed_quiesce, rdp->qs_pending);
 	seq_printf(m, " dt=%d/%llx/%d df=%lu",
 		   atomic_read(&rdp->dynticks->dynticks),
 		   rdp->dynticks->dynticks_nesting,
@@ -150,12 +149,11 @@ static void print_one_rcu_data_csv(struct seq_file *m, struct rcu_data *rdp)
 {
 	if (!rdp->beenonline)
 		return;
-	seq_printf(m, "%d,%s,%lu,%lu,%d,%lu,%d",
+	seq_printf(m, "%d,%s,%lu,%lu,%d,%d",
 		   rdp->cpu,
 		   cpu_is_offline(rdp->cpu) ? "\"N\"" : "\"Y\"",
 		   rdp->completed, rdp->gpnum,
-		   rdp->passed_quiesce, rdp->passed_quiesce_gpnum,
-		   rdp->qs_pending);
+		   rdp->passed_quiesce, rdp->qs_pending);
 	seq_printf(m, ",%d,%llx,%d,%lu",
 		   atomic_read(&rdp->dynticks->dynticks),
 		   rdp->dynticks->dynticks_nesting,
@@ -186,7 +184,7 @@ static int show_rcudata_csv(struct seq_file *m, void *unused)
 	int cpu;
 	struct rcu_state *rsp;
 
-	seq_puts(m, "\"CPU\",\"Online?\",\"c\",\"g\",\"pq\",\"pgp\",\"pq\",");
+	seq_puts(m, "\"CPU\",\"Online?\",\"c\",\"g\",\"pq\",\"pq\",");
 	seq_puts(m, "\"dt\",\"dt nesting\",\"dt NMI nesting\",\"df\",");
 	seq_puts(m, "\"of\",\"qll\",\"ql\",\"qs\"");
 #ifdef CONFIG_RCU_BOOST
@@ -386,10 +384,9 @@ static void print_one_rcu_pending(struct seq_file *m, struct rcu_data *rdp)
 		   rdp->n_rp_report_qs,
 		   rdp->n_rp_cb_ready,
 		   rdp->n_rp_cpu_needs_gp);
-	seq_printf(m, "gpc=%ld gps=%ld nf=%ld nn=%ld\n",
+	seq_printf(m, "gpc=%ld gps=%ld nn=%ld\n",
 		   rdp->n_rp_gp_completed,
 		   rdp->n_rp_gp_started,
-		   rdp->n_rp_need_fqs,
 		   rdp->n_rp_need_nothing);
 }
 
