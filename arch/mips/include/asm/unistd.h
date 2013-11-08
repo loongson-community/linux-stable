@@ -5,16 +5,15 @@
  *
  * Copyright (C) 1995, 96, 97, 98, 99, 2000 by Ralf Baechle
  * Copyright (C) 1999, 2000 Silicon Graphics, Inc.
- *
- * Changed system calls macros _syscall5 - _syscall7 to push args 5 to 7 onto
- * the stack. Robin Farine for ACN S.A, Copyright (C) 1996 by ACN S.A
  */
 #ifndef _ASM_UNISTD_H
 #define _ASM_UNISTD_H
 
 #include <asm/sgidefs.h>
 
-#if _MIPS_SIM == _MIPS_SIM_ABI32
+#if (defined(__WANT_SYSCALL_NUMBERS) &&					\
+     (__WANT_SYSCALL_NUMBERS == _MIPS_SIM_ABI32)) ||			\
+    (!defined(__WANT_SYSCALL_NUMBERS) && _MIPS_SIM == _MIPS_SIM_ABI32)
 
 /*
  * Linux o32 style syscalls are in the range from 4000 to 4999.
@@ -373,12 +372,14 @@
  */
 #define __NR_Linux_syscalls		346
 
-#endif /* _MIPS_SIM == _MIPS_SIM_ABI32 */
+#endif /* Want O32 || _MIPS_SIM == _MIPS_SIM_ABI32  */
 
 #define __NR_O32_Linux			4000
 #define __NR_O32_Linux_syscalls		346
 
-#if _MIPS_SIM == _MIPS_SIM_ABI64
+#if (defined(__WANT_SYSCALL_NUMBERS) &&					\
+	(__WANT_SYSCALL_NUMBERS == _MIPS_SIM_ABI64)) ||			\
+	(!defined(__WANT_SYSCALL_NUMBERS) && _MIPS_SIM == _MIPS_SIM_ABI64)
 
 /*
  * Linux 64-bit syscalls are in the range from 5000 to 5999.
@@ -696,12 +697,14 @@
  */
 #define __NR_Linux_syscalls		305
 
-#endif /* _MIPS_SIM == _MIPS_SIM_ABI64 */
+#endif /* Want N64 || _MIPS_SIM == _MIPS_SIM_ABI64  */
 
 #define __NR_64_Linux			5000
 #define __NR_64_Linux_syscalls		305
 
-#if _MIPS_SIM == _MIPS_SIM_NABI32
+#if (defined(__WANT_SYSCALL_NUMBERS) &&					\
+	(__WANT_SYSCALL_NUMBERS == _MIPS_SIM_NABI32)) ||		\
+	(!defined(__WANT_SYSCALL_NUMBERS) && _MIPS_SIM == _MIPS_SIM_NABI32)
 
 /*
  * Linux N32 syscalls are in the range from 6000 to 6999.
@@ -1024,7 +1027,7 @@
  */
 #define __NR_Linux_syscalls		310
 
-#endif /* _MIPS_SIM == _MIPS_SIM_NABI32 */
+#endif /* Want N32 || _MIPS_SIM == _MIPS_SIM_NABI32  */
 
 #define __NR_N32_Linux			6000
 #define __NR_N32_Linux_syscalls		310
@@ -1085,6 +1088,16 @@
  * but it doesn't work on all toolchains, so we just do it by hand
  */
 #define cond_syscall(x) asm(".weak\t" #x "\n" #x "\t=\tsys_ni_syscall")
+
+#ifdef CONFIG_MIPS32_N32
+#define NR_syscalls	(__NR_N32_Linux + __NR_N32_Linux_syscalls)
+#elif defined(CONFIG_64BIT)
+#define NR_syscalls	(__NR_64_Linux  + __NR_64_Linux_syscalls)
+#elif defined(CONFIG_32BIT)
+#define NR_syscalls	(__NR_O32_Linux + __NR_O32_Linux_syscalls)
+#else
+#error Must know ABIs in use to define NR_syscalls
+#endif
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_UNISTD_H */
