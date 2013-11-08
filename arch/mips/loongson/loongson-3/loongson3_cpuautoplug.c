@@ -398,7 +398,7 @@ static int __init cpuautoplug_init(void)
 #else
 	delay = msecs_to_jiffies(ap_info.sampling_rate * 8);
 #endif
-	INIT_DELAYED_WORK_DEFERRABLE(&ap_info.work, do_autoplug_timer);
+	INIT_DEFERRABLE_WORK(&ap_info.work, do_autoplug_timer);
 	schedule_delayed_work_on(0, &ap_info.work, delay);
 
 	return ret;
