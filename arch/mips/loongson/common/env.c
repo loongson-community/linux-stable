@@ -21,6 +21,7 @@
 #include <asm/bootinfo.h>
 #include <loongson.h>
 #include <boot_param.h>
+#include <workarounds.h>
 
 struct boot_params *boot_p;
 struct loongson_params *loongson_p;
@@ -34,22 +35,31 @@ u64 ht_control_base;
 u64 pci_mem_start_addr, pci_mem_end_addr;
 u64 loongson_pciio_base;
 u64 vgabios_addr;
-u64 poweroff_addr, restart_addr;
+u64 poweroff_addr, restart_addr, suspend_addr;
 
 u64 loongson_chipcfg[MAX_PACKAGES] = {0xffffffffbfc00180};
+u64 loongson_chiptemp[MAX_PACKAGES];
 u64 loongson_freqctrl[MAX_PACKAGES];
 
 unsigned long long smp_group[4];
 
 enum loongson_cpu_type cputype;
+u16 loongson_boot_cpu_id;
+u16 loongson_reserved_cpus_mask;
 u32 nr_cpus_loongson = NR_CPUS;
 u32 nr_nodes_loongson = MAX_NUMNODES;
 int cores_per_node;
 int cores_per_package;
-int cpufreq_workaround = 0;
-int cpuhotplug_workaround = 0;
 unsigned int has_systab = 0;
 unsigned long systab_addr;
+
+u32 loongson_dma_mask_bits;
+u64 loongson_workarounds;
+char loongson_ecname[32];
+u32 loongson_nr_uarts;
+struct uart_device loongson_uarts[MAX_UARTS];
+u32 loongson_nr_sensors;
+struct sensor_device loongson_sensors[MAX_SENSORS];
 
 u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
@@ -90,6 +100,7 @@ void __init prom_init_env(void)
 	boot_p = (struct boot_params *)fw_arg2;
 	loongson_p = &(boot_p->efi.smbios.lp);
 
+	esys	= (struct system_loongson *)((u64)loongson_p + loongson_p->system_offset);
 	ecpu	= (struct efi_cpuinfo_loongson *)((u64)loongson_p + loongson_p->cpu_offset);
 	emap 	= (struct efi_memory_map_loongson *)((u64)loongson_p + loongson_p->memory_offset);
 	eirq_source = (struct irq_source_routing_table *)((u64)loongson_p + loongson_p->irq_offset);
@@ -107,7 +118,11 @@ void __init prom_init_env(void)
 		loongson_chipcfg[1] = 0x900010001fe00180;
 		loongson_chipcfg[2] = 0x900020001fe00180;
 		loongson_chipcfg[3] = 0x900030001fe00180;
-		cpufreq_workaround = 1;
+		loongson_chiptemp[0] = 0x900000001fe0019c;
+		loongson_chiptemp[1] = 0x900010001fe0019c;
+		loongson_chiptemp[2] = 0x900020001fe0019c;
+		loongson_chiptemp[3] = 0x900030001fe0019c;
+		loongson_workarounds = WORKAROUND_CPUFREQ;
 	}
 	else if (cputype == Loongson_3B) {
 		cores_per_node = 4; /* Loongson 3B has two node in one package */
@@ -121,11 +136,15 @@ void __init prom_init_env(void)
 		loongson_chipcfg[1] = 0x900020001fe00180;
 		loongson_chipcfg[2] = 0x900040001fe00180;
 		loongson_chipcfg[3] = 0x900060001fe00180;
+		loongson_chiptemp[0] = 0x900000001fe0019c;
+		loongson_chiptemp[1] = 0x900020001fe0019c;
+		loongson_chiptemp[2] = 0x900040001fe0019c;
+		loongson_chiptemp[3] = 0x900060001fe0019c;
 		loongson_freqctrl[0] = 0x900000001fe001d0;
 		loongson_freqctrl[1] = 0x900020001fe001d0;
 		loongson_freqctrl[2] = 0x900040001fe001d0;
 		loongson_freqctrl[3] = 0x900060001fe001d0;
-		cpuhotplug_workaround = 1;
+		loongson_workarounds = WORKAROUND_CPUHOTPLUG;
 	}
 	else {
 		cores_per_node = 1;
@@ -135,6 +154,8 @@ void __init prom_init_env(void)
 
 	nr_cpus_loongson = ecpu->nr_cpus;
 	cpu_clock_freq = ecpu->cpu_clock_freq;
+	loongson_boot_cpu_id = ecpu->cpu_startup_core_id;
+	loongson_reserved_cpus_mask = ecpu->reserved_cores_mask;
 	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
 		nr_cpus_loongson = NR_CPUS;
 	nr_nodes_loongson = (nr_cpus_loongson + cores_per_node - 1) / cores_per_node;
@@ -142,12 +163,34 @@ void __init prom_init_env(void)
 	pci_mem_start_addr = eirq_source->pci_mem_start_addr;
 	pci_mem_end_addr = eirq_source->pci_mem_end_addr;
 	loongson_pciio_base = eirq_source->pci_io_start_addr;
+	loongson_dma_mask_bits = eirq_source->dma_mask_bits;
+	if (loongson_dma_mask_bits < 32 || loongson_dma_mask_bits > 64)
+		loongson_dma_mask_bits = 32;
 
 	poweroff_addr = boot_p->reset_system.Shutdown;
 	restart_addr = boot_p->reset_system.ResetWarm;
+	suspend_addr = boot_p->reset_system.DoSuspend;
 	pr_info("Shutdown Addr: %llx Reset Addr: %llx\n", poweroff_addr, restart_addr);
 
 	vgabios_addr = boot_p->efi.smbios.vga_bios;
+
+	memset(loongson_ecname, 0, 32);
+	if (esys->has_ec)
+		memcpy(loongson_ecname, esys->ec_name, 32);
+	loongson_workarounds |= esys->workarounds;
+
+	loongson_nr_uarts = esys->nr_uarts;
+	if (loongson_nr_uarts < 1 || loongson_nr_uarts > MAX_UARTS)
+		loongson_nr_uarts = 1;
+	memcpy(loongson_uarts, esys->uarts,
+		sizeof(struct uart_device) * loongson_nr_uarts);
+
+	loongson_nr_sensors = esys->nr_sensors;
+	if (loongson_nr_sensors > MAX_SENSORS)
+		loongson_nr_sensors = 0;
+	if (loongson_nr_sensors)
+		memcpy(loongson_sensors, esys->sensors,
+			sizeof(struct sensor_device) * loongson_nr_sensors);
 #endif
 	if (cpu_clock_freq == 0) {
 		processor_id = (&current_cpu_data)->processor_id;

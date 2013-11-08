@@ -27,14 +27,7 @@ static const char *system_types[] = {
 	[MACH_DEXXON_GDIUM2F10]		"dexxon-gdium-2f",
 	[MACH_LEMOTE_NAS]		"lemote-nas-2f",
 	[MACH_LEMOTE_LL2F]		"lemote-lynloong-2f",
-	[MACH_LEMOTE_A1004]		"lemote-3a-notebook-a1004",
-	[MACH_LEMOTE_A1101]		"lemote-3a-itx-a1101",
-	[MACH_LEMOTE_A1201]		"lemote-2gq-notebook-a1201",
-	[MACH_LEMOTE_A1205]		"lemote-2gq-aio-a1205",
-	[MACH_LEMOTE_A1214]		"lemote-3a-server-a1214",
-	[MACH_LEMOTE_A1215]		"lemote-3a-server-a1215",
-	[MACH_LEMOTE_A1217]		"lemote-3a-xjhd-a1217",
-	[MACH_LEMOTE_A1219]		"lemote-3a-tmcs-a1219",
+	[MACH_LOONGSON_GENERIC]		"generic-loongson-machine",
 	[MACH_LOONGSON_END]		NULL,
 };
 

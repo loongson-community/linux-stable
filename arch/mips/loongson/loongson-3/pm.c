@@ -63,17 +63,10 @@ static int i8042_enable_kbd_port(void)
 
 void setup_wakeup_events(void)
 {
-	switch (mips_machtype) {
-	case MACH_LEMOTE_A1004:
-		/* open the keyboard irq in i8259A */
-		outb_p((0xff & ~(1 << I8042_KBD_IRQ)), PIC_MASTER_IMR);
-		/* enable keyboard port */
-		i8042_enable_kbd_port();
-		break;
-
-	default:
-		break;
-	}
+	/* open the keyboard irq in i8259A */
+	outb_p((0xff & ~(1 << I8042_KBD_IRQ)), PIC_MASTER_IMR);
+	/* enable keyboard port */
+	i8042_enable_kbd_port();
 }
 
 int wakeup_loongson(void)
