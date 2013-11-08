@@ -25,3 +25,8 @@ obj-$(CONFIG_CS5536) += cs5536/
 #
 
 obj-$(CONFIG_LOONGSON_SUSPEND) += pm.o
+
+#
+# Big Memory (SWIOTLB) Support
+#
+obj-$(CONFIG_SWIOTLB) += dma-swiotlb.o
