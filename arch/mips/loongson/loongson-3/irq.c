@@ -24,7 +24,7 @@ extern void loongson3_ipi_interrupt(struct pt_regs *regs);
 static void ht_irqdispatch(void)
 {
 	unsigned int i, irq;
-	unsigned int ht_irq[] = {1, 3, 4, 5, 6, 7, 8, 12, 14, 15};
+	unsigned int ht_irq[] = {0, 1, 3, 4, 5, 6, 7, 8, 12, 14, 15};
 
 	irq = LOONGSON_HT1_INT_VECTOR(0);
 	LOONGSON_HT1_INT_VECTOR(0) = irq;
