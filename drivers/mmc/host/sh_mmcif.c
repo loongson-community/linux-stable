@@ -1104,7 +1104,6 @@ static irqreturn_t sh_mmcif_irqt(int irq, void *dev_id)
 {
 	struct sh_mmcif_host *host = dev_id;
 	struct mmc_request *mrq = host->mrq;
-	struct mmc_data *data = mrq->data;
 
 	cancel_delayed_work_sync(&host->timeout_work);
 
@@ -1152,13 +1151,14 @@ static irqreturn_t sh_mmcif_irqt(int irq, void *dev_id)
 	case MMCIF_WAIT_FOR_READ_END:
 	case MMCIF_WAIT_FOR_WRITE_END:
 		if (host->sd_error)
-			data->error = sh_mmcif_error_manage(host);
+			mrq->data->error = sh_mmcif_error_manage(host);
 		break;
 	default:
 		BUG();
 	}
 
 	if (host->wait_for != MMCIF_WAIT_FOR_STOP) {
+		struct mmc_data *data = mrq->data;
 		if (!mrq->cmd->error && data && !data->error)
 			data->bytes_xfered =
 				data->blocks * data->blksz;
@@ -1460,9 +1460,9 @@ static int __devexit sh_mmcif_remove(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, NULL);
 
+	clk_disable(host->hclk);
 	mmc_free_host(host->mmc);
 	pm_runtime_put_sync(&pdev->dev);
-	clk_disable(host->hclk);
 	pm_runtime_disable(&pdev->dev);
 
 	return 0;

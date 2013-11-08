@@ -63,6 +63,7 @@ int writeback_in_progress(struct backing_dev_info *bdi)
 {
 	return test_bit(BDI_writeback_running, &bdi->state);
 }
+EXPORT_SYMBOL(writeback_in_progress);
 
 static inline struct backing_dev_info *inode_to_bdi(struct inode *inode)
 {
@@ -227,6 +228,8 @@ static void requeue_io(struct inode *inode, struct bdi_writeback *wb)
 static void inode_sync_complete(struct inode *inode)
 {
 	inode->i_state &= ~I_SYNC;
+	/* If inode is clean an unused, put it into LRU now... */
+	inode_add_lru(inode);
 	/* Waiters must see I_SYNC cleared before being woken up */
 	smp_mb();
 	wake_up_bit(&inode->i_state, __I_SYNC);

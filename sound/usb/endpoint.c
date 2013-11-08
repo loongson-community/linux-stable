@@ -31,9 +31,11 @@
 #include "card.h"
 #include "endpoint.h"
 #include "pcm.h"
+#include "quirks.h"
 
 #define EP_FLAG_ACTIVATED	0
 #define EP_FLAG_RUNNING		1
+#define EP_FLAG_STOPPING	2
 
 /*
  * snd_usb_endpoint is a model that abstracts everything related to an
@@ -169,6 +171,11 @@ static void retire_inbound_urb(struct snd_usb_endpoint *ep,
 			       struct snd_urb_ctx *urb_ctx)
 {
 	struct urb *urb = urb_ctx->urb;
+
+	if (unlikely(ep->skip_packets > 0)) {
+		ep->skip_packets--;
+		return;
+	}
 
 	if (ep->sync_slave)
 		snd_usb_handle_sync_urb(ep->sync_slave, ep, urb);
@@ -496,8 +503,18 @@ static int wait_clear_urbs(struct snd_usb_endpoint *ep)
 	if (alive)
 		snd_printk(KERN_ERR "timeout: still %d active urbs on EP #%x\n",
 					alive, ep->ep_num);
+	clear_bit(EP_FLAG_STOPPING, &ep->flags);
 
 	return 0;
+}
+
+/* sync the pending stop operation;
+ * this function itself doesn't trigger the stop operation
+ */
+void snd_usb_endpoint_sync_pending_stop(struct snd_usb_endpoint *ep)
+{
+	if (ep && test_bit(EP_FLAG_STOPPING, &ep->flags))
+		wait_clear_urbs(ep);
 }
 
 /*
@@ -828,6 +845,8 @@ int snd_usb_endpoint_start(struct snd_usb_endpoint *ep, int can_sleep)
 	ep->unlink_mask = 0;
 	ep->phase = 0;
 
+	snd_usb_endpoint_start_quirk(ep);
+
 	/*
 	 * If this endpoint has a data endpoint as implicit feedback source,
 	 * don't start the urbs here. Instead, mark them all as available,
@@ -905,6 +924,8 @@ void snd_usb_endpoint_stop(struct snd_usb_endpoint *ep,
 
 		if (wait)
 			wait_clear_urbs(ep);
+		else
+			set_bit(EP_FLAG_STOPPING, &ep->flags);
 	}
 }
 

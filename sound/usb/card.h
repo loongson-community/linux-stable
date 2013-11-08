@@ -92,6 +92,8 @@ struct snd_usb_endpoint {
 	unsigned char silence_value;
 	unsigned int stride;
 	int iface, alt_idx;
+	int skip_packets;		/* quirks for devices to ignore the first n packets
+					   in a stream */
 
 	spinlock_t lock;
 	struct list_head list;
@@ -123,6 +125,7 @@ struct snd_usb_substream {
 	struct snd_usb_endpoint *data_endpoint;
 	struct snd_usb_endpoint *sync_endpoint;
 	unsigned long flags;
+	unsigned int speed;		/* USB_SPEED_XXX */
 
 	u64 formats;			/* format bitmasks (all or'ed) */
 	unsigned int num_formats;		/* number of supported audio formats (list) */
