@@ -94,6 +94,8 @@
 #define PRID_IMP_24KE		0x9600
 #define PRID_IMP_74K		0x9700
 #define PRID_IMP_1004K		0x9900
+#define PRID_IMP_PROAPTIV_UP	0xa200
+#define PRID_IMP_PROAPTIV_MP	0xa300
 
 /*
  * These are the PRID's for when 23:16 == PRID_COMP_SIBYTE
