@@ -511,6 +511,7 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		switch (current_cpu_type()) {
 		case CPU_M14KC:
 		case CPU_74K:
+		case CPU_PROAPTIV:
 			break;
 
 		default:
