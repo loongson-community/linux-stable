@@ -1072,6 +1072,7 @@ static void __cpuinit probe_pcache(void)
 	case CPU_34K:
 	case CPU_74K:
 	case CPU_1004K:
+	case CPU_PROAPTIV:
 		if (c->cputype == CPU_74K)
 			alias_74k_erratum(c);
 		if ((read_c0_config7() & (1 << 16))) {
