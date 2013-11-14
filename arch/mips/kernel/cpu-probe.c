@@ -869,6 +869,14 @@ static inline void cpu_probe_mips(struct cpuinfo_mips *c, unsigned int cpu)
 		c->cputype = CPU_1004K;
 		__cpu_name[cpu] = "MIPS 1004Kc";
 		break;
+	case PRID_IMP_PROAPTIV_UP:
+		c->cputype = CPU_PROAPTIV;
+		__cpu_name[cpu] = "MIPS proAptiv";
+		break;
+	case PRID_IMP_PROAPTIV_MP:
+		c->cputype = CPU_PROAPTIV;
+		__cpu_name[cpu] = "MIPS proAptiv (multi)";
+		break;
 	}
 
 	spram_config();
