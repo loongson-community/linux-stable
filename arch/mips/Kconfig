@@ -2149,9 +2149,14 @@ config SYS_SUPPORTS_NUMA
 	bool
 
 config NODES_SHIFT
-	int
+	int "Maximum Number of NUMA Nodes Shift"
+	range 1 10
 	default "6"
 	depends on NEED_MULTIPLE_NODES
+	help
+	  This option specifies the maximum number of available NUMA nodes
+	  on the target system. MAX_NUMNODES will be 2^(This value).
+	  If in doubt, use the default.
 
 config HW_PERF_EVENTS
 	bool "Enable hardware performance counter support for perf events"
