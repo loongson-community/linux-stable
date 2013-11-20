@@ -1,7 +1,7 @@
 #
 # Makefile for Loongson-3 family machines
 #
-obj-y			+= irq.o cop2-ex.o ec_wpce775l.o platform.o cpu_temperature.o loongson_hwmon.o
+obj-y			+= irq.o cop2-ex.o ec_wpce775l.o platform.o cpu_temperature.o loongson_hwmon.o loongson3_gpio.o lvds-op.o
 
 obj-$(CONFIG_I2C_PIIX4) += emc1412.o
 
