@@ -14,6 +14,7 @@
 #include <linux/suspend.h>
 #include <linux/interrupt.h>
 #include <linux/pm.h>
+#include <linux/cpu.h>
 #include <linux/i8042.h>
 #include <linux/module.h>
 #include <linux/pci.h>
