@@ -2,6 +2,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <boot_param.h>
 #include <loongson_hwmon.h>
 
 #define TMP75_SMB_ADDR	0x4E
@@ -13,6 +14,7 @@ static int tmp75_probe(struct platform_device *dev)
 	struct i2c_adapter *adapter = NULL;
 	struct i2c_board_info info;
 	int i = 0, found = 0;
+	struct sensor_device *sdev = (struct sensor_device *)dev->dev.platform_data;
 
 	memset(&info, 0, sizeof(struct i2c_board_info));
 
@@ -29,8 +31,9 @@ static int tmp75_probe(struct platform_device *dev)
 	if (!found)
 		goto fail;
 
-	info.addr = TMP75_SMB_ADDR;
-	info.platform_data = "TMP75 Temprature Sensor";
+	info.addr = sdev->base_addr;
+	info.platform_data = dev->dev.platform_data;
+
 	/* name should match drivers/hwmon/lm75.c id_table */
 	strncpy(info.type, "tmp75", I2C_NAME_SIZE);
 
@@ -44,7 +47,7 @@ static int tmp75_probe(struct platform_device *dev)
 
 	return 0;
 fail:
-	pr_err("Fail to fount smbus controller attach TMP75 sensor\n");
+	pr_err("Fail to found smbus controller attach TMP75 sensor\n");
 
 	return 0;
 }
@@ -70,6 +73,6 @@ static void __exit tmp75_exit(void)
 late_initcall(tmp75_init);
 module_exit(tmp75_exit);
 
-MODULE_AUTHOR("HuHongbing <huhb@lemote.com>");
+MODULE_AUTHOR("Hongbing Hu <huhb@lemote.com>");
 MODULE_DESCRIPTION("TMP75 driver, based on the EMC1412 driver");
 MODULE_LICENSE("GPL");

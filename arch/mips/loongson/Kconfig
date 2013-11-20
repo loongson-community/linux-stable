@@ -59,8 +59,8 @@ config LEMOTE_MACH2F
 	  These family machines include fuloong2f mini PC, yeeloong2f notebook,
 	  LingLoong allinone PC and so forth.
 
-config LEMOTE_MACH3A
-	bool "Lemote Loongson 3A family machines"
+config LOONGSON_MACH3X
+	bool "Generic Loongson 3 family machines"
 	select ARCH_SPARSEMEM_ENABLE
 	select GENERIC_ISA_DMA_SUPPORT_BROKEN
 	select GENERIC_HARDIRQS_NO__DO_IRQ
@@ -86,8 +86,8 @@ config LEMOTE_MACH3A
 	select UEFI_FIRMWARE_INTERFACE
 	select PHYS48_TO_HT40
 	help
-		Lemote Loongson 3A family machines utilize the 3A revision of
-		Loongson processor and RS780/SBX00 chipset.
+		Generic Loongson 3 family machines utilize the 3A/3B revision
+		of Loongson processor and RS780/SBX00 chipset.
 endchoice
 
 config CS5536
@@ -107,7 +107,7 @@ config CS5536_MFGPT
 
 config RS780_HPET
 	bool "RS780/SBX00 HPET Timer"
-	depends on LEMOTE_MACH3A
+	depends on LOONGSON_MACH3X
 	select MIPS_EXTERNAL_TIMER
 	help
 	  This option enables the hpet timer of AMD RS780/SBX00.

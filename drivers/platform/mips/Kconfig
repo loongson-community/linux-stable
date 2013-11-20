@@ -16,7 +16,7 @@ if MIPS_PLATFORM_DEVICES
 
 config LEMOTE3A_LAPTOP
 	tristate "Lemote Loongson-3A Laptop Driver"
-	depends on LEMOTE_MACH3A
+	depends on LOONGSON_MACH3X
 	select BACKLIGHT_LCD_SUPPORT
 	select LCD_CLASS_DEVICE
 	select BACKLIGHT_CLASS_DEVICE

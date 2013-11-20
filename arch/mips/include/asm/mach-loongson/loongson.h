@@ -33,7 +33,7 @@ extern void __init prom_init_cmdline(void);
 extern void __init prom_init_machtype(void);
 extern void __init prom_init_env(void);
 #ifdef CONFIG_LOONGSON_UART_BASE
-extern unsigned long _loongson_uart_base, loongson_uart_base;
+extern unsigned long _loongson_uart_base[], loongson_uart_base[];
 extern void prom_init_loongson_uart_base(void);
 #endif
 
@@ -251,6 +251,10 @@ static inline void do_perfcnt_IRQ(void)
 /* Chip Config registor of each physical cpu package, for Loongson-2F and successor */
 extern u64 loongson_chipcfg[MAX_PACKAGES];
 #define LOONGSON_CHIPCFG(id) (*(volatile u32 *)(loongson_chipcfg[id]))
+
+/* Chip Temperature registor of each physical cpu package, for Loongson-3A and successor */
+extern u64 loongson_chiptemp[MAX_PACKAGES];
+#define LOONGSON_CHIPTEMP(id) (*(volatile u32 *)(loongson_chiptemp[id]))
 
 /* Freq Control register of each physical cpu package, for Loongson-3B and successor */
 extern u64 loongson_freqctrl[MAX_PACKAGES];

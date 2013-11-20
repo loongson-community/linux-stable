@@ -2,7 +2,11 @@
 #include <linux/module.h>
 #include <linux/workqueue.h>
 #include <linux/platform_device.h>
+#include <linux/err.h>
+#include <linux/hwmon.h>
+#include <linux/hwmon-sysfs.h>
 
+#include <boot_param.h>
 #include <ec_wpce775l.h>
 #include <loongson_hwmon.h>
 
@@ -11,30 +15,64 @@
 #endif
 #define MAX_FAN_LEVEL 5
 
-int fan1_enable;
-enum fan_control_mode fan1_mode;
+int fan_enable;
+enum fan_control_mode fan_mode;
+static struct loongson_fan_policy fan_policy;
+
+static struct device *wpce775l_hwmon_dev;
+
+static ssize_t get_hwmon_name(struct device *dev,
+			struct device_attribute *attr, char *buf);
+static SENSOR_DEVICE_ATTR(name, S_IRUGO, get_hwmon_name, NULL, 0);
+
+static struct attribute *wpce775l_hwmon_attributes[] =
+{
+	&sensor_dev_attr_name.dev_attr.attr,
+	NULL
+};
+
+/* Hwmon device attribute group */
+static struct attribute_group wpce775l_hwmon_attribute_group =
+{
+	.attrs = wpce775l_hwmon_attributes,
+};
+
+/* Hwmon device get name */
+static ssize_t get_hwmon_name(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "wpce775l-fan\n");
+}
+
+static ssize_t get_fan_level(struct device *dev,
+			struct device_attribute *attr, char *buf);
+static ssize_t set_fan_level(struct device *dev,
+			struct device_attribute *attr, const char *buf, size_t count);
+static ssize_t get_fan_mode(struct device *dev,
+			struct device_attribute *attr, char *buf);
+static ssize_t set_fan_mode(struct device *dev,
+			struct device_attribute *attr, const char *buf, size_t count);
+static ssize_t get_fan_speed(struct device *dev,
+			struct device_attribute *attr, char *buf);
+
+static SENSOR_DEVICE_ATTR(pwm1, S_IWUSR | S_IRUGO,
+				get_fan_level, set_fan_level, 1);
+static SENSOR_DEVICE_ATTR(pwm1_enable, S_IWUSR | S_IRUGO,
+				get_fan_mode, set_fan_mode, 1);
+static SENSOR_DEVICE_ATTR(fan1_input, S_IRUGO, get_fan_speed, NULL, 1);
+
+static const struct attribute *hwmon_fan1[] = {
+	&sensor_dev_attr_pwm1.dev_attr.attr,
+	&sensor_dev_attr_pwm1_enable.dev_attr.attr,
+	&sensor_dev_attr_fan1_input.dev_attr.attr,
+	NULL
+};
 
 static struct workqueue_struct *notify_workqueue;
 static void notify_temp(struct work_struct *work);
 static DECLARE_DELAYED_WORK(notify_work, notify_temp);
 
-static u8 get_fan1_level(void);
-static int set_fan1_level(u8);
-static u32 get_fan1_speed(void);
-static int set_fan1_speed(u32);
-static enum fan_control_mode get_fan1_mode(void);
-static int set_fan1_mode(enum fan_control_mode mode);
-
-static struct loongson_fan_ops fan1_ops = {
-	.set_fan_mode  = set_fan1_mode,
-	.get_fan_mode  = get_fan1_mode,
-	.set_fan_level = set_fan1_level,
-	.get_fan_level = get_fan1_level,
-	.set_fan_speed = set_fan1_speed,
-	.get_fan_speed = get_fan1_speed,
-};
-
-static int _set_fan1_level(u8 level)
+static int wpce_set_fan_level(u8 level)
 {
 	if (level > MAX_FAN_LEVEL)
 		level = MAX_FAN_LEVEL;
@@ -43,43 +81,47 @@ static int _set_fan1_level(u8 level)
 	return 0;
 }
 
-static int set_fan1_level(u8 level)
+static ssize_t get_fan_level(struct device *dev,
+			struct device_attribute *attr, char *buf)
 {
-	if (fan1_mode == FAN_MANUAL_MODE)
-		_set_fan1_level(level);
+	u8 val;
 
-	return 0;
+	val = ec_read(INDEX_FAN_SPEED_LEVEL);
+	return sprintf(buf, "%d\n", val);
 }
 
-static u8 get_fan1_level(void)
+static ssize_t set_fan_level(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
 {
-	return ec_read(INDEX_FAN_SPEED_LEVEL);
+	u8 new_level;
+
+	new_level = SENSORS_LIMIT(simple_strtoul(buf, NULL, 10), 0, 255);
+	if (fan_mode == FAN_MANUAL_MODE)
+		wpce_set_fan_level(new_level);
+
+	return count;
 }
 
-static int set_fan1_speed(u32 speed)
+static ssize_t get_fan_speed(struct device *dev,
+			struct device_attribute *attr, char *buf)
 {
-	/* not implement */
-	return 0;
-}
+	u32 val;
 
-static u32 get_fan1_speed(void)
-{
-	return (ec_read(INDEX_FAN_SPEED_HIGH) << 8) +
+	val = (ec_read(INDEX_FAN_SPEED_HIGH) << 8) +
 			ec_read(INDEX_FAN_SPEED_LOW);
+	return sprintf(buf, "%d\n", val);
 }
 
 static void notify_temp(struct work_struct *work)
 {
 	u8 temp;
-	struct loongson_fan_policy *policy;
 
-	policy = fan1_ops.fan_policy;
-	temp =  policy->depend_temp(policy->depend_data) / 1000;
+	temp =  fan_policy.depend_temp(0) / 1000;
 
 	ec_write_noindex(0x4d, temp);
 
 	queue_delayed_work(notify_workqueue, &notify_work,
-				policy->adjust_period * HZ);
+				fan_policy.adjust_period * HZ);
 }
 
 static int notify_temp_to_EC(void)
@@ -90,108 +132,121 @@ static int notify_temp_to_EC(void)
 	return 0;
 }
 
-static int kernel_control_fan1(void)
+static int kernel_control_fan(void)
 {
 	ec_write(INDEX_FAN_CTRLMOD,FAN_CTRL_BYHOST);
 	return 0;
 }
 
-static int ec_control_fan1(void)
+static int ec_control_fan(void)
 {
 	ec_write(INDEX_FAN_CTRLMOD,FAN_CTRL_BYEC);
 	return 0;
 }
 
-static void fan1_start_auto(void)
+static void fan_start_auto(void)
 {
-	struct loongson_fan_policy *policy;
+	ec_control_fan();
 
-	policy = fan1_ops.fan_policy;
-	if (policy == NULL)
-		goto fan1_no_policy;
-
-	ec_control_fan1();
-
-	switch (policy->type) {
+	switch (fan_policy.type) {
 	case KERNEL_HELPER_POLICY:
 		notify_temp_to_EC();
 		break;
 	default:
-		printk(KERN_ERR "wpce fan1 not support fan policy id %d!\n", policy->type);
-		goto fan1_no_policy;
+		printk(KERN_ERR "wpce fan not support fan policy id %d!\n", fan_policy.type);
+		wpce_set_fan_level(MAX_FAN_LEVEL);
 	}
-
-	return;
-
-fan1_no_policy:
-	_set_fan1_level(MAX_FAN_LEVEL);
-	printk(KERN_ERR "fan1 have no fan policy!\n");
 
 	return;
 }
 
-static void fan1_stop_auto(void)
+static void fan_stop_auto(void)
 {
-	if ((fan1_ops.fan_policy->type == KERNEL_HELPER_POLICY) &&
-		       (fan1_mode == FAN_AUTO_MODE)) {
+	if ((fan_policy.type == KERNEL_HELPER_POLICY) &&
+		       (fan_mode == FAN_AUTO_MODE)) {
 			cancel_delayed_work(&notify_work);
 			destroy_workqueue(notify_workqueue);
 	}
 
-	kernel_control_fan1();
+	kernel_control_fan();
 }
 
-static int set_fan1_mode(enum fan_control_mode mode)
+static ssize_t set_fan_mode(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
 {
-	if (mode >= FAN_MODE_END)
-		return -EINVAL;
+	u8 new_mode;
 
-	if (mode == fan1_mode)
-		return 0;
+	new_mode = SENSORS_LIMIT(simple_strtoul(buf, NULL, 10),
+					FAN_FULL_MODE, FAN_AUTO_MODE);
 
-	switch (mode) {
+	if (new_mode == fan_mode)
+		return count;
+
+	switch (new_mode) {
 	case FAN_FULL_MODE:
-		fan1_stop_auto();
-		_set_fan1_level(MAX_FAN_LEVEL);
+		fan_stop_auto();
+		wpce_set_fan_level(MAX_FAN_LEVEL);
 		break;
 	case FAN_MANUAL_MODE:
-		fan1_stop_auto();
+		fan_stop_auto();
 		break;
 	case FAN_AUTO_MODE:
-		fan1_start_auto();
+		fan_start_auto();
 		break;
 	default:
 		break;
 	}
 
-	fan1_mode = mode;
+	fan_mode = new_mode;
 
-	return 0;
+	return count;
 }
 
-static enum fan_control_mode get_fan1_mode(void)
+static ssize_t get_fan_mode(struct device *dev,
+			struct device_attribute *attr, char *buf)
 {
-	return fan1_mode;
+	return sprintf(buf, "%d\n", fan_mode);
 }
 
-static int __devinit fan1_probe(struct platform_device *dev)
+static int fan_probe(struct platform_device *dev)
 {
+	int ret;
+	struct sensor_device *sdev = (struct sensor_device *)dev->dev.platform_data;
+
 	/* get fan policy */
-	fan1_ops.fan_policy = loongson_fan1_ops.fan_policy;
+	switch (sdev->fan_policy) {
+	case KERNEL_HELPER_POLICY:
+		memcpy(&fan_policy, &kernel_helper_policy, sizeof(fan_policy));
+		break;
+	case STEP_SPEED_POLICY:
+		memcpy(&fan_policy, &step_speed_policy, sizeof(fan_policy));
+		break;
+	case CONSTANT_SPEED_POLICY:
+	default:
+		memcpy(&fan_policy, &constant_speed_policy, sizeof(fan_policy));
+		fan_policy.percent = sdev->fan_percent;
+		if (fan_policy.percent == 0 || fan_policy.percent > 100)
+			fan_policy.percent = 100;
+		break;
+	}
 
-	/* set loongson_fan1_ops */
-	loongson_fan1_ops = fan1_ops;
+	/* force fan in auto mode first */
+	fan_mode = FAN_AUTO_MODE;
+	fan_start_auto();
 
-	/* force fan1 in auto mode first */
-	set_fan1_mode(FAN_AUTO_MODE);
+	ret = sysfs_create_files(&wpce775l_hwmon_dev->kobj, hwmon_fan1);
+	if (ret) {
+		printk(KERN_ERR "fail to create sysfs files\n");
+		return ret;
+	}
 
 	return 0;
 }
 
-static struct platform_driver fan1_driver = {
-	.probe		= fan1_probe,
+static struct platform_driver fan_driver = {
+	.probe		= fan_probe,
 	.driver		= {
-		.name	= "wpce-fan1",
+		.name	= "wpce-fan",
 		.owner	= THIS_MODULE,
 	},
 };
@@ -200,25 +255,57 @@ static int __init wpce_fan_init(void)
 {
 	int ret;
 
-	ret = platform_driver_register(&fan1_driver);
-	if (ret)
-		printk(KERN_ERR "register fan1 fail\n");
+	wpce775l_hwmon_dev = hwmon_device_register(NULL);
+	if (IS_ERR(wpce775l_hwmon_dev)) {
+		ret = -ENOMEM;
+		printk(KERN_ERR "hwmon_device_register fail!\n");
+		goto fail_hwmon_device_register;
+	}
 
+	ret = sysfs_create_group(&wpce775l_hwmon_dev->kobj,
+				&wpce775l_hwmon_attribute_group);
+	if (ret) {
+		printk(KERN_ERR "fail to create loongson hwmon!\n");
+		goto fail_sysfs_create_group_hwmon;
+	}
+
+	ret = platform_driver_register(&fan_driver);
+	if (ret) {
+		printk(KERN_ERR "fail to register fan driver!\n");
+		goto fail_register_fan;
+	}
+
+	return 0;
+
+fail_register_fan:
+	sysfs_remove_group(&wpce775l_hwmon_dev->kobj,
+				&wpce775l_hwmon_attribute_group);
+
+fail_sysfs_create_group_hwmon:
+	hwmon_device_unregister(wpce775l_hwmon_dev);
+
+fail_hwmon_device_register:
 	return ret;
 }
 
 static void __exit wpce_fan_exit(void)
 {
 	/* set fan at full speed mode before module exit */
-	if (fan1_enable)
-		set_fan1_mode(FAN_FULL_MODE);
+	if (fan_enable)
+		fan_mode = FAN_FULL_MODE;
+	fan_stop_auto();
+	wpce_set_fan_level(MAX_FAN_LEVEL);
 
-	platform_driver_unregister(&fan1_driver);
+	platform_driver_unregister(&fan_driver);
+	sysfs_remove_group(&wpce775l_hwmon_dev->kobj,
+				&wpce775l_hwmon_attribute_group);
+	hwmon_device_unregister(wpce775l_hwmon_dev);
 }
 
-module_init(wpce_fan_init);
+late_initcall(wpce_fan_init);
 module_exit(wpce_fan_exit);
 
-MODULE_AUTHOR("Xiang Yu <xiangy@lemote.com>");
+MODULE_AUTHOR("Yu Xiang <xiangy@lemote.com>");
+MODULE_AUTHOR("Huacai Chen <chenhc@lemote.com>");
 MODULE_DESCRIPTION("WPCE775L fan control driver");
 MODULE_LICENSE("GPL");
