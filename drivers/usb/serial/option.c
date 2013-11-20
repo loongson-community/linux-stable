@@ -1610,6 +1610,7 @@ static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE(ALCATEL_VENDOR_ID, ALCATEL_PRODUCT_X060S_X200),
 	  .driver_info = (kernel_ulong_t)&alcatel_x200_blacklist
 	},
+	{ USB_DEVICE_AND_INTERFACE_INFO(0x19f5, 0x9909, 0xff, 0xff, 0xff)},
 	{ USB_DEVICE(ALCATEL_VENDOR_ID, ALCATEL_PRODUCT_X220_X500D),
 	  .driver_info = (kernel_ulong_t)&net_intf6_blacklist },
 	{ USB_DEVICE(ALCATEL_VENDOR_ID, 0x0052),
