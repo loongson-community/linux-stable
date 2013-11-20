@@ -31,6 +31,7 @@
 
 #include "drmP.h"
 #include "drm.h"
+#include "drm_crtc_helper.h"
 #include "radeon_drm.h"
 #include "radeon_drv.h"
 
@@ -389,6 +390,32 @@ static struct pci_driver radeon_kms_pci_driver = {
 	.suspend = radeon_pci_suspend,
 	.resume = radeon_pci_resume,
 };
+
+void radeon_lvds_dpms_off(void)
+{
+	struct drm_device *dev;
+	struct drm_connector *connector;
+
+	list_for_each_entry(dev, &driver->device_list, driver_item) {
+		list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
+			if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS)
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
+		}
+	}
+}
+
+void radeon_lvds_dpms_on(void)
+{
+	struct drm_device *dev;
+	struct drm_connector *connector;
+
+	list_for_each_entry(dev, &driver->device_list, driver_item) {
+		list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
+			if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS)
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
+		}
+	}
+}
 
 static int __init radeon_init(void)
 {
