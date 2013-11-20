@@ -2,7 +2,9 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/reboot.h>
 #include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/platform_device.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
@@ -196,6 +198,25 @@ static ssize_t get_emc1412_temp(struct device *dev,
 	return sprintf(buf, "%d\n", value);
 }
 
+#define EMC1412_THERMAL_THRESHOLD 90000
+static struct delayed_work thermal_work;
+
+static void do_thermal_timer(struct work_struct *work)
+{
+	int i, value, temp_max = 0;
+
+	for (i=0; i<MAX_EMC1412_CLIENTS; i++) {
+		value = emc1412_external_temp(i);
+		if (value > temp_max)
+			temp_max = value;
+	}
+
+	if (temp_max <= EMC1412_THERMAL_THRESHOLD)
+		schedule_delayed_work(&thermal_work, msecs_to_jiffies(5000));
+	else
+		orderly_poweroff(true);
+}
+
 int fixup_cpu_temp(int cpu, int cputemp)
 {
 	static int printed[MAX_PACKAGES] = {0, 0, 0, 0};
@@ -284,6 +305,8 @@ static int __init emc1412_init(void)
 	}
 
 	platform_driver_register(&emc1412_driver);
+	INIT_DELAYED_WORK_DEFERRABLE(&thermal_work, do_thermal_timer);
+	schedule_delayed_work(&thermal_work, msecs_to_jiffies(20000));
 
 	return 0;
 
@@ -296,6 +319,7 @@ fail_hwmon_device_register:
 
 static void __exit emc1412_exit(void)
 {
+	cancel_delayed_work_sync(&thermal_work);
 	platform_driver_unregister(&emc1412_driver);
 	sysfs_remove_group(&emc1412_hwmon_dev->kobj,
 				&emc1412_hwmon_attribute_group);
