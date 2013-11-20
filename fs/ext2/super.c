@@ -870,7 +870,7 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	 */
 	features = EXT2_HAS_INCOMPAT_FEATURE(sb, ~EXT2_FEATURE_INCOMPAT_SUPP);
 	if (features) {
-		ext2_msg(sb, KERN_ERR,	"error: couldn't mount because of "
+		ext2_msg(sb, KERN_INFO,	"error: couldn't mount because of "
 		       "unsupported optional features (%x)",
 			le32_to_cpu(features));
 		goto failed_mount;
