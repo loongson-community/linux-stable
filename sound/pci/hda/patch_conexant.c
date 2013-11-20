@@ -2939,6 +2939,12 @@ static struct hda_verb cxt5066_init_verbs_lemote[] = {
 	{ } /* end */
 };
 
+static unsigned int cxt5066_raw_init_verbs_lemote_aio_a1205[] = {
+	0x273f01c, /* Set speaker power to 1.5W@8ohm */
+	0x2729003, /* Set High pass filter to 90Hz */
+	-1 /* end */
+};
+
 /* initialize jack-sensing, too */
 static int cxt5066_init(struct hda_codec *codec)
 {
@@ -3184,6 +3190,11 @@ static int patch_cxt5066(struct hda_codec *codec)
 	case CXT5066_LEMOTE_A1205:
 		codec->patch_ops.init = cxt5066_init;
 		codec->patch_ops.unsol_event = cxt5066_unsol_event;
+		if (board_config == CXT5066_LEMOTE_A1205) {
+			spec->raw_init_verbs[spec->num_raw_init_verbs] =
+				cxt5066_raw_init_verbs_lemote_aio_a1205;
+			spec->num_raw_init_verbs++;
+		}
 		spec->init_verbs[spec->num_init_verbs] =
 			cxt5066_init_verbs_lemote;
 		spec->num_init_verbs++;
@@ -3191,6 +3202,8 @@ static int patch_cxt5066(struct hda_codec *codec)
 		spec->mixers[spec->num_mixers++] = cxt5066_mixer_master;
 		spec->mixers[spec->num_mixers++] = cxt5066_mixers;
 		/* no S/PDIF out */
+		if (board_config == CXT5066_LEMOTE_A1205)
+			spec->multiout.dig_out_nid = 0;
 		/* input source automatically selected */
 		spec->input_mux = NULL;
 		spec->port_d_mode = 0;
