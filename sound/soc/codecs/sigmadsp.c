@@ -176,6 +176,13 @@ static int _process_sigma_firmware(struct device *dev,
 		goto done;
 	}
 
+	if (ssfw_head->version != 1) {
+		dev_err(dev,
+			"Failed to load firmware: Invalid version %d. Supported firmware versions: 1\n",
+			ssfw_head->version);
+		goto done;
+	}
+
 	crc = crc32(0, fw->data + sizeof(*ssfw_head),
 			fw->size - sizeof(*ssfw_head));
 	pr_debug("%s: crc=%x\n", __func__, crc);
@@ -225,7 +232,7 @@ EXPORT_SYMBOL(process_sigma_firmware);
 static int sigma_action_write_regmap(void *control_data,
 	const struct sigma_action *sa, size_t len)
 {
-	return regmap_raw_write(control_data, le16_to_cpu(sa->addr),
+	return regmap_raw_write(control_data, be16_to_cpu(sa->addr),
 		sa->payload, len - 2);
 }
 

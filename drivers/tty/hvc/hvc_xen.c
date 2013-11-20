@@ -214,24 +214,24 @@ static int xen_hvm_console_init(void)
 	/* already configured */
 	if (info->intf != NULL)
 		return 0;
-
+	/*
+	 * If the toolstack (or the hypervisor) hasn't set these values, the
+	 * default value is 0. Even though mfn = 0 and evtchn = 0 are
+	 * theoretically correct values, in practice they never are and they
+	 * mean that a legacy toolstack hasn't initialized the pv console correctly.
+	 */
 	r = hvm_get_parameter(HVM_PARAM_CONSOLE_EVTCHN, &v);
-	if (r < 0) {
-		kfree(info);
-		return -ENODEV;
-	}
+	if (r < 0 || v == 0)
+		goto err;
 	info->evtchn = v;
-	hvm_get_parameter(HVM_PARAM_CONSOLE_PFN, &v);
-	if (r < 0) {
-		kfree(info);
-		return -ENODEV;
-	}
+	v = 0;
+	r = hvm_get_parameter(HVM_PARAM_CONSOLE_PFN, &v);
+	if (r < 0 || v == 0)
+		goto err;
 	mfn = v;
 	info->intf = ioremap(mfn << PAGE_SHIFT, PAGE_SIZE);
-	if (info->intf == NULL) {
-		kfree(info);
-		return -ENODEV;
-	}
+	if (info->intf == NULL)
+		goto err;
 	info->vtermno = HVC_COOKIE;
 
 	spin_lock(&xencons_lock);
@@ -239,6 +239,9 @@ static int xen_hvm_console_init(void)
 	spin_unlock(&xencons_lock);
 
 	return 0;
+err:
+	kfree(info);
+	return -ENODEV;
 }
 
 static int xen_pv_console_init(void)
@@ -287,7 +290,7 @@ static int xen_initial_domain_console_init(void)
 			return -ENOMEM;
 	}
 
-	info->irq = bind_virq_to_irq(VIRQ_CONSOLE, 0);
+	info->irq = bind_virq_to_irq(VIRQ_CONSOLE, 0, false);
 	info->vtermno = HVC_COOKIE;
 
 	spin_lock(&xencons_lock);
@@ -297,11 +300,27 @@ static int xen_initial_domain_console_init(void)
 	return 0;
 }
 
+static void xen_console_update_evtchn(struct xencons_info *info)
+{
+	if (xen_hvm_domain()) {
+		uint64_t v;
+		int err;
+
+		err = hvm_get_parameter(HVM_PARAM_CONSOLE_EVTCHN, &v);
+		if (!err && v)
+			info->evtchn = v;
+	} else
+		info->evtchn = xen_start_info->console.domU.evtchn;
+}
+
 void xen_console_resume(void)
 {
 	struct xencons_info *info = vtermno_to_xencons(HVC_COOKIE);
-	if (info != NULL && info->irq)
+	if (info != NULL && info->irq) {
+		if (!xen_initial_domain())
+			xen_console_update_evtchn(info);
 		rebind_evtchn_irq(info->evtchn, info->irq);
+	}
 }
 
 static void xencons_disconnect_backend(struct xencons_info *info)
@@ -430,9 +449,9 @@ static int __devinit xencons_probe(struct xenbus_device *dev,
 	if (devid == 0)
 		return -ENODEV;
 
-	info = kzalloc(sizeof(struct xencons_info), GFP_KERNEL | __GFP_ZERO);
+	info = kzalloc(sizeof(struct xencons_info), GFP_KERNEL);
 	if (!info)
-		goto error_nomem;
+		return -ENOMEM;
 	dev_set_drvdata(&dev->dev, info);
 	info->xbdev = dev;
 	info->vtermno = xenbus_devid_to_vtermno(devid);

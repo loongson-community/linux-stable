@@ -158,6 +158,7 @@ static int radeon_cs_sync_rings(struct radeon_cs_parser *p)
 	return 0;
 }
 
+/* XXX: note that this is called from the legacy UMS CS ioctl as well */
 int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 {
 	struct drm_radeon_cs *cs = data;
@@ -166,11 +167,13 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 	u32 ring = RADEON_CS_RING_GFX;
 	s32 priority = 0;
 
+	INIT_LIST_HEAD(&p->validated);
+
 	if (!cs->num_chunks) {
 		return 0;
 	}
+
 	/* get chunks */
-	INIT_LIST_HEAD(&p->validated);
 	p->idx = 0;
 	p->chunk_ib_idx = -1;
 	p->chunk_relocs_idx = -1;
@@ -252,22 +255,24 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 		}
 	}
 
-	if ((p->cs_flags & RADEON_CS_USE_VM) &&
-	    !p->rdev->vm_manager.enabled) {
-		DRM_ERROR("VM not active on asic!\n");
-		return -EINVAL;
+	/* these are KMS only */
+	if (p->rdev) {
+		if ((p->cs_flags & RADEON_CS_USE_VM) &&
+		    !p->rdev->vm_manager.enabled) {
+			DRM_ERROR("VM not active on asic!\n");
+			return -EINVAL;
+		}
+
+		/* we only support VM on SI+ */
+		if ((p->rdev->family >= CHIP_TAHITI) &&
+		    ((p->cs_flags & RADEON_CS_USE_VM) == 0)) {
+			DRM_ERROR("VM required on SI+!\n");
+			return -EINVAL;
+		}
+
+		if (radeon_cs_get_ring(p, ring, priority))
+			return -EINVAL;
 	}
-
-	/* we only support VM on SI+ */
-	if ((p->rdev->family >= CHIP_TAHITI) &&
-	    ((p->cs_flags & RADEON_CS_USE_VM) == 0)) {
-		DRM_ERROR("VM required on SI+!\n");
-		return -EINVAL;
-	}
-
-	if (radeon_cs_get_ring(p, ring, priority))
-		return -EINVAL;
-
 
 	/* deal with non-vm */
 	if ((p->chunk_ib_idx != -1) &&
@@ -374,7 +379,7 @@ static int radeon_cs_ib_chunk(struct radeon_device *rdev,
 	if (r) {
 		DRM_ERROR("Failed to schedule IB !\n");
 	}
-	return 0;
+	return r;
 }
 
 static int radeon_bo_vm_update_pte(struct radeon_cs_parser *parser,
