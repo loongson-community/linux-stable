@@ -1003,6 +1003,7 @@ int radeon_gpu_reset(struct radeon_device *rdev)
 	radeon_save_bios_scratch_regs(rdev);
 	/* block TTM */
 	resched = ttm_bo_lock_delayed_workqueue(&rdev->mman.bdev);
+	radeon_pm_suspend(rdev);
 	radeon_suspend(rdev);
 
 	r = radeon_asic_reset(rdev);
@@ -1010,6 +1011,7 @@ int radeon_gpu_reset(struct radeon_device *rdev)
 		dev_info(rdev->dev, "GPU reset succeed\n");
 		radeon_resume(rdev);
 		radeon_restore_bios_scratch_regs(rdev);
+		radeon_pm_resume(rdev);
 		drm_helper_resume_force_mode(rdev->ddev);
 		ttm_bo_unlock_delayed_workqueue(&rdev->mman.bdev, resched);
 	}
