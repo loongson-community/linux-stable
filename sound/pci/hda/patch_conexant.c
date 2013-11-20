@@ -3023,6 +3023,78 @@ static const struct snd_pci_quirk cxt5066_cfg_tbl[] = {
 	{}
 };
 
+#ifdef CONFIG_PROC_FS
+static void cxt5066_proc_hook(struct snd_info_buffer *buffer,
+			      struct hda_codec *codec, hda_nid_t nid)
+{
+	if (nid == codec->afg) {
+		unsigned int res;
+		const struct {
+			unsigned int val;
+			const char *desc;
+		} speaker_power_map[] = {
+			{ 0x10, "2.00	1.00	N/A	N/A	(Unit:W)" },
+			{ 0x14, "1.80	0.90	N/A	N/A	(Unit:W)" },
+			{ 0x1c, "1.50	1.00	N/A	N/A	(Unit:W)" },
+			{ 0x20, "1.40	1.00	N/A	N/A	(Unit:W)" },
+			{ 0x24, "1.20	1.00	N/A	N/A	(Unit:W)" },
+			{ 0x28, "1.00	0.50	N/A	N/A	(Unit:W)" },
+			{ 0x2c, "0.80	0.40	N/A	N/A	(Unit:W)" },
+			{ 0x30, "0.60	0.30	N/A	N/A	(Unit:W)" },
+			{ 0x34, "0.50	0.25	2.00	1.00	(Unit:W)" },
+			{ 0x38, "0.40	0.20	1.60	0.80	(Unit:W)" },
+			{ 0x3c, "0.25	0.13	1.00	0.50	(Unit:W)" },
+			{ -1,   "???" }
+		};
+		int i;
+
+		snd_iprintf(buffer, "Node 0x27 [Vendor Defined Widget]:\n");
+
+		snd_hda_codec_exec_verb(codec, 0x27a2000, &res);
+		snd_iprintf(buffer, "  PC beep: %s\n",
+		            res == 0x0 ? "independent mode(default)" :
+		            res == 0x2 ? "mixed mode" : "???");
+
+		snd_hda_codec_exec_verb(codec, 0x27a7000, &res);
+		snd_iprintf(buffer, "  Class D: %s\n",
+		            res == 0x0 ? "stereo mode(default)" :
+			    res == 0x10 ? "mono mode" : "???");
+
+		snd_hda_codec_exec_verb(codec, 0x27bf000, &res);
+		for (i = 0;
+		     speaker_power_map[i].val != -1 &&
+		     speaker_power_map[i].val != res;
+		     i++) {}
+		snd_iprintf(buffer, "  Speaker power: %s\n",
+			    speaker_power_map[i].desc);
+
+		snd_hda_codec_exec_verb(codec, 0x01f1f00, &res);
+		snd_iprintf(buffer, "  GS Mark: %s\n",
+		            res == 0x0 ? "Disabled" :
+		            res == 0x1 ? "Enabled" : "???");
+
+		snd_hda_codec_exec_verb(codec, 0x27a9000, &res);
+		if (res > 0x0 && res <= 0x3f)
+			snd_iprintf(buffer, "  High pass filter: %dHz\n", res*30);
+		else
+			snd_iprintf(buffer, "  High pass filter: %s\n",
+			            res == 0x0 ? "120Hz(default)" : "???");
+
+		snd_hda_codec_exec_verb(codec, 0x27aa008, &res);
+		if (res > 0x0 && res <= 0x3f)
+			snd_iprintf(buffer, "  Low pass filter: %dHz\n", res*15);
+		else
+			snd_iprintf(buffer, "  Low pass filter: %s\n",
+			            res == 0x0 ? "Disabled" : "???");
+
+		snd_hda_codec_exec_verb(codec, 0x27b4100, &res);
+		snd_iprintf(buffer, "  Adjust 3.3V LDO voltage: 0x%x\n", res);
+	}
+}
+#else
+#define cxt5066_proc_hook NULL
+#endif
+
 static int patch_cxt5066(struct hda_codec *codec)
 {
 	struct conexant_spec *spec;
@@ -3042,6 +3114,8 @@ static int patch_cxt5066(struct hda_codec *codec)
 
 	codec->patch_ops = conexant_patch_ops;
 	codec->patch_ops.init = conexant_init;
+
+	codec->proc_widget_hook = cxt5066_proc_hook;
 
 	spec->dell_automute = 0;
 	spec->multiout.max_channels = 2;
