@@ -104,11 +104,6 @@ config CS5536_MFGPT
 
 	  If unsure, say Yes.
 
-config LOONGSON_SUSPEND
-	bool
-	default y
-	depends on CPU_SUPPORTS_CPUFREQ && SUSPEND
-
 config LOONGSON_UART_BASE
 	bool
 	default y
