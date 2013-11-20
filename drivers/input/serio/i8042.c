@@ -98,7 +98,7 @@ static bool i8042_bypass_aux_irq_test;
  * i8042_lock protects serialization between i8042_command and
  * the interrupt handler.
  */
-static DEFINE_SPINLOCK(i8042_lock);
+DEFINE_SPINLOCK(i8042_lock);
 
 /*
  * Writers to AUX and KBD ports as well as users issuing i8042_command
