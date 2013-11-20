@@ -3,7 +3,7 @@
 #
 obj-y			+= irq.o cop2-ex.o ec_wpce775l.o platform.o cpu_temperature.o loongson_hwmon.o lvds-op.o
 
-obj-$(CONFIG_I2C_PIIX4) += emc1412.o
+obj-$(CONFIG_I2C_PIIX4) += emc1412.o tmp75.o
 
 obj-$(CONFIG_SMP)	+= smp.o
 

@@ -16,6 +16,7 @@
 #include <linux/platform_device.h>
 #include <loongson_hwmon.h>
 #include <asm/bootinfo.h>
+#include <linux/i2c.h>
 
 #define GPIO5	5
 #define GPIO7	7
@@ -29,15 +30,15 @@ static struct platform_device wpce775l_chip = {
 	.id = -1,
 };
 
-/* temperature sensor EMC1412 used in A1004, A1101, A1205 */
-static struct platform_device emc1412_sensor = {
-	.name = "EMC1412",
-	.id = 0,
-};
-
 /* wpce-fan1 in A1004 */
 static struct platform_device wpce_fan1 = {
 	.name = "wpce-fan1",
+	.id = 0,
+};
+
+/* tmp75 sensor in A1214 */
+static struct platform_device tmp75_device = {
+	.name = "tmp75",
 	.id = 0,
 };
 
@@ -53,8 +54,14 @@ static struct platform_device sbx00_fan2 = {
 	.id = 0,
 };
 
+/* sbx00-fan3 in A1214 */
+static struct platform_device sbx00_fan3 = {
+	.name = "sbx00-fan3",
+	.id = 0,
+};
+
 /*
- * A1004 Fan1 controler policy
+ * Kernel helper policy
  *
  * Fan is controlled by EC in A1004 pruducts, but EC can not get the current
  * cpu temperature which used for adjusting the current fan speed.
@@ -62,30 +69,29 @@ static struct platform_device sbx00_fan2 = {
  * So, kernel read the CPU temperature and notify it to EC per second,
  * that's all!
  */
-struct loongson_fan_policy a1004_fan1_default_policy = {
+struct loongson_fan_policy kernel_helper_policy = {
 	.type = KERNEL_HELPER_POLICY,
 	.adjust_period = 1,
 	.depend_temp = loongson3_cpu_temp,
+	.depend_data = 1, /* CPU0 */
 };
 
 /*
- * A1101 Fan1/Fan2 control policy
- *
- * Fan1 & Fan2 keep at half-speed
+ * Constant speed policy
  *
  */
-struct loongson_fan_policy a1101_fan1_default_policy = {
+struct loongson_fan_policy constant_speed_50p_policy = {
 	.type = CONSTANT_SPEED_POLICY,
 	.percent = 50,
 };
 
-struct loongson_fan_policy a1101_fan2_default_policy = {
+struct loongson_fan_policy constant_speed_70p_policy = {
 	.type = CONSTANT_SPEED_POLICY,
-	.percent = 50,
+	.percent = 70,
 };
 
 /*
- * A1205 Fan1 at step mode
+ * Policy at step mode
  *
  * up_step array    |   down_step array
  *                  |
@@ -96,10 +102,11 @@ struct loongson_fan_policy a1101_fan2_default_policy = {
  * [80,  max), 100% |   [75,  max), 100%
  *
  */
-struct loongson_fan_policy a1205_fan1_default_policy = {
+struct loongson_fan_policy step_speed_policy = {
 	.type = STEP_SPEED_POLICY,
 	.adjust_period = 1,
 	.depend_temp = loongson3_cpu_temp,
+	.depend_data = 1, /* CPU0 */
 	.up_step_num = 5,
 	.down_step_num = 5,
 	.up_step = {
@@ -123,41 +130,39 @@ static int __init loongson3a_platform_init(void)
 	/* temprature info */
 	switch (mips_machtype) {
 	case MACH_LEMOTE_A1004:
+	case MACH_LEMOTE_A1217:
 		/* thermal sensor register and interface init */
-		loongson_temp_info.get_cpu_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
 		loongson_temp_info.get_nb_temp = emc1412_external_temp;
 		loongson_temp_info.get_sb_temp = NULL; // not implement now
-		platform_device_register(&emc1412_sensor);
 
 		/* fan sensor register and choose fan control policy */
 		platform_device_register(&wpce_fan1);
-		loongson_fan1_ops.fan_policy = &a1004_fan1_default_policy;
+		loongson_fan1_ops.fan_policy = &kernel_helper_policy;
 
 		/* for lemote-laptop */
 		platform_device_register(&wpce775l_chip);
 		break;
 	case MACH_LEMOTE_A1101:
 		/* thermal sensor register and interface init */
-		loongson_temp_info.get_cpu_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
 		loongson_temp_info.get_nb_temp = emc1412_external_temp;
 		loongson_temp_info.get_sb_temp = NULL; // not implement now
-		platform_device_register(&emc1412_sensor);
 
 		/* fan sensor register and choose fan control policy */
 		platform_device_register(&sbx00_fan1);
-		loongson_fan1_ops.fan_policy = &a1101_fan1_default_policy;
 		platform_device_register(&sbx00_fan2);
-		loongson_fan2_ops.fan_policy = &a1101_fan2_default_policy;
+		loongson_fan1_ops.fan_policy = &constant_speed_50p_policy;
+		loongson_fan2_ops.fan_policy = &constant_speed_50p_policy;
 		break;
 	case MACH_LEMOTE_A1201:
 		/* thermal sensor register and interface init */
-		loongson_temp_info.get_cpu_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
 		loongson_temp_info.get_nb_temp = emc1412_external_temp;
 		loongson_temp_info.get_sb_temp = NULL; // not implement now
-		platform_device_register(&emc1412_sensor);
 
 		/* A1201 without fan */
 
@@ -168,15 +173,60 @@ static int __init loongson3a_platform_init(void)
 		gpio_request(A1205_LCD_CNTL,  "a1205_lcd_cntl");
 		gpio_request(A1205_BACKLIGHIT_CNTL, "a1205_bl_cntl");
 		/* thermal sensor register and interface init */
-		loongson_temp_info.get_cpu_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
 		loongson_temp_info.get_nb_temp = emc1412_external_temp;
 		loongson_temp_info.get_sb_temp = NULL; // not implement now
-		platform_device_register(&emc1412_sensor);
 
 		/* fan sensor register and choose fan control policy */
 		platform_device_register(&sbx00_fan1);
-		loongson_fan1_ops.fan_policy = &a1205_fan1_default_policy;
+		loongson_fan1_ops.fan_policy = &step_speed_policy;
+		break;
+	case MACH_LEMOTE_A1214:
+		platform_device_register(&tmp75_device);
+
+		/* thermal sensor register and interface init */
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_mb_temp = emc1412_external_temp;
+		loongson_temp_info.get_nb_temp = emc1412_external_temp;
+		loongson_temp_info.get_sb_temp = emc1412_external_temp;
+		loongson_temp_info.get_psy_temp = NULL;
+
+		/* fan sensor register and choose fan control policy */
+		platform_device_register(&sbx00_fan1);
+		platform_device_register(&sbx00_fan2);
+		platform_device_register(&sbx00_fan3);
+		loongson_fan1_ops.fan_policy = &constant_speed_70p_policy;
+		loongson_fan2_ops.fan_policy = &constant_speed_70p_policy;
+		loongson_fan3_ops.fan_policy = &constant_speed_70p_policy;
+
+		break;
+	case MACH_LEMOTE_A1215:
+		platform_device_register(&tmp75_device);
+
+		/* thermal sensor register and interface init */
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_cpu1_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_mb_temp = emc1412_external_temp;
+		loongson_temp_info.get_nb_temp = emc1412_external_temp;
+		loongson_temp_info.get_sb_temp = emc1412_external_temp;
+		loongson_temp_info.get_psy_temp = emc1412_external_temp;
+
+		/* fan sensor register and choose fan control policy */
+		platform_device_register(&sbx00_fan1);
+		platform_device_register(&sbx00_fan2);
+		loongson_fan1_ops.fan_policy = &constant_speed_70p_policy;
+		loongson_fan2_ops.fan_policy = &constant_speed_70p_policy;
+
+		break;
+	case MACH_LEMOTE_A1219:
+		loongson_temp_info.get_cpu0_temp = loongson3_cpu_temp;
+		loongson_temp_info.get_nb_temp = emc1412_external_temp;
+		platform_device_register(&sbx00_fan1);
+		platform_device_register(&sbx00_fan2);
+		loongson_fan1_ops.fan_policy = &constant_speed_70p_policy;
+		loongson_fan2_ops.fan_policy = &constant_speed_70p_policy;
+
 		break;
 	default:
 		break;
