@@ -78,6 +78,8 @@ struct conexant_spec {
 						 * termination!
 						 */
 	unsigned int num_init_verbs;
+	const unsigned int *raw_init_verbs[5];
+	unsigned int num_raw_init_verbs;
 
 	/* playback */
 	struct hda_multi_out multiout;	/* playback set-up
@@ -435,10 +437,15 @@ static void conexant_set_power(struct hda_codec *codec, hda_nid_t fg,
 static int conexant_init(struct hda_codec *codec)
 {
 	struct conexant_spec *spec = codec->spec;
-	int i;
+	int i, j;
+
+	for (i = 0; i < spec->num_raw_init_verbs; i++)
+		for (j = 0; spec->raw_init_verbs[i][j] != -1; j++)
+			snd_hda_codec_exec_verb(codec, spec->raw_init_verbs[i][j], NULL);
 
 	for (i = 0; i < spec->num_init_verbs; i++)
 		snd_hda_sequence_write(codec, spec->init_verbs[i]);
+
 	return 0;
 }
 
