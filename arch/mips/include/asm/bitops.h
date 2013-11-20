@@ -45,6 +45,24 @@
 #define smp_mb__before_clear_bit()	smp_mb__before_llsc()
 #define smp_mb__after_clear_bit()	smp_llsc_mb()
 
+
+/*
+ * These are the "slower" versions of the functions and are in bitops.c.
+ * These functions call raw_local_irq_{save,restore}().
+ */
+void __mips_set_bit(unsigned long nr, volatile unsigned long *addr);
+void __mips_clear_bit(unsigned long nr, volatile unsigned long *addr);
+void __mips_change_bit(unsigned long nr, volatile unsigned long *addr);
+int __mips_test_and_set_bit(unsigned long nr,
+			    volatile unsigned long *addr);
+int __mips_test_and_set_bit_lock(unsigned long nr,
+				 volatile unsigned long *addr);
+int __mips_test_and_clear_bit(unsigned long nr,
+			      volatile unsigned long *addr);
+int __mips_test_and_change_bit(unsigned long nr,
+			       volatile unsigned long *addr);
+
+
 /*
  * set_bit - Atomically set a bit in memory
  * @nr: the bit to set
@@ -93,17 +111,8 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+m" (*m)
 			: "ir" (1UL << bit));
 		} while (unlikely(!temp));
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		*a |= mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		__mips_set_bit(nr, addr);
 }
 
 /*
@@ -154,17 +163,8 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+m" (*m)
 			: "ir" (~(1UL << bit)));
 		} while (unlikely(!temp));
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		*a &= ~mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		__mips_clear_bit(nr, addr);
 }
 
 /*
@@ -221,17 +221,8 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 			: "=&r" (temp), "+m" (*m)
 			: "ir" (1UL << bit));
 		} while (unlikely(!temp));
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		*a ^= mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		__mips_change_bit(nr, addr);
 }
 
 /*
@@ -282,18 +273,8 @@ static inline int test_and_set_bit(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		res = (mask & *a);
-		*a |= mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		res = __mips_test_and_set_bit(nr, addr);
 
 	smp_llsc_mb();
 
@@ -346,18 +327,8 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		res = (mask & *a);
-		*a |= mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		res = __mips_test_and_set_bit_lock(nr, addr);
 
 	smp_llsc_mb();
 
@@ -429,18 +400,8 @@ static inline int test_and_clear_bit(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		res = (mask & *a);
-		*a &= ~mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		res = __mips_test_and_clear_bit(nr, addr);
 
 	smp_llsc_mb();
 
@@ -495,18 +456,8 @@ static inline int test_and_change_bit(unsigned long nr,
 		} while (unlikely(!res));
 
 		res = temp & (1UL << bit);
-	} else {
-		volatile unsigned long *a = addr;
-		unsigned long mask;
-		unsigned long flags;
-
-		a += nr >> SZLONG_LOG;
-		mask = 1UL << bit;
-		raw_local_irq_save(flags);
-		res = (mask & *a);
-		*a ^= mask;
-		raw_local_irq_restore(flags);
-	}
+	} else
+		res = __mips_test_and_change_bit(nr, addr);
 
 	smp_llsc_mb();
 
