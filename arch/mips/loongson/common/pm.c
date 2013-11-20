@@ -188,6 +188,7 @@ static int loongson_pm_valid_state(suspend_state_t state)
 		case MACH_LEMOTE_YL2F89:
 		case MACH_LEMOTE_A1004:
 		case MACH_LEMOTE_A1201:
+		case MACH_LEMOTE_A1217:
 			return 1;
 		default:
 			return 0;
