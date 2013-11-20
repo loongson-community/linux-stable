@@ -105,7 +105,7 @@ asmlinkage __cpuinit void start_secondary(void)
 	if ((read_c0_tcbind() & TCBIND_CURTC) == 0)
 #endif /* CONFIG_MIPS_MT_SMTC */
 	cpu_probe();
-	per_cpu_trap_init();
+	per_cpu_trap_init(false);
 	mips_clockevent_init();
 	mp_ops->init_secondary();
 	cpu_report();
