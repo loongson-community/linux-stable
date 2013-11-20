@@ -1111,17 +1111,19 @@ static void __cpuinit probe_pcache(void)
 	c->icache.ways = 1;
 #endif
 
-	printk("Primary instruction cache %ldkB, %s, %s, linesize %d bytes.\n",
-	       icache_size >> 10,
-	       c->icache.flags & MIPS_CACHE_VTAG ? "VIVT" : "VIPT",
-	       way_string[c->icache.ways], c->icache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		printk("Primary instruction cache %ldkB, %s, %s, linesize %d bytes.\n",
+		       icache_size >> 10,
+		       c->icache.flags & MIPS_CACHE_VTAG ? "VIVT" : "VIPT",
+		       way_string[c->icache.ways], c->icache.linesz);
 
-	printk("Primary data cache %ldkB, %s, %s, %s, linesize %d bytes\n",
-	       dcache_size >> 10, way_string[c->dcache.ways],
-	       (c->dcache.flags & MIPS_CACHE_PINDEX) ? "PIPT" : "VIPT",
-	       (c->dcache.flags & MIPS_CACHE_ALIASES) ?
-			"cache aliases" : "no aliases",
-	       c->dcache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		printk("Primary data cache %ldkB, %s, %s, %s, linesize %d bytes\n",
+		       dcache_size >> 10, way_string[c->dcache.ways],
+		       (c->dcache.flags & MIPS_CACHE_PINDEX) ? "PIPT" : "VIPT",
+		       (c->dcache.flags & MIPS_CACHE_ALIASES) ?
+				"cache aliases" : "no aliases",
+		       c->dcache.linesz);
 }
 
 /*
@@ -1223,8 +1225,9 @@ static void __init loongson3_sc_init(void)
 	/* Loongson-3 has 4 cores, 1MB scache for each. scaches are shared */
 	scache_size *= 4;
 	c->scache.waybit = 0;
-	pr_info("Unified secondary cache %ldkB %s, linesize %d bytes.\n",
-	       scache_size >> 10, way_string[c->scache.ways], c->scache.linesz);
+	if (system_state == SYSTEM_BOOTING)
+		pr_info("Unified secondary cache %ldkB %s, linesize %d bytes.\n",
+		       scache_size >> 10, way_string[c->scache.ways], c->scache.linesz);
 	if (scache_size)
 		c->options |= MIPS_CPU_INCLUSIVE_CACHES;
 	return;

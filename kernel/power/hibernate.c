@@ -631,6 +631,7 @@ int hibernate(void)
 	sys_sync();
 	printk("done.\n");
 
+	system_state = SYSTEM_SUSPEND_DISK;
 	error = freeze_processes();
 	if (error)
 		goto Free_bitmaps;
@@ -667,6 +668,7 @@ int hibernate(void)
 	freezer_test_done = false;
 
  Free_bitmaps:
+	system_state = SYSTEM_RUNNING;
 	free_basic_memory_bitmaps();
  Exit:
 	pm_notifier_call_chain(PM_POST_HIBERNATION);
@@ -804,6 +806,7 @@ static int software_resume(void)
 	swsusp_free();
 	thaw_processes();
  Done:
+	system_state = SYSTEM_RUNNING;
 	free_basic_memory_bitmaps();
  Finish:
 	pm_notifier_call_chain(PM_POST_RESTORE);
