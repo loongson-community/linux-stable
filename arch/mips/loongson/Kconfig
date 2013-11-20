@@ -84,6 +84,7 @@ config LEMOTE_MACH3A
 	select LOONGSON_MC146818
 	select ZONE_DMA32 if 64BIT
 	select UEFI_FIRMWARE_INTERFACE
+	select PHYS48_TO_HT40
 	help
 		Lemote Loongson 3A family machines utilize the 3A revision of
 		Loongson processor and RS780/SBX00 chipset.
@@ -142,6 +143,10 @@ config LOONGSON3_CPUAUTOPLUG
 	  which cpu frequencies of all cores  should be configured together.
 
 	  If in doubt, say N.
+
+config PHYS48_TO_HT40
+	bool
+	default y if CPU_LOONGSON3
 
 config LOONGSON_MC146818
 	bool
