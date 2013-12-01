@@ -55,7 +55,7 @@ do {									\
 	next->thread.emulated_fp = 0;					\
 } while(0)
 #else
-define __mips_mt_fpaff_switch_to(prev)					\
+#define __mips_mt_fpaff_switch_to(prev)					\
 do {									\
 	struct thread_info *__prev_ti = task_thread_info(prev);		\
 									\
