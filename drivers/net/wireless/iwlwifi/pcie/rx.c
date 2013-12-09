@@ -1121,7 +1121,7 @@ static irqreturn_t iwl_pcie_isr(int irq, void *data)
 {
 	struct iwl_trans *trans = data;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
-	u32 inta, inta_mask;
+	u32 inta;
 #ifdef CONFIG_IWLWIFI_DEBUG
 	u32 inta_fh;
 #endif
@@ -1134,18 +1134,17 @@ static irqreturn_t iwl_pcie_isr(int irq, void *data)
 	 *    back-to-back ISRs and sporadic interrupts from our NIC.
 	 * If we have something to service, the irq thread will re-enable ints.
 	 * If we *don't* have something, we'll re-enable before leaving here. */
-	inta_mask = iwl_read32(trans, CSR_INT_MASK);
 	iwl_write32(trans, CSR_INT_MASK, 0x00000000);
 
 	/* Discover which interrupts are active/pending */
 	inta = iwl_read32(trans, CSR_INT);
 
-	if (inta & (~inta_mask)) {
+	if (inta & (~trans_pcie->inta_mask)) {
 		IWL_DEBUG_ISR(trans,
 			      "We got a masked interrupt (0x%08x)...Ack and ignore\n",
-			      inta & (~inta_mask));
-		iwl_write32(trans, CSR_INT, inta & (~inta_mask));
-		inta &= inta_mask;
+			      inta & (~trans_pcie->inta_mask));
+		iwl_write32(trans, CSR_INT, inta & (~trans_pcie->inta_mask));
+		inta &= trans_pcie->inta_mask;
 	}
 
 	/* Ignore interrupt if there's nothing in NIC to service.
@@ -1167,7 +1166,7 @@ static irqreturn_t iwl_pcie_isr(int irq, void *data)
 	if (iwl_have_debug_level(IWL_DL_ISR)) {
 		inta_fh = iwl_read32(trans, CSR_FH_INT_STATUS);
 		IWL_DEBUG_ISR(trans, "ISR inta 0x%08x, enabled 0x%08x, "
-			      "fh 0x%08x\n", inta, inta_mask, inta_fh);
+			      "fh 0x%08x\n", inta, trans_pcie->inta_mask, inta_fh);
 	}
 #endif
 
