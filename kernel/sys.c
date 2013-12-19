@@ -358,7 +358,7 @@ EXPORT_SYMBOL(unregister_reboot_notifier);
 #define PF_NO_SETAFFINITY		PF_THREAD_BOUND
 #endif
 
-static void migrate_to_reboot_cpu(void)
+void migrate_to_reboot_cpu(void)
 {
 	/* The boot cpu is always logical cpu 0 */
 	int cpu = 0;
