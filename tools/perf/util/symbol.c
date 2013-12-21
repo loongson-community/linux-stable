@@ -194,7 +194,7 @@ void symbols__fixup_end(struct rb_root *symbols)
 
 	/* Last entry */
 	if (curr->end == curr->start)
-		curr->end = roundup(curr->start, 4096);
+		curr->end = roundup(curr->start, 4096) + 4096;
 }
 
 void __map_groups__fixup_end(struct map_groups *mg, enum map_type type)
@@ -1893,6 +1893,8 @@ int setup_intlist(struct intlist **list, const char *list_str,
 		pr_err("problems parsing %s list\n", list_name);
 		return -1;
 	}
+
+	symbol_conf.has_filter = true;
 	return 0;
 }
 

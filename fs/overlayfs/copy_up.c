@@ -22,9 +22,9 @@
 
 int ovl_copy_xattr(struct dentry *old, struct dentry *new)
 {
-	ssize_t list_size, size;
-	char *buf, *name, *value;
-	int error;
+	ssize_t list_size, size, value_size = 0;
+	char *buf, *name, *value = NULL;
+	int uninitialized_var(error);
 
 	if (!old->d_inode->i_op->getxattr ||
 	    !new->d_inode->i_op->getxattr)
@@ -41,29 +41,42 @@ int ovl_copy_xattr(struct dentry *old, struct dentry *new)
 	if (!buf)
 		return -ENOMEM;
 
-	error = -ENOMEM;
-	value = kmalloc(XATTR_SIZE_MAX, GFP_KERNEL);
-	if (!value)
-		goto out;
-
 	list_size = vfs_listxattr(old, buf, list_size);
 	if (list_size <= 0) {
 		error = list_size;
-		goto out_free_value;
+		goto out;
 	}
 
 	for (name = buf; name < (buf + list_size); name += strlen(name) + 1) {
-		size = vfs_getxattr(old, name, value, XATTR_SIZE_MAX);
-		if (size <= 0) {
+		if (ovl_is_private_xattr(name))
+			continue;
+retry:
+		size = vfs_getxattr(old, name, value, value_size);
+		if (size == -ERANGE)
+			size = vfs_getxattr(old, name, NULL, 0);
+
+		if (size < 0) {
 			error = size;
-			goto out_free_value;
+			break;
 		}
+
+		if (size > value_size) {
+			void *new;
+
+			new = krealloc(value, size, GFP_KERNEL);
+			if (!new) {
+				error = -ENOMEM;
+				break;
+			}
+			value = new;
+			value_size = size;
+			goto retry;
+		}
+
 		error = vfs_setxattr(new, name, value, size, 0);
 		if (error)
-			goto out_free_value;
+			break;
 	}
-
-out_free_value:
 	kfree(value);
 out:
 	kfree(buf);
@@ -81,11 +94,11 @@ static int ovl_copy_up_data(struct path *old, struct path *new, loff_t len)
 	if (len == 0)
 		return 0;
 
-	old_file = ovl_path_open(old, O_RDONLY);
+	old_file = ovl_path_open(old, O_LARGEFILE | O_RDONLY);
 	if (IS_ERR(old_file))
 		return PTR_ERR(old_file);
 
-	new_file = ovl_path_open(new, O_WRONLY);
+	new_file = ovl_path_open(new, O_LARGEFILE | O_WRONLY);
 	if (IS_ERR(new_file)) {
 		error = PTR_ERR(new_file);
 		goto out_fput;
@@ -116,6 +129,8 @@ static int ovl_copy_up_data(struct path *old, struct path *new, loff_t len)
 		len -= bytes;
 	}
 
+	if (!error)
+		error = vfs_fsync(new_file, 0);
 	fput(new_file);
 out_fput:
 	fput(old_file);
@@ -267,7 +282,7 @@ out:
 
 out_cleanup:
 	ovl_cleanup(wdir, newdentry);
-	goto out;
+	goto out2;
 }
 
 /*

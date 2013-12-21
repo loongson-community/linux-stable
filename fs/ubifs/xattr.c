@@ -173,6 +173,7 @@ out_cancel:
 	host_ui->xattr_cnt -= 1;
 	host_ui->xattr_size -= CALC_DENT_SIZE(nm->len);
 	host_ui->xattr_size -= CALC_XATTR_BYTES(size);
+	host_ui->xattr_names -= nm->len;
 	mutex_unlock(&host_ui->ui_mutex);
 out_free:
 	make_bad_inode(inode);
@@ -527,6 +528,7 @@ out_cancel:
 	host_ui->xattr_cnt += 1;
 	host_ui->xattr_size += CALC_DENT_SIZE(nm->len);
 	host_ui->xattr_size += CALC_XATTR_BYTES(ui->data_len);
+	host_ui->xattr_names += nm->len;
 	mutex_unlock(&host_ui->ui_mutex);
 	ubifs_release_budget(c, &req);
 	make_bad_inode(inode);
@@ -652,11 +654,8 @@ int ubifs_init_security(struct inode *dentry, struct inode *inode,
 {
 	int err;
 
-	mutex_lock(&inode->i_mutex);
 	err = security_inode_init_security(inode, dentry, qstr,
 					   &init_xattrs, 0);
-	mutex_unlock(&inode->i_mutex);
-
 	if (err) {
 		struct ubifs_info *c = dentry->i_sb->s_fs_info;
 		ubifs_err(c, "cannot initialize security for inode %lu, error %d",

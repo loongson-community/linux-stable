@@ -295,15 +295,6 @@ static int s3c24xx_serial_start_tx_dma(struct s3c24xx_uart_port *ourport,
 	if (ourport->tx_mode != S3C24XX_TX_DMA)
 		enable_tx_dma(ourport);
 
-	while (xmit->tail & (dma_get_cache_alignment() - 1)) {
-		if (rd_regl(port, S3C2410_UFSTAT) & ourport->info->tx_fifofull)
-			return 0;
-		wr_regb(port, S3C2410_UTXH, xmit->buf[xmit->tail]);
-		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		port->icount.tx++;
-		count--;
-	}
-
 	dma->tx_size = count & ~(dma_get_cache_alignment() - 1);
 	dma->tx_transfer_addr = dma->tx_addr + xmit->tail;
 
@@ -342,7 +333,9 @@ static void s3c24xx_serial_start_next_tx(struct s3c24xx_uart_port *ourport)
 		return;
 	}
 
-	if (!ourport->dma || !ourport->dma->tx_chan || count < port->fifosize)
+	if (!ourport->dma || !ourport->dma->tx_chan ||
+	    count < ourport->min_dma_size ||
+	    xmit->tail & (dma_get_cache_alignment() - 1))
 		s3c24xx_serial_start_tx_pio(ourport);
 	else
 		s3c24xx_serial_start_tx_dma(ourport, count);
@@ -736,15 +729,20 @@ static irqreturn_t s3c24xx_serial_tx_chars(int irq, void *id)
 	struct uart_port *port = &ourport->port;
 	struct circ_buf *xmit = &port->state->xmit;
 	unsigned long flags;
-	int count;
+	int count, dma_count = 0;
 
 	spin_lock_irqsave(&port->lock, flags);
 
 	count = CIRC_CNT_TO_END(xmit->head, xmit->tail, UART_XMIT_SIZE);
 
-	if (ourport->dma && ourport->dma->tx_chan && count >= port->fifosize) {
-		s3c24xx_serial_start_tx_dma(ourport, count);
-		goto out;
+	if (ourport->dma && ourport->dma->tx_chan &&
+	    count >= ourport->min_dma_size) {
+		int align = dma_get_cache_alignment() -
+			(xmit->tail & (dma_get_cache_alignment() - 1));
+		if (count-align >= ourport->min_dma_size) {
+			dma_count = count-align;
+			count = align;
+		}
 	}
 
 	if (port->x_char) {
@@ -765,14 +763,24 @@ static irqreturn_t s3c24xx_serial_tx_chars(int irq, void *id)
 
 	/* try and drain the buffer... */
 
-	count = port->fifosize;
-	while (!uart_circ_empty(xmit) && count-- > 0) {
+	if (count > port->fifosize) {
+		count = port->fifosize;
+		dma_count = 0;
+	}
+
+	while (!uart_circ_empty(xmit) && count > 0) {
 		if (rd_regl(port, S3C2410_UFSTAT) & ourport->info->tx_fifofull)
 			break;
 
 		wr_regb(port, S3C2410_UTXH, xmit->buf[xmit->tail]);
 		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
 		port->icount.tx++;
+		count--;
+	}
+
+	if (!count && dma_count) {
+		s3c24xx_serial_start_tx_dma(ourport, dma_count);
+		goto out;
 	}
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS) {
@@ -917,14 +925,13 @@ static int s3c24xx_serial_request_dma(struct s3c24xx_uart_port *p)
 		return -ENOMEM;
 	}
 
-	dma->rx_addr = dma_map_single(dma->rx_chan->device->dev, dma->rx_buf,
+	dma->rx_addr = dma_map_single(p->port.dev, dma->rx_buf,
 				dma->rx_size, DMA_FROM_DEVICE);
 
 	spin_lock_irqsave(&p->port.lock, flags);
 
 	/* TX buffer */
-	dma->tx_addr = dma_map_single(dma->tx_chan->device->dev,
-				p->port.state->xmit.buf,
+	dma->tx_addr = dma_map_single(p->port.dev, p->port.state->xmit.buf,
 				UART_XMIT_SIZE, DMA_TO_DEVICE);
 
 	spin_unlock_irqrestore(&p->port.lock, flags);
@@ -938,7 +945,7 @@ static void s3c24xx_serial_release_dma(struct s3c24xx_uart_port *p)
 
 	if (dma->rx_chan) {
 		dmaengine_terminate_all(dma->rx_chan);
-		dma_unmap_single(dma->rx_chan->device->dev, dma->rx_addr,
+		dma_unmap_single(p->port.dev, dma->rx_addr,
 				dma->rx_size, DMA_FROM_DEVICE);
 		kfree(dma->rx_buf);
 		dma_release_channel(dma->rx_chan);
@@ -947,7 +954,7 @@ static void s3c24xx_serial_release_dma(struct s3c24xx_uart_port *p)
 
 	if (dma->tx_chan) {
 		dmaengine_terminate_all(dma->tx_chan);
-		dma_unmap_single(dma->tx_chan->device->dev, dma->tx_addr,
+		dma_unmap_single(p->port.dev, dma->tx_addr,
 				UART_XMIT_SIZE, DMA_TO_DEVICE);
 		dma_release_channel(dma->tx_chan);
 		dma->tx_chan = NULL;
@@ -1047,8 +1054,10 @@ static int s3c64xx_serial_startup(struct uart_port *port)
 	if (ourport->dma) {
 		ret = s3c24xx_serial_request_dma(ourport);
 		if (ret < 0) {
-			dev_warn(port->dev, "DMA request failed\n");
-			return ret;
+			dev_warn(port->dev,
+				 "DMA request failed, DMA will not be used\n");
+			devm_kfree(port->dev, ourport->dma);
+			ourport->dma = NULL;
 		}
 	}
 
@@ -1280,14 +1289,14 @@ static void s3c24xx_serial_set_termios(struct uart_port *port,
 	/* check to see if we need  to change clock source */
 
 	if (ourport->baudclk != clk) {
+		clk_prepare_enable(clk);
+
 		s3c24xx_serial_setsource(port, clk_sel);
 
 		if (!IS_ERR(ourport->baudclk)) {
 			clk_disable_unprepare(ourport->baudclk);
 			ourport->baudclk = ERR_PTR(-EINVAL);
 		}
-
-		clk_prepare_enable(clk);
 
 		ourport->baudclk = clk;
 		ourport->baudclk_rate = clk ? clk_get_rate(clk) : 0;
@@ -1693,7 +1702,7 @@ static int s3c24xx_serial_init_port(struct s3c24xx_uart_port *ourport,
 		return -ENODEV;
 
 	if (port->mapbase != 0)
-		return 0;
+		return -EINVAL;
 
 	/* setup info for port */
 	port->dev	= &platdev->dev;
@@ -1747,22 +1756,25 @@ static int s3c24xx_serial_init_port(struct s3c24xx_uart_port *ourport,
 		ourport->dma = devm_kzalloc(port->dev,
 					    sizeof(*ourport->dma),
 					    GFP_KERNEL);
-		if (!ourport->dma)
-			return -ENOMEM;
+		if (!ourport->dma) {
+			ret = -ENOMEM;
+			goto err;
+		}
 	}
 
 	ourport->clk	= clk_get(&platdev->dev, "uart");
 	if (IS_ERR(ourport->clk)) {
 		pr_err("%s: Controller clock not found\n",
 				dev_name(&platdev->dev));
-		return PTR_ERR(ourport->clk);
+		ret = PTR_ERR(ourport->clk);
+		goto err;
 	}
 
 	ret = clk_prepare_enable(ourport->clk);
 	if (ret) {
 		pr_err("uart: clock failed to prepare+enable: %d\n", ret);
 		clk_put(ourport->clk);
-		return ret;
+		goto err;
 	}
 
 	/* Keep all interrupts masked and cleared */
@@ -1778,7 +1790,12 @@ static int s3c24xx_serial_init_port(struct s3c24xx_uart_port *ourport,
 
 	/* reset the fifos (and setup the uart) */
 	s3c24xx_serial_resetport(port, cfg);
+
 	return 0;
+
+err:
+	port->mapbase = 0;
+	return ret;
 }
 
 /* Device driver serial port probe */
@@ -1837,6 +1854,13 @@ static int s3c24xx_serial_probe(struct platform_device *pdev)
 		ourport->port.fifosize = ourport->drv_data->fifosize[index];
 	else if (ourport->info->fifosize)
 		ourport->port.fifosize = ourport->info->fifosize;
+
+	/*
+	 * DMA transfers must be aligned at least to cache line size,
+	 * so find minimal transfer size suitable for DMA mode
+	 */
+	ourport->min_dma_size = max_t(int, ourport->port.fifosize,
+				    dma_get_cache_alignment());
 
 	probe_index++;
 

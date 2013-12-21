@@ -122,8 +122,12 @@ static int ip_rt_redirect_silence __read_mostly	= ((HZ / 50) << (9 + 1));
 static int ip_rt_error_cost __read_mostly	= HZ;
 static int ip_rt_error_burst __read_mostly	= 5 * HZ;
 static int ip_rt_mtu_expires __read_mostly	= 10 * 60 * HZ;
-static int ip_rt_min_pmtu __read_mostly		= 512 + 20 + 20;
+static u32 ip_rt_min_pmtu __read_mostly		= 512 + 20 + 20;
 static int ip_rt_min_advmss __read_mostly	= 256;
+
+static int ip_rt_gc_timeout __read_mostly	= RT_GC_TIMEOUT;
+
+static int ip_min_valid_pmtu __read_mostly	= IPV4_MIN_MTU;
 
 /*
  *	Interface to generic destination cache.
@@ -621,9 +625,12 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 	struct fnhe_hash_bucket *hash;
 	struct fib_nh_exception *fnhe;
 	struct rtable *rt;
+	u32 genid, hval;
 	unsigned int i;
 	int depth;
-	u32 hval = fnhe_hashfun(daddr);
+
+	genid = fnhe_genid(dev_net(nh->nh_dev));
+	hval = fnhe_hashfun(daddr);
 
 	spin_lock_bh(&fnhe_lock);
 
@@ -646,12 +653,13 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 	}
 
 	if (fnhe) {
+		if (fnhe->fnhe_genid != genid)
+			fnhe->fnhe_genid = genid;
 		if (gw)
 			fnhe->fnhe_gw = gw;
-		if (pmtu) {
+		if (pmtu)
 			fnhe->fnhe_pmtu = pmtu;
-			fnhe->fnhe_expires = max(1UL, expires);
-		}
+		fnhe->fnhe_expires = max(1UL, expires);
 		/* Update all cached dsts too */
 		rt = rcu_dereference(fnhe->fnhe_rth_input);
 		if (rt)
@@ -670,7 +678,7 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 			fnhe->fnhe_next = hash->chain;
 			rcu_assign_pointer(hash->chain, fnhe);
 		}
-		fnhe->fnhe_genid = fnhe_genid(dev_net(nh->nh_dev));
+		fnhe->fnhe_genid = genid;
 		fnhe->fnhe_daddr = daddr;
 		fnhe->fnhe_gw = gw;
 		fnhe->fnhe_pmtu = pmtu;
@@ -753,7 +761,7 @@ static void __ip_do_redirect(struct rtable *rt, struct sk_buff *skb, struct flow
 				struct fib_nh *nh = &FIB_RES_NH(res);
 
 				update_or_create_fnhe(nh, fl4->daddr, new_gw,
-						      0, 0);
+						0, jiffies + ip_rt_gc_timeout);
 			}
 			if (kill_route)
 				rt->dst.obsolete = DST_OBSOLETE_KILL;
@@ -1538,6 +1546,36 @@ static void ip_handle_martian_source(struct net_device *dev,
 #endif
 }
 
+static void ip_del_fnhe(struct fib_nh *nh, __be32 daddr)
+{
+	struct fnhe_hash_bucket *hash;
+	struct fib_nh_exception *fnhe, __rcu **fnhe_p;
+	u32 hval = fnhe_hashfun(daddr);
+
+	spin_lock_bh(&fnhe_lock);
+
+	hash = rcu_dereference_protected(nh->nh_exceptions,
+					 lockdep_is_held(&fnhe_lock));
+	hash += hval;
+
+	fnhe_p = &hash->chain;
+	fnhe = rcu_dereference_protected(*fnhe_p, lockdep_is_held(&fnhe_lock));
+	while (fnhe) {
+		if (fnhe->fnhe_daddr == daddr) {
+			rcu_assign_pointer(*fnhe_p, rcu_dereference_protected(
+				fnhe->fnhe_next, lockdep_is_held(&fnhe_lock)));
+			fnhe_flush_routes(fnhe);
+			kfree_rcu(fnhe, rcu);
+			break;
+		}
+		fnhe_p = &fnhe->fnhe_next;
+		fnhe = rcu_dereference_protected(fnhe->fnhe_next,
+						 lockdep_is_held(&fnhe_lock));
+	}
+
+	spin_unlock_bh(&fnhe_lock);
+}
+
 /* called in rcu_read_lock() section */
 static int __mkroute_input(struct sk_buff *skb,
 			   const struct fib_result *res,
@@ -1592,11 +1630,20 @@ static int __mkroute_input(struct sk_buff *skb,
 
 	fnhe = find_exception(&FIB_RES_NH(*res), daddr);
 	if (do_cache) {
-		if (fnhe)
+		if (fnhe) {
 			rth = rcu_dereference(fnhe->fnhe_rth_input);
-		else
-			rth = rcu_dereference(FIB_RES_NH(*res).nh_rth_input);
+			if (rth && rth->dst.expires &&
+			    time_after(jiffies, rth->dst.expires)) {
+				ip_del_fnhe(&FIB_RES_NH(*res), daddr);
+				fnhe = NULL;
+			} else {
+				goto rt_cache;
+			}
+		}
 
+		rth = rcu_dereference(FIB_RES_NH(*res).nh_rth_input);
+
+rt_cache:
 		if (rt_cache_valid(rth)) {
 			skb_dst_set_noref(skb, &rth->dst);
 			goto out;
@@ -1847,6 +1894,7 @@ int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 {
 	int res;
 
+	tos &= IPTOS_RT_MASK;
 	rcu_read_lock();
 
 	/* Multicast recognition logic is moved from route cache to here.
@@ -1936,6 +1984,18 @@ static struct rtable *__mkroute_output(const struct fib_result *res,
 		 */
 		if (fi && res->prefixlen < 4)
 			fi = NULL;
+	} else if ((type == RTN_LOCAL) && (orig_oif != 0) &&
+		   (orig_oif != dev_out->ifindex)) {
+		/* For local routes that require a particular output interface
+		 * we do not want to cache the result.  Caching the result
+		 * causes incorrect behaviour when there are multiple source
+		 * addresses on the interface, the end result being that if the
+		 * intended recipient is waiting on that interface for the
+		 * packet he won't receive it because it will be delivered on
+		 * the loopback interface and the IP_PKTINFO ipi_ifindex will
+		 * be set to the loopback interface as well.
+		 */
+		fi = NULL;
 	}
 
 	fnhe = NULL;
@@ -1945,19 +2005,29 @@ static struct rtable *__mkroute_output(const struct fib_result *res,
 		struct fib_nh *nh = &FIB_RES_NH(*res);
 
 		fnhe = find_exception(nh, fl4->daddr);
-		if (fnhe)
+		if (fnhe) {
 			prth = &fnhe->fnhe_rth_output;
-		else {
-			if (unlikely(fl4->flowi4_flags &
-				     FLOWI_FLAG_KNOWN_NH &&
-				     !(nh->nh_gw &&
-				       nh->nh_scope == RT_SCOPE_LINK))) {
-				do_cache = false;
-				goto add;
+			rth = rcu_dereference(*prth);
+			if (rth && rth->dst.expires &&
+			    time_after(jiffies, rth->dst.expires)) {
+				ip_del_fnhe(nh, fl4->daddr);
+				fnhe = NULL;
+			} else {
+				goto rt_cache;
 			}
-			prth = raw_cpu_ptr(nh->nh_pcpu_rth_output);
 		}
+
+		if (unlikely(fl4->flowi4_flags &
+			     FLOWI_FLAG_KNOWN_NH &&
+			     !(nh->nh_gw &&
+			       nh->nh_scope == RT_SCOPE_LINK))) {
+			do_cache = false;
+			goto add;
+		}
+		prth = raw_cpu_ptr(nh->nh_pcpu_rth_output);
 		rth = rcu_dereference(*prth);
+
+rt_cache:
 		if (rt_cache_valid(rth)) {
 			dst_hold(&rth->dst);
 			return rth;
@@ -2434,7 +2504,7 @@ static int inet_rtm_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh)
 	skb_reset_network_header(skb);
 
 	/* Bugfix: need to give ip_route_input enough of an IP header to not gag. */
-	ip_hdr(skb)->protocol = IPPROTO_ICMP;
+	ip_hdr(skb)->protocol = IPPROTO_UDP;
 	skb_reserve(skb, MAX_HEADER + sizeof(struct iphdr));
 
 	src = tb[RTA_SRC] ? nla_get_in_addr(tb[RTA_SRC]) : 0;
@@ -2504,7 +2574,6 @@ void ip_rt_multicast_event(struct in_device *in_dev)
 }
 
 #ifdef CONFIG_SYSCTL
-static int ip_rt_gc_timeout __read_mostly	= RT_GC_TIMEOUT;
 static int ip_rt_gc_interval __read_mostly  = 60 * HZ;
 static int ip_rt_gc_min_interval __read_mostly	= HZ / 2;
 static int ip_rt_gc_elasticity __read_mostly	= 8;
@@ -2623,7 +2692,8 @@ static struct ctl_table ipv4_route_table[] = {
 		.data		= &ip_rt_min_pmtu,
 		.maxlen		= sizeof(int),
 		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.proc_handler	= proc_dointvec_minmax,
+		.extra1		= &ip_min_valid_pmtu,
 	},
 	{
 		.procname	= "min_adv_mss",

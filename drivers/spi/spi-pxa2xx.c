@@ -477,7 +477,14 @@ static void reset_sccr1(struct driver_data *drv_data)
 	u32 sccr1_reg;
 
 	sccr1_reg = pxa2xx_spi_read(drv_data, SSCR1) & ~drv_data->int_cr1;
-	sccr1_reg &= ~SSCR1_RFT;
+	switch (drv_data->ssp_type) {
+	case QUARK_X1000_SSP:
+		sccr1_reg &= ~QUARK_X1000_SSCR1_RFT;
+		break;
+	default:
+		sccr1_reg &= ~SSCR1_RFT;
+		break;
+	}
 	sccr1_reg |= chip->threshold;
 	pxa2xx_spi_write(drv_data, SSCR1, sccr1_reg);
 }
@@ -623,6 +630,10 @@ static irqreturn_t ssp_int(int irq, void *dev_id)
 	/* Ignore possible writes if we don't need to write */
 	if (!(sccr1_reg & SSCR1_TIE))
 		mask &= ~SSSR_TFS;
+
+	/* Ignore RX timeout interrupt if it is disabled */
+	if (!(sccr1_reg & SSCR1_TINTE))
+		mask &= ~SSSR_TINT;
 
 	if (!(status & mask))
 		return IRQ_NONE;

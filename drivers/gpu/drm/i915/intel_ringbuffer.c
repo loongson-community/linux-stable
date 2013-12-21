@@ -342,6 +342,7 @@ gen7_render_ring_flush(struct intel_engine_cs *ring,
 	if (flush_domains) {
 		flags |= PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH;
 		flags |= PIPE_CONTROL_DEPTH_CACHE_FLUSH;
+		flags |= PIPE_CONTROL_FLUSH_ENABLE;
 	}
 	if (invalidate_domains) {
 		flags |= PIPE_CONTROL_TLB_INVALIDATE;
@@ -412,6 +413,7 @@ gen8_render_ring_flush(struct intel_engine_cs *ring,
 	if (flush_domains) {
 		flags |= PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH;
 		flags |= PIPE_CONTROL_DEPTH_CACHE_FLUSH;
+		flags |= PIPE_CONTROL_FLUSH_ENABLE;
 	}
 	if (invalidate_domains) {
 		flags |= PIPE_CONTROL_TLB_INVALIDATE;
@@ -1812,6 +1814,17 @@ i915_dispatch_execbuffer(struct intel_engine_cs *ring,
 	return 0;
 }
 
+static void cleanup_phys_status_page(struct intel_engine_cs *ring)
+{
+	struct drm_i915_private *dev_priv = to_i915(ring->dev);
+
+	if (!dev_priv->status_page_dmah)
+		return;
+
+	drm_pci_free(ring->dev, dev_priv->status_page_dmah);
+	ring->status_page.page_addr = NULL;
+}
+
 static void cleanup_status_page(struct intel_engine_cs *ring)
 {
 	struct drm_i915_gem_object *obj;
@@ -1828,9 +1841,9 @@ static void cleanup_status_page(struct intel_engine_cs *ring)
 
 static int init_status_page(struct intel_engine_cs *ring)
 {
-	struct drm_i915_gem_object *obj;
+	struct drm_i915_gem_object *obj = ring->status_page.obj;
 
-	if ((obj = ring->status_page.obj) == NULL) {
+	if (obj == NULL) {
 		unsigned flags;
 		int ret;
 
@@ -1983,7 +1996,7 @@ static int intel_init_ring_buffer(struct drm_device *dev,
 		if (ret)
 			goto error;
 	} else {
-		BUG_ON(ring->id != RCS);
+		WARN_ON(ring->id != RCS);
 		ret = init_phys_status_page(ring);
 		if (ret)
 			goto error;
@@ -2047,7 +2060,12 @@ void intel_cleanup_ring_buffer(struct intel_engine_cs *ring)
 	if (ring->cleanup)
 		ring->cleanup(ring);
 
-	cleanup_status_page(ring);
+	if (I915_NEED_GFX_HWS(ring->dev)) {
+		cleanup_status_page(ring);
+	} else {
+		WARN_ON(ring->id != RCS);
+		cleanup_phys_status_page(ring);
+	}
 
 	i915_cmd_parser_fini_ring(ring);
 

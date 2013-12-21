@@ -147,6 +147,7 @@ xfs_dir3_free_write_verify(
 }
 
 const struct xfs_buf_ops xfs_dir3_free_buf_ops = {
+	.name = "xfs_dir3_free",
 	.verify_read = xfs_dir3_free_read_verify,
 	.verify_write = xfs_dir3_free_write_verify,
 };
@@ -2132,6 +2133,7 @@ xfs_dir2_node_replace(
 	int			error;		/* error return value */
 	int			i;		/* btree level */
 	xfs_ino_t		inum;		/* new inode number */
+	int			ftype;		/* new file type */
 	xfs_dir2_leaf_t		*leaf;		/* leaf structure */
 	xfs_dir2_leaf_entry_t	*lep;		/* leaf entry being changed */
 	int			rval;		/* internal return value */
@@ -2145,7 +2147,14 @@ xfs_dir2_node_replace(
 	state = xfs_da_state_alloc();
 	state->args = args;
 	state->mp = args->dp->i_mount;
+
+	/*
+	 * We have to save new inode number and ftype since
+	 * xfs_da3_node_lookup_int() is going to overwrite them
+	 */
 	inum = args->inumber;
+	ftype = args->filetype;
+
 	/*
 	 * Lookup the entry to change in the btree.
 	 */
@@ -2183,7 +2192,7 @@ xfs_dir2_node_replace(
 		 * Fill in the new inode number and log the entry.
 		 */
 		dep->inumber = cpu_to_be64(inum);
-		args->dp->d_ops->data_put_ftype(dep, args->filetype);
+		args->dp->d_ops->data_put_ftype(dep, ftype);
 		xfs_dir2_data_log_entry(args, state->extrablk.bp, dep);
 		rval = 0;
 	}

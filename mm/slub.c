@@ -1427,7 +1427,7 @@ static struct page *new_slab(struct kmem_cache *s, gfp_t flags, int node)
 	inc_slabs_node(s, page_to_nid(page), page->objects);
 	page->slab_cache = s;
 	__SetPageSlab(page);
-	if (page->pfmemalloc)
+	if (page_is_pfmemalloc(page))
 		SetPageSlabPfmemalloc(page);
 
 	start = page_address(page);
@@ -5046,6 +5046,7 @@ static void memcg_propagate_slab_attrs(struct kmem_cache *s)
 		char mbuf[64];
 		char *buf;
 		struct slab_attribute *attr = to_slab_attr(slab_attrs[i]);
+		ssize_t len;
 
 		if (!attr || !attr->store || !attr->show)
 			continue;
@@ -5070,8 +5071,9 @@ static void memcg_propagate_slab_attrs(struct kmem_cache *s)
 			buf = buffer;
 		}
 
-		attr->show(root_cache, buf);
-		attr->store(s, buf, strlen(buf));
+		len = attr->show(root_cache, buf);
+		if (len > 0)
+			attr->store(s, buf, len);
 	}
 
 	if (buffer)

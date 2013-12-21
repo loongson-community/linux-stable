@@ -424,6 +424,7 @@ struct intel_crtc_atomic_commit {
 	/* Sleepable operations to perform before commit */
 	bool wait_for_flips;
 	bool disable_fbc;
+	bool disable_ips;
 	bool pre_disable_primary;
 	bool update_wm;
 	unsigned disabled_planes;
@@ -1065,6 +1066,8 @@ void intel_dp_start_link_train(struct intel_dp *intel_dp);
 void intel_dp_complete_link_train(struct intel_dp *intel_dp);
 void intel_dp_stop_link_train(struct intel_dp *intel_dp);
 void intel_dp_sink_dpms(struct intel_dp *intel_dp, int mode);
+void intel_dp_encoder_reset(struct drm_encoder *encoder);
+void intel_dp_encoder_suspend(struct intel_encoder *intel_encoder);
 void intel_dp_encoder_destroy(struct drm_encoder *encoder);
 int intel_dp_sink_crc(struct intel_dp *intel_dp, u8 *crc);
 bool intel_dp_compute_config(struct intel_encoder *encoder,

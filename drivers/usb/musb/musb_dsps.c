@@ -225,8 +225,11 @@ static void dsps_musb_enable(struct musb *musb)
 
 	dsps_writel(reg_base, wrp->epintr_set, epmask);
 	dsps_writel(reg_base, wrp->coreintr_set, coremask);
-	/* start polling for ID change. */
-	mod_timer(&glue->timer, jiffies + msecs_to_jiffies(wrp->poll_timeout));
+	/* start polling for ID change in dual-role idle mode */
+	if (musb->xceiv->otg->state == OTG_STATE_B_IDLE &&
+			musb->port_mode == MUSB_PORT_MODE_DUAL_ROLE)
+		mod_timer(&glue->timer, jiffies +
+				msecs_to_jiffies(wrp->poll_timeout));
 	dsps_musb_try_idle(musb, 0);
 }
 
@@ -296,6 +299,17 @@ static void otg_timer(unsigned long _musb)
 		break;
 	}
 	spin_unlock_irqrestore(&musb->lock, flags);
+}
+
+void dsps_musb_clear_ep_rxintr(struct musb *musb, int epnum)
+{
+	u32 epintr;
+	struct dsps_glue *glue = dev_get_drvdata(musb->controller->parent);
+	const struct dsps_musb_wrapper *wrp = glue->wrp;
+
+	/* musb->lock might already been held */
+	epintr = (1 << epnum) << wrp->rxep_shift;
+	musb_writel(musb->ctrl_base, wrp->epintr_status, epintr);
 }
 
 static irqreturn_t dsps_interrupt(int irq, void *hci)
@@ -644,6 +658,7 @@ static struct musb_platform_ops dsps_ops = {
 	.try_idle	= dsps_musb_try_idle,
 	.set_mode	= dsps_musb_set_mode,
 	.recover	= dsps_musb_recover,
+	.clear_ep_rxintr = dsps_musb_clear_ep_rxintr,
 };
 
 static u64 musb_dmamask = DMA_BIT_MASK(32);

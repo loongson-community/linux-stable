@@ -184,7 +184,7 @@ static int pcan_usb_fd_send_cmd(struct peak_usb_device *dev, void *cmd_tail)
 	void *cmd_head = pcan_usb_fd_cmd_buffer(dev);
 	int err = 0;
 	u8 *packet_ptr;
-	int i, n = 1, packet_len;
+	int packet_len;
 	ptrdiff_t cmd_len;
 
 	/* usb device unregistered? */
@@ -201,17 +201,13 @@ static int pcan_usb_fd_send_cmd(struct peak_usb_device *dev, void *cmd_tail)
 	}
 
 	packet_ptr = cmd_head;
+	packet_len = cmd_len;
 
 	/* firmware is not able to re-assemble 512 bytes buffer in full-speed */
-	if ((dev->udev->speed != USB_SPEED_HIGH) &&
-	    (cmd_len > PCAN_UFD_LOSPD_PKT_SIZE)) {
-		packet_len = PCAN_UFD_LOSPD_PKT_SIZE;
-		n += cmd_len / packet_len;
-	} else {
-		packet_len = cmd_len;
-	}
+	if (unlikely(dev->udev->speed != USB_SPEED_HIGH))
+		packet_len = min(packet_len, PCAN_UFD_LOSPD_PKT_SIZE);
 
-	for (i = 0; i < n; i++) {
+	do {
 		err = usb_bulk_msg(dev->udev,
 				   usb_sndbulkpipe(dev->udev,
 						   PCAN_USBPRO_EP_CMDOUT),
@@ -224,7 +220,12 @@ static int pcan_usb_fd_send_cmd(struct peak_usb_device *dev, void *cmd_tail)
 		}
 
 		packet_ptr += packet_len;
-	}
+		cmd_len -= packet_len;
+
+		if (cmd_len < PCAN_UFD_LOSPD_PKT_SIZE)
+			packet_len = cmd_len;
+
+	} while (packet_len > 0);
 
 	return err;
 }
@@ -990,6 +991,30 @@ static void pcan_usb_fd_free(struct peak_usb_device *dev)
 }
 
 /* describes the PCAN-USB FD adapter */
+static const struct can_bittiming_const pcan_usb_fd_const = {
+	.name = "pcan_usb_fd",
+	.tseg1_min = 1,
+	.tseg1_max = 64,
+	.tseg2_min = 1,
+	.tseg2_max = 16,
+	.sjw_max = 16,
+	.brp_min = 1,
+	.brp_max = 1024,
+	.brp_inc = 1,
+};
+
+static const struct can_bittiming_const pcan_usb_fd_data_const = {
+	.name = "pcan_usb_fd",
+	.tseg1_min = 1,
+	.tseg1_max = 16,
+	.tseg2_min = 1,
+	.tseg2_max = 8,
+	.sjw_max = 4,
+	.brp_min = 1,
+	.brp_max = 1024,
+	.brp_inc = 1,
+};
+
 const struct peak_usb_adapter pcan_usb_fd = {
 	.name = "PCAN-USB FD",
 	.device_id = PCAN_USBFD_PRODUCT_ID,
@@ -999,28 +1024,8 @@ const struct peak_usb_adapter pcan_usb_fd = {
 	.clock = {
 		.freq = PCAN_UFD_CRYSTAL_HZ,
 	},
-	.bittiming_const = {
-		.name = "pcan_usb_fd",
-		.tseg1_min = 1,
-		.tseg1_max = 64,
-		.tseg2_min = 1,
-		.tseg2_max = 16,
-		.sjw_max = 16,
-		.brp_min = 1,
-		.brp_max = 1024,
-		.brp_inc = 1,
-	},
-	.data_bittiming_const = {
-		.name = "pcan_usb_fd",
-		.tseg1_min = 1,
-		.tseg1_max = 16,
-		.tseg2_min = 1,
-		.tseg2_max = 8,
-		.sjw_max = 4,
-		.brp_min = 1,
-		.brp_max = 1024,
-		.brp_inc = 1,
-	},
+	.bittiming_const = &pcan_usb_fd_const,
+	.data_bittiming_const = &pcan_usb_fd_data_const,
 
 	/* size of device private data */
 	.sizeof_dev_private = sizeof(struct pcan_usb_fd_device),
@@ -1058,6 +1063,30 @@ const struct peak_usb_adapter pcan_usb_fd = {
 };
 
 /* describes the PCAN-USB Pro FD adapter */
+static const struct can_bittiming_const pcan_usb_pro_fd_const = {
+	.name = "pcan_usb_pro_fd",
+	.tseg1_min = 1,
+	.tseg1_max = 64,
+	.tseg2_min = 1,
+	.tseg2_max = 16,
+	.sjw_max = 16,
+	.brp_min = 1,
+	.brp_max = 1024,
+	.brp_inc = 1,
+};
+
+static const struct can_bittiming_const pcan_usb_pro_fd_data_const = {
+	.name = "pcan_usb_pro_fd",
+	.tseg1_min = 1,
+	.tseg1_max = 16,
+	.tseg2_min = 1,
+	.tseg2_max = 8,
+	.sjw_max = 4,
+	.brp_min = 1,
+	.brp_max = 1024,
+	.brp_inc = 1,
+};
+
 const struct peak_usb_adapter pcan_usb_pro_fd = {
 	.name = "PCAN-USB Pro FD",
 	.device_id = PCAN_USBPROFD_PRODUCT_ID,
@@ -1067,28 +1096,8 @@ const struct peak_usb_adapter pcan_usb_pro_fd = {
 	.clock = {
 		.freq = PCAN_UFD_CRYSTAL_HZ,
 	},
-	.bittiming_const = {
-		.name = "pcan_usb_pro_fd",
-		.tseg1_min = 1,
-		.tseg1_max = 64,
-		.tseg2_min = 1,
-		.tseg2_max = 16,
-		.sjw_max = 16,
-		.brp_min = 1,
-		.brp_max = 1024,
-		.brp_inc = 1,
-	},
-	.data_bittiming_const = {
-		.name = "pcan_usb_pro_fd",
-		.tseg1_min = 1,
-		.tseg1_max = 16,
-		.tseg2_min = 1,
-		.tseg2_max = 8,
-		.sjw_max = 4,
-		.brp_min = 1,
-		.brp_max = 1024,
-		.brp_inc = 1,
-	},
+	.bittiming_const = &pcan_usb_pro_fd_const,
+	.data_bittiming_const = &pcan_usb_pro_fd_data_const,
 
 	/* size of device private data */
 	.sizeof_dev_private = sizeof(struct pcan_usb_fd_device),

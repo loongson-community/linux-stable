@@ -175,12 +175,13 @@ static DEFINE_IDR(cgroup_hierarchy_idr);
  */
 static u64 css_serial_nr_next = 1;
 
-/* This flag indicates whether tasks in the fork and exit paths should
- * check for fork/exit handlers to call. This avoids us having to do
- * extra work in the fork/exit path if none of the subsystems need to
- * be called.
+/*
+ * These bitmask flags indicate whether tasks in the fork and exit paths have
+ * fork/exit handlers to call. This avoids us having to do extra work in the
+ * fork/exit path to check which subsystems have fork/exit callbacks.
  */
-static int need_forkexit_callback __read_mostly;
+static unsigned long have_fork_callback __read_mostly;
+static unsigned long have_exit_callback __read_mostly;
 
 static struct cftype cgroup_dfl_base_files[];
 static struct cftype cgroup_legacy_base_files[];
@@ -408,6 +409,24 @@ static int notify_on_release(const struct cgroup *cgrp)
 #define for_each_subsys(ss, ssid)					\
 	for ((ssid) = 0; (ssid) < CGROUP_SUBSYS_COUNT &&		\
 	     (((ss) = cgroup_subsys[ssid]) || true); (ssid)++)
+
+/**
+ * for_each_subsys_which - filter for_each_subsys with a bitmask
+ * @ss: the iteration cursor
+ * @ssid: the index of @ss, CGROUP_SUBSYS_COUNT after reaching the end
+ * @ss_maskp: a pointer to the bitmask
+ *
+ * The block will only run for cases where the ssid-th bit (1 << ssid) of
+ * mask is set to 1.
+ */
+#define for_each_subsys_which(ss, ssid, ss_maskp)			\
+	if (!CGROUP_SUBSYS_COUNT) /* to avoid spurious gcc warning */	\
+		;							\
+	else								\
+		for_each_set_bit(ssid, ss_maskp, CGROUP_SUBSYS_COUNT)	\
+			if (((ss) = cgroup_subsys[ssid]) && false)	\
+				break;					\
+			else
 
 /* iterate across the hierarchies */
 #define for_each_root(root)						\
@@ -846,6 +865,48 @@ static struct css_set *find_css_set(struct css_set *old_cset,
 	up_write(&css_set_rwsem);
 
 	return cset;
+}
+
+void cgroup_threadgroup_change_begin(struct task_struct *tsk)
+{
+	down_read(&tsk->signal->group_rwsem);
+}
+
+void cgroup_threadgroup_change_end(struct task_struct *tsk)
+{
+	up_read(&tsk->signal->group_rwsem);
+}
+
+/**
+ * threadgroup_lock - lock threadgroup
+ * @tsk: member task of the threadgroup to lock
+ *
+ * Lock the threadgroup @tsk belongs to.  No new task is allowed to enter
+ * and member tasks aren't allowed to exit (as indicated by PF_EXITING) or
+ * change ->group_leader/pid.  This is useful for cases where the threadgroup
+ * needs to stay stable across blockable operations.
+ *
+ * fork and exit explicitly call threadgroup_change_{begin|end}() for
+ * synchronization.  While held, no new task will be added to threadgroup
+ * and no existing live task will have its PF_EXITING set.
+ *
+ * de_thread() does threadgroup_change_{begin|end}() when a non-leader
+ * sub-thread becomes a new leader.
+ */
+static void threadgroup_lock(struct task_struct *tsk)
+{
+	down_write(&tsk->signal->group_rwsem);
+}
+
+/**
+ * threadgroup_unlock - unlock threadgroup
+ * @tsk: member task of the threadgroup to unlock
+ *
+ * Reverse threadgroup_lock().
+ */
+static inline void threadgroup_unlock(struct task_struct *tsk)
+{
+	up_write(&tsk->signal->group_rwsem);
 }
 
 static struct cgroup_root *cgroup_root_from_kf(struct kernfs_root *kf_root)
@@ -1319,7 +1380,7 @@ static int cgroup_show_options(struct seq_file *seq,
 
 	for_each_subsys(ss, ssid)
 		if (root->subsys_mask & (1 << ssid))
-			seq_printf(seq, ",%s", ss->name);
+			seq_show_option(seq, ss->name, NULL);
 	if (root->flags & CGRP_ROOT_NOPREFIX)
 		seq_puts(seq, ",noprefix");
 	if (root->flags & CGRP_ROOT_XATTR)
@@ -1327,13 +1388,14 @@ static int cgroup_show_options(struct seq_file *seq,
 
 	spin_lock(&release_agent_path_lock);
 	if (strlen(root->release_agent_path))
-		seq_printf(seq, ",release_agent=%s", root->release_agent_path);
+		seq_show_option(seq, "release_agent",
+				root->release_agent_path);
 	spin_unlock(&release_agent_path_lock);
 
 	if (test_bit(CGRP_CPUSET_CLONE_CHILDREN, &root->cgrp.flags))
 		seq_puts(seq, ",clone_children");
 	if (strlen(root->name))
-		seq_printf(seq, ",name=%s", root->name);
+		seq_show_option(seq, "name", root->name);
 	return 0;
 }
 
@@ -1923,8 +1985,6 @@ static struct file_system_type cgroup_fs_type = {
 	.mount = cgroup_mount,
 	.kill_sb = cgroup_kill_sb,
 };
-
-static struct kobject *cgroup_kobj;
 
 /**
  * task_cgroup_path - cgroup path of a task in the first cgroup hierarchy
@@ -4379,14 +4439,15 @@ static void css_free_work_fn(struct work_struct *work)
 
 	if (ss) {
 		/* css free path */
+		struct cgroup_subsys_state *parent = css->parent;
 		int id = css->id;
-
-		if (css->parent)
-			css_put(css->parent);
 
 		ss->css_free(css);
 		cgroup_idr_remove(&ss->css_idr, id);
 		cgroup_put(cgrp);
+
+		if (parent)
+			css_put(parent);
 	} else {
 		/* cgroup free path */
 		atomic_dec(&cgrp->root->nr_cgrps);
@@ -4479,9 +4540,11 @@ static void init_and_link_css(struct cgroup_subsys_state *css,
 	memset(css, 0, sizeof(*css));
 	css->cgroup = cgrp;
 	css->ss = ss;
+	css->id = -1;
 	INIT_LIST_HEAD(&css->sibling);
 	INIT_LIST_HEAD(&css->children);
 	css->serial_nr = css_serial_nr_next++;
+	atomic_set(&css->online_cnt, 0);
 
 	if (cgroup_parent(cgrp)) {
 		css->parent = cgroup_css(cgroup_parent(cgrp), ss);
@@ -4504,6 +4567,10 @@ static int online_css(struct cgroup_subsys_state *css)
 	if (!ret) {
 		css->flags |= CSS_ONLINE;
 		rcu_assign_pointer(css->cgroup->subsys[ss->id], css);
+
+		atomic_inc(&css->online_cnt);
+		if (css->parent)
+			atomic_inc(&css->parent->online_cnt);
 	}
 	return ret;
 }
@@ -4559,7 +4626,7 @@ static int create_css(struct cgroup *cgrp, struct cgroup_subsys *ss,
 
 	err = cgroup_idr_alloc(&ss->css_idr, NULL, 2, 0, GFP_NOWAIT);
 	if (err < 0)
-		goto err_free_percpu_ref;
+		goto err_free_css;
 	css->id = err;
 
 	if (visible) {
@@ -4591,9 +4658,6 @@ err_list_del:
 	list_del_rcu(&css->sibling);
 	cgroup_clear_dir(css->cgroup, 1 << css->ss->id);
 err_free_id:
-	cgroup_idr_remove(&ss->css_idr, css->id);
-err_free_percpu_ref:
-	percpu_ref_exit(&css->refcnt);
 err_free_css:
 	call_rcu(&css->rcu_head, css_free_rcu_fn);
 	return err;
@@ -4741,10 +4805,15 @@ static void css_killed_work_fn(struct work_struct *work)
 		container_of(work, struct cgroup_subsys_state, destroy_work);
 
 	mutex_lock(&cgroup_mutex);
-	offline_css(css);
-	mutex_unlock(&cgroup_mutex);
 
-	css_put(css);
+	do {
+		offline_css(css);
+		css_put(css);
+		/* @css can't go away while we're holding cgroup_mutex */
+		css = css->parent;
+	} while (css && atomic_dec_and_test(&css->online_cnt));
+
+	mutex_unlock(&cgroup_mutex);
 }
 
 /* css kill confirmation processing requires process context, bounce */
@@ -4753,8 +4822,10 @@ static void css_killed_ref_fn(struct percpu_ref *ref)
 	struct cgroup_subsys_state *css =
 		container_of(ref, struct cgroup_subsys_state, refcnt);
 
-	INIT_WORK(&css->destroy_work, css_killed_work_fn);
-	queue_work(cgroup_destroy_wq, &css->destroy_work);
+	if (atomic_dec_and_test(&css->online_cnt)) {
+		INIT_WORK(&css->destroy_work, css_killed_work_fn);
+		queue_work(cgroup_destroy_wq, &css->destroy_work);
+	}
 }
 
 /**
@@ -4931,7 +5002,8 @@ static void __init cgroup_init_subsys(struct cgroup_subsys *ss, bool early)
 	 * init_css_set is in the subsystem's root cgroup. */
 	init_css_set.subsys[ss->id] = css;
 
-	need_forkexit_callback |= ss->fork || ss->exit;
+	have_fork_callback |= (bool)ss->fork << ss->id;
+	have_exit_callback |= (bool)ss->exit << ss->id;
 
 	/* At system boot, before all subsystems have been
 	 * registered, no tasks have been forked, so we don't
@@ -5044,13 +5116,13 @@ int __init cgroup_init(void)
 			ss->bind(init_css_set.subsys[ssid]);
 	}
 
-	cgroup_kobj = kobject_create_and_add("cgroup", fs_kobj);
-	if (!cgroup_kobj)
-		return -ENOMEM;
+	err = sysfs_create_mount_point(fs_kobj, "cgroup");
+	if (err)
+		return err;
 
 	err = register_filesystem(&cgroup_fs_type);
 	if (err < 0) {
-		kobject_put(cgroup_kobj);
+		sysfs_remove_mount_point(fs_kobj, "cgroup");
 		return err;
 	}
 
@@ -5241,11 +5313,8 @@ void cgroup_post_fork(struct task_struct *child)
 	 * css_set; otherwise, @child might change state between ->fork()
 	 * and addition to css_set.
 	 */
-	if (need_forkexit_callback) {
-		for_each_subsys(ss, i)
-			if (ss->fork)
-				ss->fork(child);
-	}
+	for_each_subsys_which(ss, i, &have_fork_callback)
+		ss->fork(child);
 }
 
 /**
@@ -5289,16 +5358,12 @@ void cgroup_exit(struct task_struct *tsk)
 	cset = task_css_set(tsk);
 	RCU_INIT_POINTER(tsk->cgroups, &init_css_set);
 
-	if (need_forkexit_callback) {
-		/* see cgroup_post_fork() for details */
-		for_each_subsys(ss, i) {
-			if (ss->exit) {
-				struct cgroup_subsys_state *old_css = cset->subsys[i];
-				struct cgroup_subsys_state *css = task_css(tsk, i);
+	/* see cgroup_post_fork() for details */
+	for_each_subsys_which(ss, i, &have_exit_callback) {
+		struct cgroup_subsys_state *old_css = cset->subsys[i];
+		struct cgroup_subsys_state *css = task_css(tsk, i);
 
-				ss->exit(css, old_css, tsk);
-			}
-		}
+		ss->exit(css, old_css, tsk);
 	}
 
 	if (put_cset)

@@ -127,6 +127,10 @@ static struct radeon_px_quirk radeon_px_quirk_list[] = {
 	 * https://bugzilla.kernel.org/show_bug.cgi?id=51381
 	 */
 	{ PCI_VENDOR_ID_ATI, 0x6840, 0x1043, 0x2122, RADEON_PX_QUIRK_DISABLE_PX },
+	/* Asus K53TK laptop with AMD A6-3420M APU and Radeon 7670m GPU
+	 * https://bugs.freedesktop.org/show_bug.cgi?id=101491
+	 */
+	{ PCI_VENDOR_ID_ATI, 0x6741, 0x1043, 0x2122, RADEON_PX_QUIRK_DISABLE_PX },
 	/* macbook pro 8.2 */
 	{ PCI_VENDOR_ID_ATI, 0x6741, PCI_VENDOR_ID_APPLE, 0x00e2, RADEON_PX_QUIRK_LONG_WAKEUP },
 	{ 0, 0, 0, 0, 0 },
@@ -630,6 +634,23 @@ void radeon_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 /*
  * GPU helpers function.
  */
+
+/**
+ * radeon_device_is_virtual - check if we are running is a virtual environment
+ *
+ * Check if the asic has been passed through to a VM (all asics).
+ * Used at driver startup.
+ * Returns true if virtual or false if not.
+ */
+static bool radeon_device_is_virtual(void)
+{
+#ifdef CONFIG_X86
+	return boot_cpu_has(X86_FEATURE_HYPERVISOR);
+#else
+	return false;
+#endif
+}
+
 /**
  * radeon_card_posted - check if the hw has already been initialized
  *
@@ -642,6 +663,10 @@ void radeon_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 bool radeon_card_posted(struct radeon_device *rdev)
 {
 	uint32_t reg;
+
+	/* for pass through, always force asic_init */
+	if (radeon_device_is_virtual())
+		return false;
 
 	/* required for EFI mode on macbook2,1 which uses an r5xx asic */
 	if (efi_enabled(EFI_BOOT) &&
@@ -1572,10 +1597,20 @@ int radeon_suspend_kms(struct drm_device *dev, bool suspend, bool fbcon)
 		drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
 	}
 
-	/* unpin the front buffers */
+	/* unpin the front buffers and cursors */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
+		struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
 		struct radeon_framebuffer *rfb = to_radeon_framebuffer(crtc->primary->fb);
 		struct radeon_bo *robj;
+
+		if (radeon_crtc->cursor_bo) {
+			struct radeon_bo *robj = gem_to_radeon_bo(radeon_crtc->cursor_bo);
+			r = radeon_bo_reserve(robj, false);
+			if (r == 0) {
+				radeon_bo_unpin(robj);
+				radeon_bo_unreserve(robj);
+			}
+		}
 
 		if (rfb == NULL || rfb->obj == NULL) {
 			continue;
@@ -1639,6 +1674,7 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 {
 	struct drm_connector *connector;
 	struct radeon_device *rdev = dev->dev_private;
+	struct drm_crtc *crtc;
 	int r;
 
 	if (dev->switch_power_state == DRM_SWITCH_POWER_OFF)
@@ -1677,6 +1713,27 @@ int radeon_resume_kms(struct drm_device *dev, bool resume, bool fbcon)
 	}
 
 	radeon_restore_bios_scratch_regs(rdev);
+
+	/* pin cursors */
+	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
+		struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
+
+		if (radeon_crtc->cursor_bo) {
+			struct radeon_bo *robj = gem_to_radeon_bo(radeon_crtc->cursor_bo);
+			r = radeon_bo_reserve(robj, false);
+			if (r == 0) {
+				/* Only 27 bit offset for legacy cursor */
+				r = radeon_bo_pin_restricted(robj,
+							     RADEON_GEM_DOMAIN_VRAM,
+							     ASIC_IS_AVIVO(rdev) ?
+							     0 : 1 << 27,
+							     &radeon_crtc->cursor_addr);
+				if (r != 0)
+					DRM_ERROR("Failed to pin cursor BO (%d)\n", r);
+				radeon_bo_unreserve(robj);
+			}
+		}
+	}
 
 	/* init dig PHYs, disp eng pll */
 	if (rdev->is_atom_bios) {

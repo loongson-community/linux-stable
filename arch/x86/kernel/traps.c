@@ -175,7 +175,7 @@ void ist_begin_non_atomic(struct pt_regs *regs)
 	 * from double_fault.
 	 */
 	BUG_ON((unsigned long)(current_top_of_stack() -
-			       current_stack_pointer()) >= THREAD_SIZE);
+			       current_stack_pointer) >= THREAD_SIZE);
 
 	preempt_count_sub(HARDIRQ_OFFSET);
 }
@@ -208,7 +208,7 @@ do_trap_no_signal(struct task_struct *tsk, int trapnr, char *str,
 	}
 
 	if (!user_mode(regs)) {
-		if (!fixup_exception(regs)) {
+		if (!fixup_exception(regs, trapnr)) {
 			tsk->thread.error_code = error_code;
 			tsk->thread.trap_nr = trapnr;
 			die(str, regs, error_code);
@@ -469,7 +469,7 @@ do_general_protection(struct pt_regs *regs, long error_code)
 
 	tsk = current;
 	if (!user_mode(regs)) {
-		if (fixup_exception(regs))
+		if (fixup_exception(regs, X86_TRAP_GP))
 			goto exit;
 
 		tsk->thread.error_code = error_code;
@@ -720,7 +720,7 @@ static void math_error(struct pt_regs *regs, int error_code, int trapnr)
 
 	if (!user_mode(regs))
 	{
-		if (!fixup_exception(regs)) {
+		if (!fixup_exception(regs, trapnr)) {
 			task->thread.error_code = error_code;
 			task->thread.trap_nr = trapnr;
 			die(str, regs, error_code);

@@ -690,6 +690,14 @@ static void __tty_hangup(struct tty_struct *tty, int exit_session)
 		return;
 	}
 
+	/*
+	 * Some console devices aren't actually hung up for technical and
+	 * historical reasons, which can lead to indefinite interruptible
+	 * sleep in n_tty_read().  The following explicitly tells
+	 * n_tty_read() to abort readers.
+	 */
+	set_bit(TTY_HUPPING, &tty->flags);
+
 	/* inuse_filps is protected by the single tty lock,
 	   this really needs to change if we want to flush the
 	   workqueue with the lock held */
@@ -745,6 +753,7 @@ static void __tty_hangup(struct tty_struct *tty, int exit_session)
 	 * can't yet guarantee all that.
 	 */
 	set_bit(TTY_HUPPED, &tty->flags);
+	clear_bit(TTY_HUPPING, &tty->flags);
 	tty_unlock(tty);
 
 	if (f)
@@ -1287,18 +1296,22 @@ int tty_send_xchar(struct tty_struct *tty, char ch)
 	int	was_stopped = tty->stopped;
 
 	if (tty->ops->send_xchar) {
+		down_read(&tty->termios_rwsem);
 		tty->ops->send_xchar(tty, ch);
+		up_read(&tty->termios_rwsem);
 		return 0;
 	}
 
 	if (tty_write_lock(tty, 0) < 0)
 		return -ERESTARTSYS;
 
+	down_read(&tty->termios_rwsem);
 	if (was_stopped)
 		start_tty(tty);
 	tty->ops->write(tty, &ch, 1);
 	if (was_stopped)
 		stop_tty(tty);
+	up_read(&tty->termios_rwsem);
 	tty_write_unlock(tty);
 	return 0;
 }
@@ -2144,8 +2157,24 @@ retry_open:
 	if (!noctty &&
 	    current->signal->leader &&
 	    !current->signal->tty &&
-	    tty->session == NULL)
-		__proc_set_tty(tty);
+	    tty->session == NULL) {
+		/*
+		 * Don't let a process that only has write access to the tty
+		 * obtain the privileges associated with having a tty as
+		 * controlling terminal (being able to reopen it with full
+		 * access through /dev/tty, being able to perform pushback).
+		 * Many distributions set the group of all ttys to "tty" and
+		 * grant write-only access to all terminals for setgid tty
+		 * binaries, which should not imply full privileges on all ttys.
+		 *
+		 * This could theoretically break old code that performs open()
+		 * on a write-only file descriptor. In that case, it might be
+		 * necessary to also permit this if
+		 * inode_permission(inode, MAY_READ) == 0.
+		 */
+		if (filp->f_mode & FMODE_READ)
+			__proc_set_tty(tty);
+	}
 	spin_unlock_irq(&current->sighand->siglock);
 	read_unlock(&tasklist_lock);
 	tty_unlock(tty);
@@ -2434,7 +2463,7 @@ static int fionbio(struct file *file, int __user *p)
  *		Takes ->siglock() when updating signal->tty
  */
 
-static int tiocsctty(struct tty_struct *tty, int arg)
+static int tiocsctty(struct tty_struct *tty, struct file *file, int arg)
 {
 	int ret = 0;
 
@@ -2468,6 +2497,13 @@ static int tiocsctty(struct tty_struct *tty, int arg)
 			goto unlock;
 		}
 	}
+
+	/* See the comment in tty_open(). */
+	if ((file->f_mode & FMODE_READ) == 0 && !capable(CAP_SYS_ADMIN)) {
+		ret = -EPERM;
+		goto unlock;
+	}
+
 	proc_set_tty(tty);
 unlock:
 	read_unlock(&tasklist_lock);
@@ -2639,6 +2675,28 @@ static int tiocsetd(struct tty_struct *tty, int __user *p)
 
 	ret = tty_set_ldisc(tty, ldisc);
 
+	return ret;
+}
+
+/**
+ *	tiocgetd	-	get line discipline
+ *	@tty: tty device
+ *	@p: pointer to user data
+ *
+ *	Retrieves the line discipline id directly from the ldisc.
+ *
+ *	Locking: waits for ldisc reference (in case the line discipline
+ *		is changing or the tty is being hungup)
+ */
+
+static int tiocgetd(struct tty_struct *tty, int __user *p)
+{
+	struct tty_ldisc *ld;
+	int ret;
+
+	ld = tty_ldisc_ref_wait(tty);
+	ret = put_user(ld->ops->num, p);
+	tty_ldisc_deref(ld);
 	return ret;
 }
 
@@ -2860,7 +2918,7 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		no_tty();
 		return 0;
 	case TIOCSCTTY:
-		return tiocsctty(tty, arg);
+		return tiocsctty(tty, file, arg);
 	case TIOCGPGRP:
 		return tiocgpgrp(tty, real_tty, p);
 	case TIOCSPGRP:
@@ -2868,7 +2926,7 @@ long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case TIOCGSID:
 		return tiocgsid(tty, real_tty, p);
 	case TIOCGETD:
-		return put_user(tty->ldisc->ops->num, (int __user *)p);
+		return tiocgetd(tty, p);
 	case TIOCSETD:
 		return tiocsetd(tty, p);
 	case TIOCVHANGUP:
@@ -3102,7 +3160,10 @@ struct tty_struct *alloc_tty_struct(struct tty_driver *driver, int idx)
 
 	kref_init(&tty->kref);
 	tty->magic = TTY_MAGIC;
-	tty_ldisc_init(tty);
+	if (tty_ldisc_init(tty)) {
+		kfree(tty);
+		return NULL;
+	}
 	tty->session = NULL;
 	tty->pgrp = NULL;
 	mutex_init(&tty->legacy_mutex);

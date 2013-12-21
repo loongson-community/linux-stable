@@ -279,6 +279,7 @@ struct mlx4_en_tx_ring {
 	u32			size; /* number of TXBBs */
 	u32			size_mask;
 	u16			stride;
+	u32			full_size;
 	u16			cqn;	/* index of port CQ associated with this ring */
 	u32			buf_size;
 	__be32			doorbell_qpn;
@@ -407,7 +408,6 @@ struct mlx4_en_dev {
 	struct cyclecounter	cycles;
 	struct timecounter	clock;
 	unsigned long		last_overflow_check;
-	unsigned long		overflow_period;
 	struct ptp_clock	*ptp_clock;
 	struct ptp_clock_info	ptp_clock_info;
 	struct notifier_block	nb;
@@ -579,7 +579,6 @@ struct mlx4_en_priv {
 	int vids[128];
 	bool wol;
 	struct device *ddev;
-	int base_tx_qpn;
 	struct hlist_head mac_hash[MLX4_EN_MAC_HASH_SIZE];
 	struct hwtstamp_config hwtstamp_config;
 

@@ -132,6 +132,8 @@ struct hv_fc_wwn_packet {
 #define SRB_FLAGS_PORT_DRIVER_RESERVED		0x0F000000
 #define SRB_FLAGS_CLASS_DRIVER_RESERVED		0xF0000000
 
+#define SP_UNTAGGED			((unsigned char) ~0)
+#define SRB_SIMPLE_TAG_REQUEST		0x20
 
 /*
  * Platform neutral description of a scsi request -
@@ -322,8 +324,6 @@ MODULE_PARM_DESC(vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
  * Timeout in seconds for all devices managed by this driver.
  */
 static int storvsc_timeout = 180;
-
-static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
 
 
 static void storvsc_on_channel_callback(void *context);
@@ -582,17 +582,18 @@ static int do_bounce_buffer(struct scatterlist *sgl, unsigned int sg_count)
 	for (i = 0; i < sg_count; i++) {
 		if (i == 0) {
 			/* make sure 1st one does not have hole */
-			if (sgl[i].offset + sgl[i].length != PAGE_SIZE)
+			if (sgl->offset + sgl->length != PAGE_SIZE)
 				return i;
 		} else if (i == sg_count - 1) {
 			/* make sure last one does not have hole */
-			if (sgl[i].offset != 0)
+			if (sgl->offset != 0)
 				return i;
 		} else {
 			/* make sure no hole in the middle */
-			if (sgl[i].length != PAGE_SIZE || sgl[i].offset != 0)
+			if (sgl->length != PAGE_SIZE || sgl->offset != 0)
 				return i;
 		}
+		sgl = sg_next(sgl);
 	}
 	return -1;
 }
@@ -1041,6 +1042,13 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	switch (vm_srb->srb_status) {
 	case SRB_STATUS_ERROR:
 		/*
+		 * Let upper layer deal with error when
+		 * sense message is present.
+		 */
+
+		if (vm_srb->srb_status & SRB_STATUS_AUTOSENSE_VALID)
+			break;
+		/*
 		 * If there is an error; offline the device since all
 		 * error recovery strategies would have already been
 		 * deployed on the host side. However, if the command
@@ -1059,10 +1067,11 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		case TEST_UNIT_READY:
 			break;
 		default:
-			set_host_byte(scmnd, DID_TARGET_FAILURE);
+			set_host_byte(scmnd, DID_ERROR);
 		}
 		break;
 	case SRB_STATUS_INVALID_LUN:
+		set_host_byte(scmnd, DID_NO_CONNECT);
 		do_work = true;
 		process_err_fn = storvsc_remove_lun;
 		break;
@@ -1407,6 +1416,22 @@ static int storvsc_do_io(struct hv_device *device,
 	return ret;
 }
 
+static int storvsc_device_alloc(struct scsi_device *sdevice)
+{
+	/*
+	 * Set blist flag to permit the reading of the VPD pages even when
+	 * the target may claim SPC-2 compliance. MSFT targets currently
+	 * claim SPC-2 compliance while they implement post SPC-2 features.
+	 * With this flag we can correctly handle WRITE_SAME_16 issues.
+	 *
+	 * Hypervisor reports SCSI_UNKNOWN type for DVD ROM device but
+	 * still supports REPORT LUN.
+	 */
+	sdevice->sdev_bflags = BLIST_REPORTLUN2 | BLIST_TRY_VPD_PAGES;
+
+	return 0;
+}
+
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
 
@@ -1417,14 +1442,6 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
 
 	sdevice->no_write_same = 1;
-
-	/*
-	 * Add blist flags to permit the reading of the VPD pages even when
-	 * the target may claim SPC-2 compliance. MSFT targets currently
-	 * claim SPC-2 compliance while they implement post SPC-2 features.
-	 * With this patch we can correctly handle WRITE_SAME_16 issues.
-	 */
-	sdevice->sdev_bflags |= msft_blist_flags;
 
 	/*
 	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3
@@ -1588,6 +1605,13 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 		(SRB_FLAGS_QUEUE_ACTION_ENABLE |
 		SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
 
+	if (scmnd->device->tagged_supported) {
+		vm_srb->win8_extension.srb_flags |=
+		(SRB_FLAGS_QUEUE_ACTION_ENABLE | SRB_FLAGS_NO_QUEUE_FREEZE);
+		vm_srb->win8_extension.queue_tag = SP_UNTAGGED;
+		vm_srb->win8_extension.queue_action = SRB_SIMPLE_TAG_REQUEST;
+	}
+
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {
 	case DMA_TO_DEVICE:
@@ -1683,6 +1707,8 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	ret = storvsc_do_io(dev, cmd_request);
 
 	if (ret == -EAGAIN) {
+		if (payload_sz > sizeof(cmd_request->mpb))
+			kfree(payload);
 		/* no more space */
 
 		if (cmd_request->bounce_sgl_count)
@@ -1704,6 +1730,7 @@ static struct scsi_host_template scsi_driver = {
 	.eh_host_reset_handler =	storvsc_host_reset_handler,
 	.proc_name =		"storvsc_host",
 	.eh_timed_out =		storvsc_eh_timed_out,
+	.slave_alloc =		storvsc_device_alloc,
 	.slave_configure =	storvsc_device_configure,
 	.cmd_per_lun =		255,
 	.this_id =		-1,

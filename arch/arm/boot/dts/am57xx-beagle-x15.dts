@@ -299,6 +299,7 @@
 		interrupt-controller;
 
 		ti,system-power-controller;
+		ti,palmas-override-powerhold;
 
 		tps659038_pmic {
 			compatible = "ti,tps659038-pmic";
@@ -354,11 +355,12 @@
 				/* SMPS9 unused */
 
 				ldo1_reg: ldo1 {
-					/* VDD_SD  */
+					/* VDD_SD / VDDSHV8  */
 					regulator-name = "ldo1";
 					regulator-min-microvolt = <1800000>;
 					regulator-max-microvolt = <3300000>;
 					regulator-boot-on;
+					regulator-always-on;
 				};
 
 				ldo2_reg: ldo2 {
@@ -541,6 +543,10 @@
 };
 
 &usb2_phy1 {
+	phy-supply = <&ldousb_reg>;
+};
+
+&usb2_phy2 {
 	phy-supply = <&ldousb_reg>;
 };
 

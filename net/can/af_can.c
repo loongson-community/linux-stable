@@ -89,6 +89,8 @@ struct timer_list can_stattimer;   /* timer for statistics update */
 struct s_stats    can_stats;       /* packet statistics */
 struct s_pstats   can_pstats;      /* receive list statistics */
 
+static atomic_t skbcounter = ATOMIC_INIT(0);
+
 /*
  * af_can socket functions
  */
@@ -679,6 +681,10 @@ static void can_receive(struct sk_buff *skb, struct net_device *dev)
 	can_stats.rx_frames++;
 	can_stats.rx_frames_delta++;
 
+	/* create non-zero unique skb identifier together with *skb */
+	while (!(can_skb_prv(skb)->skbcnt))
+		can_skb_prv(skb)->skbcnt = atomic_inc_return(&skbcounter);
+
 	rcu_read_lock();
 
 	/* deliver the packet to sockets listening on all devices */
@@ -708,13 +714,12 @@ static int can_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (unlikely(!net_eq(dev_net(dev), &init_net)))
 		goto drop;
 
-	if (WARN_ONCE(dev->type != ARPHRD_CAN ||
-		      skb->len != CAN_MTU ||
-		      cfd->len > CAN_MAX_DLEN,
-		      "PF_CAN: dropped non conform CAN skbuf: "
-		      "dev type %d, len %d, datalen %d\n",
-		      dev->type, skb->len, cfd->len))
+	if (unlikely(dev->type != ARPHRD_CAN || skb->len != CAN_MTU ||
+		     cfd->len > CAN_MAX_DLEN)) {
+		pr_warn_once("PF_CAN: dropped non conform CAN skbuf: dev type %d, len %d, datalen %d\n",
+			     dev->type, skb->len, cfd->len);
 		goto drop;
+	}
 
 	can_receive(skb, dev);
 	return NET_RX_SUCCESS;
@@ -732,13 +737,12 @@ static int canfd_rcv(struct sk_buff *skb, struct net_device *dev,
 	if (unlikely(!net_eq(dev_net(dev), &init_net)))
 		goto drop;
 
-	if (WARN_ONCE(dev->type != ARPHRD_CAN ||
-		      skb->len != CANFD_MTU ||
-		      cfd->len > CANFD_MAX_DLEN,
-		      "PF_CAN: dropped non conform CAN FD skbuf: "
-		      "dev type %d, len %d, datalen %d\n",
-		      dev->type, skb->len, cfd->len))
+	if (unlikely(dev->type != ARPHRD_CAN || skb->len != CANFD_MTU ||
+		     cfd->len > CANFD_MAX_DLEN)) {
+		pr_warn_once("PF_CAN: dropped non conform CAN FD skbuf: dev type %d, len %d, datalen %d\n",
+			     dev->type, skb->len, cfd->len);
 		goto drop;
+	}
 
 	can_receive(skb, dev);
 	return NET_RX_SUCCESS;

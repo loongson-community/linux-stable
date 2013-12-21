@@ -565,6 +565,7 @@ struct iscsi_conn {
 #define LOGIN_FLAGS_READ_ACTIVE		1
 #define LOGIN_FLAGS_CLOSED		2
 #define LOGIN_FLAGS_READY		4
+#define LOGIN_FLAGS_INITIAL_PDU		8
 	unsigned long		login_flags;
 	struct delayed_work	login_work;
 	struct delayed_work	login_cleanup_work;
@@ -581,8 +582,8 @@ struct iscsi_conn {
 	spinlock_t		response_queue_lock;
 	spinlock_t		state_lock;
 	/* libcrypto RX and TX contexts for crc32c */
-	struct hash_desc	conn_rx_hash;
-	struct hash_desc	conn_tx_hash;
+	struct ahash_request	*conn_rx_hash;
+	struct ahash_request	*conn_tx_hash;
 	/* Used for scheduling TX and RX connection kthreads */
 	cpumask_var_t		conn_cpumask;
 	unsigned int		conn_rx_reset_cpumask:1;
@@ -606,6 +607,7 @@ struct iscsi_conn {
 	int			bitmap_id;
 	int			rx_thread_active;
 	struct task_struct	*rx_thread;
+	struct completion	rx_login_comp;
 	int			tx_thread_active;
 	struct task_struct	*tx_thread;
 	/* list_head for session connection list */
@@ -783,10 +785,10 @@ struct iscsi_np {
 	int			np_sock_type;
 	enum np_thread_state_table np_thread_state;
 	bool                    enabled;
+	atomic_t		np_reset_count;
 	enum iscsi_timer_flags_table np_login_timer_flags;
 	u32			np_exports;
 	enum np_flags_table	np_flags;
-	unsigned char		np_ip[IPV6_ADDRESS_SPACE];
 	u16			np_port;
 	spinlock_t		np_thread_lock;
 	struct completion	np_restart_comp;

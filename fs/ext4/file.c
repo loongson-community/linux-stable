@@ -192,15 +192,27 @@ out:
 }
 
 #ifdef CONFIG_FS_DAX
+static void ext4_end_io_unwritten(struct buffer_head *bh, int uptodate)
+{
+	struct inode *inode = bh->b_assoc_map->host;
+	/* XXX: breaks on 32-bit > 16GB. Is that even supported? */
+	loff_t offset = (loff_t)(uintptr_t)bh->b_private << inode->i_blkbits;
+	int err;
+	if (!uptodate)
+		return;
+	WARN_ON(!buffer_unwritten(bh));
+	err = ext4_convert_unwritten_extents(NULL, inode, offset, bh->b_size);
+}
+
 static int ext4_dax_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-	return dax_fault(vma, vmf, ext4_get_block);
+	return dax_fault(vma, vmf, ext4_get_block, ext4_end_io_unwritten);
 					/* Is this the right get_block? */
 }
 
 static int ext4_dax_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
-	return dax_mkwrite(vma, vmf, ext4_get_block);
+	return dax_mkwrite(vma, vmf, ext4_get_block, ext4_end_io_unwritten);
 }
 
 static const struct vm_operations_struct ext4_dax_vm_ops = {
@@ -213,7 +225,7 @@ static const struct vm_operations_struct ext4_dax_vm_ops = {
 #endif
 
 static const struct vm_operations_struct ext4_file_vm_ops = {
-	.fault		= filemap_fault,
+	.fault		= ext4_filemap_fault,
 	.map_pages	= filemap_map_pages,
 	.page_mkwrite   = ext4_page_mkwrite,
 };
@@ -339,49 +351,29 @@ static int ext4_find_unwritten_pgoff(struct inode *inode,
 		int i, num;
 		unsigned long nr_pages;
 
-		num = min_t(pgoff_t, end - index, PAGEVEC_SIZE);
+		num = min_t(pgoff_t, end - index, PAGEVEC_SIZE - 1) + 1;
 		nr_pages = pagevec_lookup(&pvec, inode->i_mapping, index,
 					  (pgoff_t)num);
-		if (nr_pages == 0) {
-			if (whence == SEEK_DATA)
-				break;
-
-			BUG_ON(whence != SEEK_HOLE);
-			/*
-			 * If this is the first time to go into the loop and
-			 * offset is not beyond the end offset, it will be a
-			 * hole at this offset
-			 */
-			if (lastoff == startoff || lastoff < endoff)
-				found = 1;
+		if (nr_pages == 0)
 			break;
-		}
-
-		/*
-		 * If this is the first time to go into the loop and
-		 * offset is smaller than the first page offset, it will be a
-		 * hole at this offset.
-		 */
-		if (lastoff == startoff && whence == SEEK_HOLE &&
-		    lastoff < page_offset(pvec.pages[0])) {
-			found = 1;
-			break;
-		}
 
 		for (i = 0; i < nr_pages; i++) {
 			struct page *page = pvec.pages[i];
 			struct buffer_head *bh, *head;
 
 			/*
-			 * If the current offset is not beyond the end of given
-			 * range, it will be a hole.
+			 * If current offset is smaller than the page offset,
+			 * there is a hole at this offset.
 			 */
-			if (lastoff < endoff && whence == SEEK_HOLE &&
-			    page->index > end) {
+			if (whence == SEEK_HOLE && lastoff < endoff &&
+			    lastoff < page_offset(pvec.pages[i])) {
 				found = 1;
 				*offset = lastoff;
 				goto out;
 			}
+
+			if (page->index > end)
+				goto out;
 
 			lock_page(page);
 
@@ -399,6 +391,8 @@ static int ext4_find_unwritten_pgoff(struct inode *inode,
 				lastoff = page_offset(page);
 				bh = head = page_buffers(page);
 				do {
+					if (lastoff + bh->b_size <= startoff)
+						goto next;
 					if (buffer_uptodate(bh) ||
 					    buffer_unwritten(bh)) {
 						if (whence == SEEK_DATA)
@@ -413,6 +407,7 @@ static int ext4_find_unwritten_pgoff(struct inode *inode,
 						unlock_page(page);
 						goto out;
 					}
+next:
 					lastoff += bh->b_size;
 					bh = bh->b_this_page;
 				} while (bh != head);
@@ -422,20 +417,18 @@ static int ext4_find_unwritten_pgoff(struct inode *inode,
 			unlock_page(page);
 		}
 
-		/*
-		 * The no. of pages is less than our desired, that would be a
-		 * hole in there.
-		 */
-		if (nr_pages < num && whence == SEEK_HOLE) {
-			found = 1;
-			*offset = lastoff;
+		/* The no. of pages is less than our desired, we are done. */
+		if (nr_pages < num)
 			break;
-		}
 
 		index = pvec.pages[i - 1]->index + 1;
 		pagevec_release(&pvec);
 	} while (index <= end);
 
+	if (whence == SEEK_HOLE && lastoff < endoff) {
+		found = 1;
+		*offset = lastoff;
+	}
 out:
 	pagevec_release(&pvec);
 	return found;

@@ -319,7 +319,13 @@ ip_vs_sched_persist(struct ip_vs_service *svc,
 		 * return *ignored=0 i.e. ICMP and NF_DROP
 		 */
 		sched = rcu_dereference(svc->scheduler);
-		dest = sched->schedule(svc, skb, iph);
+		if (sched) {
+			/* read svc->sched_data after svc->scheduler */
+			smp_rmb();
+			dest = sched->schedule(svc, skb, iph);
+		} else {
+			dest = NULL;
+		}
 		if (!dest) {
 			IP_VS_DBG(1, "p-schedule: no dest found.\n");
 			kfree(param.pe_data);
@@ -467,7 +473,13 @@ ip_vs_schedule(struct ip_vs_service *svc, struct sk_buff *skb,
 	}
 
 	sched = rcu_dereference(svc->scheduler);
-	dest = sched->schedule(svc, skb, iph);
+	if (sched) {
+		/* read svc->sched_data after svc->scheduler */
+		smp_rmb();
+		dest = sched->schedule(svc, skb, iph);
+	} else {
+		dest = NULL;
+	}
 	if (dest == NULL) {
 		IP_VS_DBG(1, "Schedule: no dest found.\n");
 		return NULL;
@@ -810,10 +822,8 @@ static int handle_response_icmp(int af, struct sk_buff *skb,
 {
 	unsigned int verdict = NF_DROP;
 
-	if (IP_VS_FWD_METHOD(cp) != 0) {
-		pr_err("shouldn't reach here, because the box is on the "
-		       "half connection in the tun/dr module.\n");
-	}
+	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ)
+		goto ignore_cp;
 
 	/* Ensure the checksum is correct */
 	if (!skb_csum_unnecessary(skb) && ip_vs_checksum_complete(skb, ihl)) {
@@ -847,6 +857,8 @@ static int handle_response_icmp(int af, struct sk_buff *skb,
 		ip_vs_notrack(skb);
 	else
 		ip_vs_update_conntrack(skb, cp, 0);
+
+ignore_cp:
 	verdict = NF_ACCEPT;
 
 out:
@@ -1217,8 +1229,11 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb, int af)
 	 */
 	cp = pp->conn_out_get(af, skb, &iph, 0);
 
-	if (likely(cp))
+	if (likely(cp)) {
+		if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ)
+			goto ignore_cp;
 		return handle_response(af, skb, pd, cp, &iph, hooknum);
+	}
 	if (sysctl_nat_icmp_send(net) &&
 	    (pp->protocol == IPPROTO_TCP ||
 	     pp->protocol == IPPROTO_UDP ||
@@ -1260,9 +1275,15 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb, int af)
 			}
 		}
 	}
+
+out:
 	IP_VS_DBG_PKT(12, af, pp, skb, 0,
 		      "ip_vs_out: packet continues traversal as normal");
 	return NF_ACCEPT;
+
+ignore_cp:
+	__ip_vs_conn_put(cp);
+	goto out;
 }
 
 /*
@@ -1677,15 +1698,34 @@ ip_vs_in(unsigned int hooknum, struct sk_buff *skb, int af)
 	cp = pp->conn_in_get(af, skb, &iph, 0);
 
 	conn_reuse_mode = sysctl_conn_reuse_mode(ipvs);
-	if (conn_reuse_mode && !iph.fragoffs &&
-	    is_new_conn(skb, &iph) && cp &&
-	    ((unlikely(sysctl_expire_nodest_conn(ipvs)) && cp->dest &&
-	      unlikely(!atomic_read(&cp->dest->weight))) ||
-	     unlikely(is_new_conn_expected(cp, conn_reuse_mode)))) {
-		if (!atomic_read(&cp->n_control))
-			ip_vs_conn_expire_now(cp);
-		__ip_vs_conn_put(cp);
-		cp = NULL;
+	if (conn_reuse_mode && !iph.fragoffs && is_new_conn(skb, &iph) && cp) {
+		bool uses_ct = false, resched = false;
+
+		if (unlikely(sysctl_expire_nodest_conn(ipvs)) && cp->dest &&
+		    unlikely(!atomic_read(&cp->dest->weight))) {
+			resched = true;
+			uses_ct = ip_vs_conn_uses_conntrack(cp, skb);
+		} else if (is_new_conn_expected(cp, conn_reuse_mode)) {
+			uses_ct = ip_vs_conn_uses_conntrack(cp, skb);
+			if (!atomic_read(&cp->n_control)) {
+				resched = true;
+			} else {
+				/* Do not reschedule controlling connection
+				 * that uses conntrack while it is still
+				 * referenced by controlled connection(s).
+				 */
+				resched = !uses_ct;
+			}
+		}
+
+		if (resched) {
+			if (!atomic_read(&cp->n_control))
+				ip_vs_conn_expire_now(cp);
+			__ip_vs_conn_put(cp);
+			if (uses_ct)
+				return NF_DROP;
+			cp = NULL;
+		}
 	}
 
 	if (unlikely(!cp) && !iph.fragoffs) {

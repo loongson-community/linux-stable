@@ -1231,7 +1231,7 @@ int tcp_fragment(struct sock *sk, struct sk_buff *skb, u32 len,
  * eventually). The difference is that pulled data not copied, but
  * immediately discarded.
  */
-static void __pskb_trim_head(struct sk_buff *skb, int len)
+static int __pskb_trim_head(struct sk_buff *skb, int len)
 {
 	struct skb_shared_info *shinfo;
 	int i, k, eat;
@@ -1241,7 +1241,7 @@ static void __pskb_trim_head(struct sk_buff *skb, int len)
 		__skb_pull(skb, eat);
 		len -= eat;
 		if (!len)
-			return;
+			return 0;
 	}
 	eat = len;
 	k = 0;
@@ -1267,23 +1267,28 @@ static void __pskb_trim_head(struct sk_buff *skb, int len)
 	skb_reset_tail_pointer(skb);
 	skb->data_len -= len;
 	skb->len = skb->data_len;
+	return len;
 }
 
 /* Remove acked data from a packet in the transmit queue. */
 int tcp_trim_head(struct sock *sk, struct sk_buff *skb, u32 len)
 {
+	u32 delta_truesize;
+
 	if (skb_unclone(skb, GFP_ATOMIC))
 		return -ENOMEM;
 
-	__pskb_trim_head(skb, len);
+	delta_truesize = __pskb_trim_head(skb, len);
 
 	TCP_SKB_CB(skb)->seq += len;
 	skb->ip_summed = CHECKSUM_PARTIAL;
 
-	skb->truesize	     -= len;
-	sk->sk_wmem_queued   -= len;
-	sk_mem_uncharge(sk, len);
-	sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
+	if (delta_truesize) {
+		skb->truesize	   -= delta_truesize;
+		sk->sk_wmem_queued -= delta_truesize;
+		sk_mem_uncharge(sk, delta_truesize);
+		sock_set_flag(sk, SOCK_QUEUE_SHRUNK);
+	}
 
 	/* Any change of skb->len requires recalculation of tso factor. */
 	if (tcp_skb_pcount(skb) > 1)
@@ -1957,6 +1962,7 @@ static int tcp_mtu_probe(struct sock *sk)
 	nskb->ip_summed = skb->ip_summed;
 
 	tcp_insert_write_queue_before(nskb, skb, sk);
+	tcp_highest_sack_replace(sk, skb, nskb);
 
 	len = 0;
 	tcp_for_write_queue_from_safe(skb, next, sk) {
@@ -2460,7 +2466,7 @@ static void tcp_collapse_retrans(struct sock *sk, struct sk_buff *skb)
 
 	BUG_ON(tcp_skb_pcount(skb) != 1 || tcp_skb_pcount(next_skb) != 1);
 
-	tcp_highest_sack_combine(sk, next_skb, skb);
+	tcp_highest_sack_replace(sk, next_skb, skb);
 
 	tcp_unlink_write_queue(next_skb, sk);
 
@@ -2627,8 +2633,10 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb)
 	 */
 	if (unlikely((NET_IP_ALIGN && ((unsigned long)skb->data & 3)) ||
 		     skb_headroom(skb) >= 0xFFFF)) {
-		struct sk_buff *nskb = __pskb_copy(skb, MAX_TCP_HEADER,
-						   GFP_ATOMIC);
+		struct sk_buff *nskb;
+
+		skb_mstamp_get(&skb->skb_mstamp);
+		nskb = __pskb_copy(skb, MAX_TCP_HEADER, GFP_ATOMIC);
 		err = nskb ? tcp_transmit_skb(sk, nskb, 0, GFP_ATOMIC) :
 			     -ENOBUFS;
 	} else {
@@ -2893,6 +2901,7 @@ void tcp_send_active_reset(struct sock *sk, gfp_t priority)
 	skb_reserve(skb, MAX_TCP_HEADER);
 	tcp_init_nondata_skb(skb, tcp_acceptable_seq(sk),
 			     TCPHDR_ACK | TCPHDR_RST);
+	skb_mstamp_get(&skb->skb_mstamp);
 	/* Send it off. */
 	if (tcp_transmit_skb(sk, skb, 0, priority))
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPABORTFAILED);
@@ -2996,13 +3005,8 @@ struct sk_buff *tcp_make_synack(struct sock *sk, struct dst_entry *dst,
 	tcp_ecn_make_synack(req, th, sk);
 	th->source = htons(ireq->ir_num);
 	th->dest = ireq->ir_rmt_port;
-	/* Setting of flags are superfluous here for callers (and ECE is
-	 * not even correctly set)
-	 */
-	tcp_init_nondata_skb(skb, tcp_rsk(req)->snt_isn,
-			     TCPHDR_SYN | TCPHDR_ACK);
-
-	th->seq = htonl(TCP_SKB_CB(skb)->seq);
+	skb->ip_summed = CHECKSUM_PARTIAL;
+	th->seq = htonl(tcp_rsk(req)->snt_isn);
 	/* XXX data is queued and acked as is. No buffer/window check */
 	th->ack_seq = htonl(tcp_rsk(req)->rcv_nxt);
 
@@ -3142,7 +3146,7 @@ static int tcp_send_syn_data(struct sock *sk, struct sk_buff *syn)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct tcp_fastopen_request *fo = tp->fastopen_req;
-	int syn_loss = 0, space, err = 0, copied;
+	int syn_loss = 0, space, err = 0;
 	unsigned long last_syn_loss = 0;
 	struct sk_buff *syn_data;
 
@@ -3180,17 +3184,18 @@ static int tcp_send_syn_data(struct sock *sk, struct sk_buff *syn)
 		goto fallback;
 	syn_data->ip_summed = CHECKSUM_PARTIAL;
 	memcpy(syn_data->cb, syn->cb, sizeof(syn->cb));
-	copied = copy_from_iter(skb_put(syn_data, space), space,
-				&fo->data->msg_iter);
-	if (unlikely(!copied)) {
-		kfree_skb(syn_data);
-		goto fallback;
+	if (space) {
+		int copied = copy_from_iter(skb_put(syn_data, space), space,
+					    &fo->data->msg_iter);
+		if (unlikely(!copied)) {
+			kfree_skb(syn_data);
+			goto fallback;
+		}
+		if (copied != space) {
+			skb_trim(syn_data, copied);
+			space = copied;
+		}
 	}
-	if (copied != space) {
-		skb_trim(syn_data, copied);
-		space = copied;
-	}
-
 	/* No more data pending in inet_wait_for_connect() */
 	if (space == fo->size)
 		fo->data = NULL;

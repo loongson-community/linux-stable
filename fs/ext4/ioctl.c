@@ -630,6 +630,9 @@ resizefs_out:
 		struct ext4_encryption_policy policy;
 		int err = 0;
 
+		if (!ext4_sb_has_crypto(sb))
+			return -EOPNOTSUPP;
+
 		if (copy_from_user(&policy,
 				   (struct ext4_encryption_policy __user *)arg,
 				   sizeof(policy))) {
@@ -637,7 +640,13 @@ resizefs_out:
 			goto encryption_policy_out;
 		}
 
+		err = mnt_want_write_file(filp);
+		if (err)
+			goto encryption_policy_out;
+
 		err = ext4_process_policy(&policy, inode);
+
+		mnt_drop_write_file(filp);
 encryption_policy_out:
 		return err;
 #else

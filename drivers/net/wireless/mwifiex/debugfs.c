@@ -115,7 +115,8 @@ mwifiex_info_read(struct file *file, char __user *ubuf,
 	if (GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_STA) {
 		p += sprintf(p, "multicast_count=\"%d\"\n",
 			     netdev_mc_count(netdev));
-		p += sprintf(p, "essid=\"%s\"\n", info.ssid.ssid);
+		p += sprintf(p, "essid=\"%.*s\"\n", info.ssid.ssid_len,
+			     info.ssid.ssid);
 		p += sprintf(p, "bssid=\"%pM\"\n", info.bssid);
 		p += sprintf(p, "channel=\"%d\"\n", (int) info.bss_chan);
 		p += sprintf(p, "country_code = \"%s\"\n", info.country_code);
@@ -593,7 +594,7 @@ mwifiex_rdeeprom_read(struct file *file, char __user *ubuf,
 		(struct mwifiex_private *) file->private_data;
 	unsigned long addr = get_zeroed_page(GFP_KERNEL);
 	char *buf = (char *) addr;
-	int pos = 0, ret = 0, i;
+	int pos, ret, i;
 	u8 value[MAX_EEPROM_DATA];
 
 	if (!buf)
@@ -601,7 +602,7 @@ mwifiex_rdeeprom_read(struct file *file, char __user *ubuf,
 
 	if (saved_offset == -1) {
 		/* No command has been given */
-		pos += snprintf(buf, PAGE_SIZE, "0");
+		pos = snprintf(buf, PAGE_SIZE, "0");
 		goto done;
 	}
 
@@ -610,17 +611,17 @@ mwifiex_rdeeprom_read(struct file *file, char __user *ubuf,
 				  (u16) saved_bytes, value);
 	if (ret) {
 		ret = -EINVAL;
-		goto done;
+		goto out_free;
 	}
 
-	pos += snprintf(buf, PAGE_SIZE, "%d %d ", saved_offset, saved_bytes);
+	pos = snprintf(buf, PAGE_SIZE, "%d %d ", saved_offset, saved_bytes);
 
 	for (i = 0; i < saved_bytes; i++)
-		pos += snprintf(buf + strlen(buf), PAGE_SIZE, "%d ", value[i]);
-
-	ret = simple_read_from_buffer(ubuf, count, ppos, buf, pos);
+		pos += scnprintf(buf + pos, PAGE_SIZE - pos, "%d ", value[i]);
 
 done:
+	ret = simple_read_from_buffer(ubuf, count, ppos, buf, pos);
+out_free:
 	free_page(addr);
 	return ret;
 }

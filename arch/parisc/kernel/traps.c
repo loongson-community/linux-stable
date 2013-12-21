@@ -43,10 +43,6 @@
 
 #include "../math-emu/math-emu.h"	/* for handle_fpe() */
 
-#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
-DEFINE_SPINLOCK(pa_dbit_lock);
-#endif
-
 static void parisc_show_stack(struct task_struct *task, unsigned long *sp,
 	struct pt_regs *regs);
 
@@ -802,6 +798,9 @@ void notrace handle_interruption(int code, struct pt_regs *regs)
 
 	    if (fault_space == 0 && !in_atomic())
 	    {
+		/* Clean up and return if in exception table. */
+		if (fixup_exception(regs))
+			return;
 		pdc_chassis_send_status(PDC_CHASSIS_DIRECT_PANIC);
 		parisc_terminate("Kernel Fault", regs, code, fault_address);
 	    }

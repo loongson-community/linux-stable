@@ -169,7 +169,7 @@ static inline int tty_copy_to_user(struct tty_struct *tty,
 {
 	struct n_tty_data *ldata = tty->disc_data;
 
-	tty_audit_add_data(tty, to, n, ldata->icanon);
+	tty_audit_add_data(tty, from, n, ldata->icanon);
 	return copy_to_user(to, from, n);
 }
 
@@ -258,16 +258,13 @@ static void n_tty_check_throttle(struct tty_struct *tty)
 
 static void n_tty_check_unthrottle(struct tty_struct *tty)
 {
-	if (tty->driver->type == TTY_DRIVER_TYPE_PTY &&
-	    tty->link->ldisc->ops->write_wakeup == n_tty_write_wakeup) {
+	if (tty->driver->type == TTY_DRIVER_TYPE_PTY) {
 		if (chars_in_buffer(tty) > TTY_THRESHOLD_UNTHROTTLE)
 			return;
 		if (!tty->count)
 			return;
 		n_tty_kick_worker(tty);
-		n_tty_write_wakeup(tty->link);
-		if (waitqueue_active(&tty->link->write_wait))
-			wake_up_interruptible_poll(&tty->link->write_wait, POLLOUT);
+		tty_wakeup(tty->link);
 		return;
 	}
 
@@ -343,8 +340,7 @@ static void n_tty_packet_mode_flush(struct tty_struct *tty)
 		spin_lock_irqsave(&tty->ctrl_lock, flags);
 		tty->ctrl_status |= TIOCPKT_FLUSHREAD;
 		spin_unlock_irqrestore(&tty->ctrl_lock, flags);
-		if (waitqueue_active(&tty->link->read_wait))
-			wake_up_interruptible(&tty->link->read_wait);
+		wake_up_interruptible(&tty->link->read_wait);
 	}
 }
 
@@ -1108,18 +1104,28 @@ static void eraser(unsigned char c, struct tty_struct *tty)
  *	Locking: ctrl_lock
  */
 
-static void isig(int sig, struct tty_struct *tty)
+static void __isig(int sig, struct tty_struct *tty)
 {
-	struct n_tty_data *ldata = tty->disc_data;
 	struct pid *tty_pgrp = tty_get_pgrp(tty);
 	if (tty_pgrp) {
 		kill_pgrp(tty_pgrp, sig, 1);
 		put_pid(tty_pgrp);
 	}
+}
 
-	if (!L_NOFLSH(tty)) {
+static void isig(int sig, struct tty_struct *tty)
+{
+	struct n_tty_data *ldata = tty->disc_data;
+
+	if (L_NOFLSH(tty)) {
+		/* signal only */
+		__isig(sig, tty);
+
+	} else { /* signal and flush */
 		up_read(&tty->termios_rwsem);
 		down_write(&tty->termios_rwsem);
+
+		__isig(sig, tty);
 
 		/* clear echo buffer */
 		mutex_lock(&ldata->output_lock);
@@ -1373,8 +1379,7 @@ handle_newline:
 			put_tty_queue(c, ldata);
 			smp_store_release(&ldata->canon_head, ldata->read_head);
 			kill_fasync(&tty->fasync, SIGIO, POLL_IN);
-			if (waitqueue_active(&tty->read_wait))
-				wake_up_interruptible_poll(&tty->read_wait, POLLIN);
+			wake_up_interruptible_poll(&tty->read_wait, POLLIN);
 			return 0;
 		}
 	}
@@ -1660,8 +1665,7 @@ static void __receive_buf(struct tty_struct *tty, const unsigned char *cp,
 
 	if ((read_cnt(ldata) >= ldata->minimum_to_wake) || L_EXTPROC(tty)) {
 		kill_fasync(&tty->fasync, SIGIO, POLL_IN);
-		if (waitqueue_active(&tty->read_wait))
-			wake_up_interruptible_poll(&tty->read_wait, POLLIN);
+		wake_up_interruptible_poll(&tty->read_wait, POLLIN);
 	}
 }
 
@@ -1804,7 +1808,7 @@ static void n_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
 	struct n_tty_data *ldata = tty->disc_data;
 
-	if (!old || (old->c_lflag ^ tty->termios.c_lflag) & ICANON) {
+	if (!old || (old->c_lflag ^ tty->termios.c_lflag) & (ICANON | EXTPROC)) {
 		bitmap_zero(ldata->read_flags, N_TTY_BUF_SIZE);
 		ldata->line_start = ldata->read_tail;
 		if (!L_ICANON(tty) || !read_cnt(ldata)) {
@@ -1880,10 +1884,8 @@ static void n_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 	}
 
 	/* The termios change make the tty ready for I/O */
-	if (waitqueue_active(&tty->write_wait))
-		wake_up_interruptible(&tty->write_wait);
-	if (waitqueue_active(&tty->read_wait))
-		wake_up_interruptible(&tty->read_wait);
+	wake_up_interruptible(&tty->write_wait);
+	wake_up_interruptible(&tty->read_wait);
 }
 
 /**
@@ -1958,18 +1960,6 @@ static inline int input_available_p(struct tty_struct *tty, int poll)
 		return ldata->canon_head != ldata->read_tail;
 	else
 		return ldata->commit_head - ldata->read_tail >= amt;
-}
-
-static inline int check_other_done(struct tty_struct *tty)
-{
-	int done = test_bit(TTY_OTHER_DONE, &tty->flags);
-	if (done) {
-		/* paired with cmpxchg() in check_other_closed(); ensures
-		 * read buffer head index is not stale
-		 */
-		smp_mb__after_atomic();
-	}
-	return done;
 }
 
 /**
@@ -2190,7 +2180,7 @@ static ssize_t n_tty_read(struct tty_struct *tty, struct file *file,
 	struct n_tty_data *ldata = tty->disc_data;
 	unsigned char __user *b = buf;
 	DEFINE_WAIT_FUNC(wait, woken_wake_function);
-	int c, done;
+	int c;
 	int minimum, time;
 	ssize_t retval = 0;
 	long timeout;
@@ -2258,32 +2248,41 @@ static ssize_t n_tty_read(struct tty_struct *tty, struct file *file,
 		    ((minimum - (b - buf)) >= 1))
 			ldata->minimum_to_wake = (minimum - (b - buf));
 
-		done = check_other_done(tty);
-
 		if (!input_available_p(tty, 0)) {
-			if (done) {
-				retval = -EIO;
-				break;
-			}
-			if (tty_hung_up_p(file))
-				break;
-			if (!timeout)
-				break;
-			if (file->f_flags & O_NONBLOCK) {
-				retval = -EAGAIN;
-				break;
-			}
-			if (signal_pending(current)) {
-				retval = -ERESTARTSYS;
-				break;
-			}
 			up_read(&tty->termios_rwsem);
-
-			timeout = wait_woken(&wait, TASK_INTERRUPTIBLE,
-					     timeout);
-
+			tty_buffer_flush_work(tty->port);
 			down_read(&tty->termios_rwsem);
-			continue;
+			if (!input_available_p(tty, 0)) {
+				if (test_bit(TTY_OTHER_CLOSED, &tty->flags)) {
+					retval = -EIO;
+					break;
+				}
+				if (tty_hung_up_p(file))
+					break;
+				/*
+				 * Abort readers for ttys which never actually
+				 * get hung up.  See __tty_hangup().
+				 */
+				if (test_bit(TTY_HUPPING, &tty->flags))
+					break;
+				if (!timeout)
+					break;
+				if (file->f_flags & O_NONBLOCK) {
+					retval = -EAGAIN;
+					break;
+				}
+				if (signal_pending(current)) {
+					retval = -ERESTARTSYS;
+					break;
+				}
+				up_read(&tty->termios_rwsem);
+
+				timeout = wait_woken(&wait, TASK_INTERRUPTIBLE,
+						timeout);
+
+				down_read(&tty->termios_rwsem);
+				continue;
+			}
 		}
 
 		if (ldata->icanon && !L_EXTPROC(tty)) {
@@ -2468,12 +2467,17 @@ static unsigned int n_tty_poll(struct tty_struct *tty, struct file *file,
 
 	poll_wait(file, &tty->read_wait, wait);
 	poll_wait(file, &tty->write_wait, wait);
-	if (check_other_done(tty))
-		mask |= POLLHUP;
 	if (input_available_p(tty, 1))
 		mask |= POLLIN | POLLRDNORM;
+	else {
+		tty_buffer_flush_work(tty->port);
+		if (input_available_p(tty, 1))
+			mask |= POLLIN | POLLRDNORM;
+	}
 	if (tty->packet && tty->link->ctrl_status)
 		mask |= POLLPRI | POLLIN | POLLRDNORM;
+	if (test_bit(TTY_OTHER_CLOSED, &tty->flags))
+		mask |= POLLHUP;
 	if (tty_hung_up_p(file))
 		mask |= POLLHUP;
 	if (!(mask & (POLLHUP | POLLIN | POLLRDNORM))) {
@@ -2519,7 +2523,7 @@ static int n_tty_ioctl(struct tty_struct *tty, struct file *file,
 		return put_user(tty_chars_in_buffer(tty), (int __user *) arg);
 	case TIOCINQ:
 		down_write(&tty->termios_rwsem);
-		if (L_ICANON(tty))
+		if (L_ICANON(tty) && !L_EXTPROC(tty))
 			retval = inq_canon(ldata);
 		else
 			retval = read_cnt(ldata);

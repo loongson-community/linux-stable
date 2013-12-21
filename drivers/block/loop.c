@@ -86,8 +86,6 @@ static DEFINE_MUTEX(loop_index_mutex);
 static int max_part;
 static int part_shift;
 
-static struct workqueue_struct *loop_wq;
-
 static int transfer_xor(struct loop_device *lo, int cmd,
 			struct page *raw_page, unsigned raw_off,
 			struct page *loop_page, unsigned loop_off,
@@ -209,7 +207,7 @@ static int lo_write_bvec(struct file *file, struct bio_vec *bvec, loff_t *ppos)
 	struct iov_iter i;
 	ssize_t bw;
 
-	iov_iter_bvec(&i, ITER_BVEC, bvec, 1, bvec->bv_len);
+	iov_iter_bvec(&i, ITER_BVEC | WRITE, bvec, 1, bvec->bv_len);
 
 	file_start_write(file);
 	bw = vfs_iter_write(file, &i, ppos);
@@ -473,6 +471,9 @@ static int loop_switch(struct loop_device *lo, struct file *file)
  */
 static int loop_flush(struct loop_device *lo)
 {
+	/* loop not yet configured, no running thread, nothing to flush */
+	if (lo->lo_state != Lo_bound)
+		return 0;
 	return loop_switch(lo, NULL);
 }
 
@@ -725,6 +726,12 @@ static int loop_set_fd(struct loop_device *lo, fmode_t mode,
 	size = get_loop_size(lo, file);
 	if ((loff_t)(sector_t)size != size)
 		goto out_putf;
+	error = -ENOMEM;
+	lo->wq = alloc_workqueue("kloopd%d",
+			WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_UNBOUND, 16,
+			lo->lo_number);
+	if (!lo->wq)
+		goto out_putf;
 
 	error = 0;
 
@@ -872,6 +879,8 @@ static int loop_clr_fd(struct loop_device *lo)
 	lo->lo_flags = 0;
 	if (!part_shift)
 		lo->lo_disk->flags |= GENHD_FL_NO_PART_SCAN;
+	destroy_workqueue(lo->wq);
+	lo->wq = NULL;
 	mutex_unlock(&lo->lo_ctl_mutex);
 	/*
 	 * Need not hold lo_ctl_mutex to fput backing file.
@@ -1332,9 +1341,8 @@ out:
 	return err;
 }
 
-static void lo_release(struct gendisk *disk, fmode_t mode)
+static void __lo_release(struct loop_device *lo)
 {
-	struct loop_device *lo = disk->private_data;
 	int err;
 
 	mutex_lock(&lo->lo_ctl_mutex);
@@ -1360,6 +1368,13 @@ static void lo_release(struct gendisk *disk, fmode_t mode)
 
 out:
 	mutex_unlock(&lo->lo_ctl_mutex);
+}
+
+static void lo_release(struct gendisk *disk, fmode_t mode)
+{
+	mutex_lock(&loop_index_mutex);
+	__lo_release(disk->private_data);
+	mutex_unlock(&loop_index_mutex);
 }
 
 static const struct block_device_operations lo_fops = {
@@ -1425,8 +1440,12 @@ static int loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 		const struct blk_mq_queue_data *bd)
 {
 	struct loop_cmd *cmd = blk_mq_rq_to_pdu(bd->rq);
+	struct loop_device *lo = cmd->rq->q->queuedata;
 
 	blk_mq_start_request(bd->rq);
+
+	if (lo->lo_state != Lo_bound)
+		return BLK_MQ_RQ_QUEUE_ERROR;
 
 	if (cmd->rq->cmd_flags & REQ_WRITE) {
 		struct loop_device *lo = cmd->rq->q->queuedata;
@@ -1441,9 +1460,9 @@ static int loop_queue_rq(struct blk_mq_hw_ctx *hctx,
 		spin_unlock_irq(&lo->lo_lock);
 
 		if (need_sched)
-			queue_work(loop_wq, &lo->write_work);
+			queue_work(lo->wq, &lo->write_work);
 	} else {
-		queue_work(loop_wq, &cmd->read_work);
+		queue_work(lo->wq, &cmd->read_work);
 	}
 
 	return BLK_MQ_RQ_QUEUE_OK;
@@ -1454,9 +1473,6 @@ static void loop_handle_cmd(struct loop_cmd *cmd)
 	const bool write = cmd->rq->cmd_flags & REQ_WRITE;
 	struct loop_device *lo = cmd->rq->q->queuedata;
 	int ret = -EIO;
-
-	if (lo->lo_state != Lo_bound)
-		goto failed;
 
 	if (write && (lo->lo_flags & LO_FLAGS_READ_ONLY))
 		goto failed;
@@ -1806,13 +1822,6 @@ static int __init loop_init(void)
 		goto misc_out;
 	}
 
-	loop_wq = alloc_workqueue("kloopd",
-			WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_UNBOUND, 0);
-	if (!loop_wq) {
-		err = -ENOMEM;
-		goto misc_out;
-	}
-
 	blk_register_region(MKDEV(LOOP_MAJOR, 0), range,
 				  THIS_MODULE, loop_probe, NULL, NULL);
 
@@ -1849,8 +1858,6 @@ static void __exit loop_exit(void)
 
 	blk_unregister_region(MKDEV(LOOP_MAJOR, 0), range);
 	unregister_blkdev(LOOP_MAJOR, "loop");
-
-	destroy_workqueue(loop_wq);
 
 	misc_deregister(&loop_misc);
 }

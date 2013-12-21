@@ -37,29 +37,6 @@
 
 #define TTY_BUFFER_PAGE	(((PAGE_SIZE - sizeof(struct tty_buffer)) / 2) & ~0xFF)
 
-/*
- * If all tty flip buffers have been processed by flush_to_ldisc() or
- * dropped by tty_buffer_flush(), check if the linked pty has been closed.
- * If so, wake the reader/poll to process
- */
-static inline void check_other_closed(struct tty_struct *tty)
-{
-	unsigned long flags, old;
-
-	/* transition from TTY_OTHER_CLOSED => TTY_OTHER_DONE must be atomic */
-	for (flags = ACCESS_ONCE(tty->flags);
-	     test_bit(TTY_OTHER_CLOSED, &flags);
-	     ) {
-		old = flags;
-		__set_bit(TTY_OTHER_DONE, &flags);
-		flags = cmpxchg(&tty->flags, old, flags);
-		if (old == flags) {
-			wake_up_interruptible(&tty->read_wait);
-			break;
-		}
-	}
-}
-
 /**
  *	tty_buffer_lock_exclusive	-	gain exclusive access to buffer
  *	tty_buffer_unlock_exclusive	-	release exclusive access
@@ -251,8 +228,6 @@ void tty_buffer_flush(struct tty_struct *tty, struct tty_ldisc *ld)
 	if (ld && ld->ops->flush_buffer)
 		ld->ops->flush_buffer(tty);
 
-	check_other_closed(tty);
-
 	atomic_dec(&buf->priority);
 	mutex_unlock(&buf->lock);
 }
@@ -381,6 +356,32 @@ int tty_insert_flip_string_flags(struct tty_port *port,
 EXPORT_SYMBOL(tty_insert_flip_string_flags);
 
 /**
+ *	__tty_insert_flip_char   -	Add one character to the tty buffer
+ *	@port: tty port
+ *	@ch: character
+ *	@flag: flag byte
+ *
+ *	Queue a single byte to the tty buffering, with an optional flag.
+ *	This is the slow path of tty_insert_flip_char.
+ */
+int __tty_insert_flip_char(struct tty_port *port, unsigned char ch, char flag)
+{
+	struct tty_buffer *tb;
+	int flags = (flag == TTY_NORMAL) ? TTYB_NORMAL : 0;
+
+	if (!__tty_buffer_request_room(port, 1, flags))
+		return 0;
+
+	tb = port->buf.tail;
+	if (~tb->flags & TTYB_NORMAL)
+		*flag_buf_ptr(tb, tb->used) = flag;
+	*char_buf_ptr(tb, tb->used++) = ch;
+
+	return 1;
+}
+EXPORT_SYMBOL(__tty_insert_flip_char);
+
+/**
  *	tty_schedule_flip	-	push characters to ldisc
  *	@port: tty port to push from
  *
@@ -441,7 +442,7 @@ receive_buf(struct tty_struct *tty, struct tty_buffer *head, int count)
 		count = disc->ops->receive_buf2(tty, p, f, count);
 	else {
 		count = min_t(int, count, tty->receive_room);
-		if (count)
+		if (count && disc->ops->receive_buf)
 			disc->ops->receive_buf(tty, p, f, count);
 	}
 	head->read += count;
@@ -468,7 +469,7 @@ static void flush_to_ldisc(struct work_struct *work)
 	struct tty_struct *tty;
 	struct tty_ldisc *disc;
 
-	tty = port->itty;
+	tty = READ_ONCE(port->itty);
 	if (tty == NULL)
 		return;
 
@@ -495,10 +496,8 @@ static void flush_to_ldisc(struct work_struct *work)
 		smp_rmb();
 		count = head->commit - head->read;
 		if (!count) {
-			if (next == NULL) {
-				check_other_closed(tty);
+			if (next == NULL)
 				break;
-			}
 			buf->head = next;
 			tty_buffer_free(port, head);
 			continue;
@@ -575,4 +574,9 @@ EXPORT_SYMBOL_GPL(tty_buffer_set_limit);
 void tty_buffer_set_lock_subclass(struct tty_port *port)
 {
 	lockdep_set_subclass(&port->buf.lock, TTY_LOCK_SLAVE);
+}
+
+void tty_buffer_flush_work(struct tty_port *port)
+{
+	flush_work(&port->buf.work);
 }

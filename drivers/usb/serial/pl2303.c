@@ -39,6 +39,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_RSAQ2) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_DCU11) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_RSAQ3) },
+	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_CHILITAG) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_PHAROS) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_ALDIGA) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_MMX) },
@@ -49,6 +50,8 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(IODATA_VENDOR_ID, IODATA_PRODUCT_ID) },
 	{ USB_DEVICE(IODATA_VENDOR_ID, IODATA_PRODUCT_ID_RSAQ5) },
 	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_ID) },
+	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_UC485) },
+	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_ID2) },
 	{ USB_DEVICE(ATEN_VENDOR_ID2, ATEN_PRODUCT_ID) },
 	{ USB_DEVICE(ELCOM_VENDOR_ID, ELCOM_PRODUCT_ID) },
 	{ USB_DEVICE(ELCOM_VENDOR_ID, ELCOM_PRODUCT_ID_UCSGT) },
@@ -220,8 +223,16 @@ static int pl2303_probe(struct usb_serial *serial,
 static int pl2303_startup(struct usb_serial *serial)
 {
 	struct pl2303_serial_private *spriv;
+	unsigned char num_ports = serial->num_ports;
 	enum pl2303_type type = TYPE_01;
 	unsigned char *buf;
+
+	if (serial->num_bulk_in < num_ports ||
+			serial->num_bulk_out < num_ports ||
+			serial->num_interrupt_in < num_ports) {
+		dev_err(&serial->interface->dev, "missing endpoints\n");
+		return -ENODEV;
+	}
 
 	spriv = kzalloc(sizeof(*spriv), GFP_KERNEL);
 	if (!spriv)
@@ -362,21 +373,38 @@ static speed_t pl2303_encode_baud_rate_direct(unsigned char buf[4],
 static speed_t pl2303_encode_baud_rate_divisor(unsigned char buf[4],
 								speed_t baud)
 {
-	unsigned int tmp;
+	unsigned int baseline, mantissa, exponent;
 
 	/*
 	 * Apparently the formula is:
-	 * baudrate = 12M * 32 / (2^buf[1]) / buf[0]
+	 *   baudrate = 12M * 32 / (mantissa * 4^exponent)
+	 * where
+	 *   mantissa = buf[8:0]
+	 *   exponent = buf[11:9]
 	 */
-	tmp = 12000000 * 32 / baud;
+	baseline = 12000000 * 32;
+	mantissa = baseline / baud;
+	if (mantissa == 0)
+		mantissa = 1;	/* Avoid dividing by zero if baud > 32*12M. */
+	exponent = 0;
+	while (mantissa >= 512) {
+		if (exponent < 7) {
+			mantissa >>= 2;	/* divide by 4 */
+			exponent++;
+		} else {
+			/* Exponent is maxed. Trim mantissa and leave. */
+			mantissa = 511;
+			break;
+		}
+	}
+
 	buf[3] = 0x80;
 	buf[2] = 0;
-	buf[1] = (tmp >= 256);
-	while (tmp >= 256) {
-		tmp >>= 2;
-		buf[1] <<= 1;
-	}
-	buf[0] = tmp;
+	buf[1] = exponent << 1 | mantissa >> 8;
+	buf[0] = mantissa & 0xff;
+
+	/* Calculate and return the exact baud rate. */
+	baud = (baseline / mantissa) >> (exponent << 1);
 
 	return baud;
 }

@@ -23,6 +23,7 @@
 #include <linux/debugfs.h>
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
+#include <crypto/algapi.h>
 #include <crypto/b128ops.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -506,7 +507,7 @@ bool smp_irk_matches(struct hci_dev *hdev, const u8 irk[16],
 	if (err)
 		return false;
 
-	return !memcmp(bdaddr->b, hash, 3);
+	return !crypto_memneq(bdaddr->b, hash, 3);
 }
 
 int smp_generate_rpa(struct hci_dev *hdev, const u8 irk[16], bdaddr_t *rpa)
@@ -559,7 +560,7 @@ int smp_generate_oob(struct hci_dev *hdev, u8 hash[16], u8 rand[16])
 			/* This is unlikely, but we need to check that
 			 * we didn't accidentially generate a debug key.
 			 */
-			if (memcmp(smp->local_sk, debug_sk, 32))
+			if (crypto_memneq(smp->local_sk, debug_sk, 32))
 				break;
 		}
 		smp->debug_key = false;
@@ -973,7 +974,7 @@ static u8 smp_random(struct smp_chan *smp)
 	if (ret)
 		return SMP_UNSPECIFIED;
 
-	if (memcmp(smp->pcnf, confirm, sizeof(smp->pcnf)) != 0) {
+	if (crypto_memneq(smp->pcnf, confirm, sizeof(smp->pcnf))) {
 		BT_ERR("Pairing failed (confirmation values mismatch)");
 		return SMP_CONFIRM_FAILED;
 	}
@@ -1490,7 +1491,7 @@ static u8 sc_passkey_round(struct smp_chan *smp, u8 smp_op)
 			   smp->rrnd, r, cfm))
 			return SMP_UNSPECIFIED;
 
-		if (memcmp(smp->pcnf, cfm, 16))
+		if (crypto_memneq(smp->pcnf, cfm, 16))
 			return SMP_CONFIRM_FAILED;
 
 		smp->passkey_round++;
@@ -1874,7 +1875,7 @@ static u8 sc_send_public_key(struct smp_chan *smp)
 			/* This is unlikely, but we need to check that
 			 * we didn't accidentially generate a debug key.
 			 */
-			if (memcmp(smp->local_sk, debug_sk, 32))
+			if (crypto_memneq(smp->local_sk, debug_sk, 32))
 				break;
 		}
 	}
@@ -2139,7 +2140,7 @@ static u8 smp_cmd_pairing_random(struct l2cap_conn *conn, struct sk_buff *skb)
 		if (err)
 			return SMP_UNSPECIFIED;
 
-		if (memcmp(smp->pcnf, cfm, 16))
+		if (crypto_memneq(smp->pcnf, cfm, 16))
 			return SMP_CONFIRM_FAILED;
 	} else {
 		smp_send_cmd(conn, SMP_CMD_PAIRING_RANDOM, sizeof(smp->prnd),
@@ -2249,8 +2250,14 @@ static u8 smp_cmd_security_req(struct l2cap_conn *conn, struct sk_buff *skb)
 	else
 		sec_level = authreq_to_seclevel(auth);
 
-	if (smp_sufficient_security(hcon, sec_level, SMP_USE_LTK))
+	if (smp_sufficient_security(hcon, sec_level, SMP_USE_LTK)) {
+		/* If link is already encrypted with sufficient security we
+		 * still need refresh encryption as per Core Spec 5.0 Vol 3,
+		 * Part H 2.4.6
+		 */
+		smp_ltk_encrypt(conn, hcon->sec_level);
 		return 0;
+	}
 
 	if (sec_level > hcon->pending_sec_level)
 		hcon->pending_sec_level = sec_level;
@@ -2294,8 +2301,6 @@ int smp_conn_security(struct hci_conn *hcon, __u8 sec_level)
 	if (!conn)
 		return 1;
 
-	chan = conn->smp;
-
 	if (!hci_dev_test_flag(hcon->hdev, HCI_LE_ENABLED))
 		return 1;
 
@@ -2308,6 +2313,12 @@ int smp_conn_security(struct hci_conn *hcon, __u8 sec_level)
 	if (hcon->role == HCI_ROLE_MASTER)
 		if (smp_ltk_encrypt(conn, hcon->pending_sec_level))
 			return 0;
+
+	chan = conn->smp;
+	if (!chan) {
+		BT_ERR("SMP security requested but not available");
+		return 1;
+	}
 
 	l2cap_chan_lock(chan);
 
@@ -2590,7 +2601,7 @@ static int smp_cmd_public_key(struct l2cap_conn *conn, struct sk_buff *skb)
 		if (err)
 			return SMP_UNSPECIFIED;
 
-		if (memcmp(cfm.confirm_val, smp->pcnf, 16))
+		if (crypto_memneq(cfm.confirm_val, smp->pcnf, 16))
 			return SMP_CONFIRM_FAILED;
 	}
 
@@ -2623,7 +2634,7 @@ static int smp_cmd_public_key(struct l2cap_conn *conn, struct sk_buff *skb)
 	else
 		hcon->pending_sec_level = BT_SECURITY_FIPS;
 
-	if (!memcmp(debug_pk, smp->remote_pk, 64))
+	if (!crypto_memneq(debug_pk, smp->remote_pk, 64))
 		set_bit(SMP_FLAG_DEBUG_KEY, &smp->flags);
 
 	if (smp->method == DSP_PASSKEY) {
@@ -2722,7 +2733,7 @@ static int smp_cmd_dhkey_check(struct l2cap_conn *conn, struct sk_buff *skb)
 	if (err)
 		return SMP_UNSPECIFIED;
 
-	if (memcmp(check->e, e, 16))
+	if (crypto_memneq(check->e, e, 16))
 		return SMP_DHKEY_CHECK_FAILED;
 
 	if (!hcon->out) {
@@ -3332,7 +3343,7 @@ static int __init test_ah(struct crypto_blkcipher *tfm_aes)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 3))
+	if (crypto_memneq(res, exp, 3))
 		return -EINVAL;
 
 	return 0;
@@ -3362,7 +3373,7 @@ static int __init test_c1(struct crypto_blkcipher *tfm_aes)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 16))
+	if (crypto_memneq(res, exp, 16))
 		return -EINVAL;
 
 	return 0;
@@ -3387,7 +3398,7 @@ static int __init test_s1(struct crypto_blkcipher *tfm_aes)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 16))
+	if (crypto_memneq(res, exp, 16))
 		return -EINVAL;
 
 	return 0;
@@ -3419,7 +3430,7 @@ static int __init test_f4(struct crypto_hash *tfm_cmac)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 16))
+	if (crypto_memneq(res, exp, 16))
 		return -EINVAL;
 
 	return 0;
@@ -3453,10 +3464,10 @@ static int __init test_f5(struct crypto_hash *tfm_cmac)
 	if (err)
 		return err;
 
-	if (memcmp(mackey, exp_mackey, 16))
+	if (crypto_memneq(mackey, exp_mackey, 16))
 		return -EINVAL;
 
-	if (memcmp(ltk, exp_ltk, 16))
+	if (crypto_memneq(ltk, exp_ltk, 16))
 		return -EINVAL;
 
 	return 0;
@@ -3489,7 +3500,7 @@ static int __init test_f6(struct crypto_hash *tfm_cmac)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 16))
+	if (crypto_memneq(res, exp, 16))
 		return -EINVAL;
 
 	return 0;
@@ -3543,7 +3554,7 @@ static int __init test_h6(struct crypto_hash *tfm_cmac)
 	if (err)
 		return err;
 
-	if (memcmp(res, exp, 16))
+	if (crypto_memneq(res, exp, 16))
 		return -EINVAL;
 
 	return 0;

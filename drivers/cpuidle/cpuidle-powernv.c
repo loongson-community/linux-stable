@@ -60,6 +60,8 @@ static int nap_loop(struct cpuidle_device *dev,
 	return index;
 }
 
+/* Register for fastsleep only in oneshot mode of broadcast */
+#ifdef CONFIG_TICK_ONESHOT
 static int fastsleep_loop(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv,
 				int index)
@@ -83,7 +85,7 @@ static int fastsleep_loop(struct cpuidle_device *dev,
 
 	return index;
 }
-
+#endif
 /*
  * States for dedicated partition case.
  */
@@ -151,6 +153,24 @@ static int powernv_cpuidle_driver_init(void)
 		drv->state_count += 1;
 	}
 
+	/*
+	 * On the PowerNV platform cpu_present may be less than cpu_possible in
+	 * cases when firmware detects the CPU, but it is not available to the
+	 * OS.  If CONFIG_HOTPLUG_CPU=n, then such CPUs are not hotplugable at
+	 * run time and hence cpu_devices are not created for those CPUs by the
+	 * generic topology_init().
+	 *
+	 * drv->cpumask defaults to cpu_possible_mask in
+	 * __cpuidle_driver_init().  This breaks cpuidle on PowerNV where
+	 * cpu_devices are not created for CPUs in cpu_possible_mask that
+	 * cannot be hot-added later at run time.
+	 *
+	 * Trying cpuidle_register_device() on a CPU without a cpu_device is
+	 * incorrect, so pass a correct CPU mask to the generic cpuidle driver.
+	 */
+
+	drv->cpumask = (struct cpumask *)cpu_present_mask;
+
 	return 0;
 }
 
@@ -209,7 +229,14 @@ static int powernv_add_idle_states(void)
 			powernv_states[nr_idle_states].flags = 0;
 			powernv_states[nr_idle_states].target_residency = 100;
 			powernv_states[nr_idle_states].enter = &nap_loop;
-		} else if (flags[i] & OPAL_PM_SLEEP_ENABLED ||
+		}
+
+		/*
+		 * All cpuidle states with CPUIDLE_FLAG_TIMER_STOP set must come
+		 * within this config dependency check.
+		 */
+#ifdef CONFIG_TICK_ONESHOT
+		if (flags[i] & OPAL_PM_SLEEP_ENABLED ||
 			flags[i] & OPAL_PM_SLEEP_ENABLED_ER1) {
 			/* Add FASTSLEEP state */
 			strcpy(powernv_states[nr_idle_states].name, "FastSleep");
@@ -218,7 +245,7 @@ static int powernv_add_idle_states(void)
 			powernv_states[nr_idle_states].target_residency = 300000;
 			powernv_states[nr_idle_states].enter = &fastsleep_loop;
 		}
-
+#endif
 		powernv_states[nr_idle_states].exit_latency =
 				((unsigned int)latency_ns[i]) / 1000;
 

@@ -47,8 +47,16 @@ module_param(gso, bool, 0444);
  */
 #define RECEIVE_AVG_WEIGHT 64
 
+/* With mergeable buffers we align buffer address and use the low bits to
+ * encode its true size. Buffer size is up to 1 page so we need to align to
+ * square root of page size to ensure we reserve enough bits to encode the true
+ * size.
+ */
+#define MERGEABLE_BUFFER_MIN_ALIGN_SHIFT ((PAGE_SHIFT + 1) / 2)
+
 /* Minimum alignment for mergeable packet buffers. */
-#define MERGEABLE_BUFFER_ALIGN max(L1_CACHE_BYTES, 256)
+#define MERGEABLE_BUFFER_ALIGN max(L1_CACHE_BYTES, \
+				   1 << MERGEABLE_BUFFER_MIN_ALIGN_SHIFT)
 
 #define VIRTNET_DRIVER_VERSION "1.0.0"
 
@@ -844,7 +852,7 @@ static int xmit_skb(struct send_queue *sq, struct sk_buff *skb)
 	struct virtio_net_hdr_mrg_rxbuf *hdr;
 	const unsigned char *dest = ((struct ethhdr *)skb->data)->h_dest;
 	struct virtnet_info *vi = sq->vq->vdev->priv;
-	unsigned num_sg;
+	int num_sg;
 	unsigned hdr_len = vi->hdr_len;
 	bool can_push;
 
@@ -897,11 +905,16 @@ static int xmit_skb(struct send_queue *sq, struct sk_buff *skb)
 	if (can_push) {
 		__skb_push(skb, hdr_len);
 		num_sg = skb_to_sgvec(skb, sq->sg, 0, skb->len);
+		if (unlikely(num_sg < 0))
+			return num_sg;
 		/* Pull header back to avoid skew in tx bytes calculations. */
 		__skb_pull(skb, hdr_len);
 	} else {
 		sg_set_buf(sq->sg, hdr, hdr_len);
-		num_sg = skb_to_sgvec(skb, sq->sg + 1, 0, skb->len) + 1;
+		num_sg = skb_to_sgvec(skb, sq->sg + 1, 0, skb->len);
+		if (unlikely(num_sg < 0))
+			return num_sg;
+		num_sg++;
 	}
 	return virtqueue_add_outbuf(sq->vq, sq->sg, num_sg, skb, GFP_ATOMIC);
 }
@@ -1411,6 +1424,7 @@ static const struct net_device_ops virtnet_netdev = {
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	.ndo_busy_poll		= virtnet_busy_poll,
 #endif
+	.ndo_features_check	= passthru_features_check,
 };
 
 static void virtnet_config_changed_work(struct work_struct *work)
@@ -1756,9 +1770,9 @@ static int virtnet_probe(struct virtio_device *vdev)
 	/* Do we support "hardware" checksums? */
 	if (virtio_has_feature(vdev, VIRTIO_NET_F_CSUM)) {
 		/* This opens up the world of extra features. */
-		dev->hw_features |= NETIF_F_HW_CSUM|NETIF_F_SG|NETIF_F_FRAGLIST;
+		dev->hw_features |= NETIF_F_HW_CSUM | NETIF_F_SG;
 		if (csum)
-			dev->features |= NETIF_F_HW_CSUM|NETIF_F_SG|NETIF_F_FRAGLIST;
+			dev->features |= NETIF_F_HW_CSUM | NETIF_F_SG;
 
 		if (virtio_has_feature(vdev, VIRTIO_NET_F_GSO)) {
 			dev->hw_features |= NETIF_F_TSO | NETIF_F_UFO
@@ -1828,7 +1842,8 @@ static int virtnet_probe(struct virtio_device *vdev)
 	else
 		vi->hdr_len = sizeof(struct virtio_net_hdr);
 
-	if (virtio_has_feature(vdev, VIRTIO_F_ANY_LAYOUT))
+	if (virtio_has_feature(vdev, VIRTIO_F_ANY_LAYOUT) ||
+	    virtio_has_feature(vdev, VIRTIO_F_VERSION_1))
 		vi->any_header_sg = true;
 
 	if (virtio_has_feature(vdev, VIRTIO_NET_F_CTRL_VQ))

@@ -276,6 +276,9 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 
 	ret = 0;
 	virt_dev = xhci->devs[slot_id];
+	if (!virt_dev)
+		return -ENODEV;
+
 	cmd = xhci_alloc_command(xhci, false, true, GFP_NOIO);
 	if (!cmd) {
 		xhci_dbg(xhci, "Couldn't allocate command structure.\n");
@@ -290,15 +293,25 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 						     GFP_NOWAIT);
 			if (!command) {
 				spin_unlock_irqrestore(&xhci->lock, flags);
-				xhci_free_command(xhci, cmd);
-				return -ENOMEM;
-
+				ret = -ENOMEM;
+				goto cmd_cleanup;
 			}
-			xhci_queue_stop_endpoint(xhci, command, slot_id, i,
-						 suspend);
+
+			ret = xhci_queue_stop_endpoint(xhci, command, slot_id,
+						       i, suspend);
+			if (ret) {
+				spin_unlock_irqrestore(&xhci->lock, flags);
+				xhci_free_command(xhci, command);
+				goto cmd_cleanup;
+			}
 		}
 	}
-	xhci_queue_stop_endpoint(xhci, cmd, slot_id, 0, suspend);
+	ret = xhci_queue_stop_endpoint(xhci, cmd, slot_id, 0, suspend);
+	if (ret) {
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		goto cmd_cleanup;
+	}
+
 	xhci_ring_cmd_db(xhci);
 	spin_unlock_irqrestore(&xhci->lock, flags);
 
@@ -309,6 +322,8 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 		xhci_warn(xhci, "Timeout while waiting for stop endpoint command\n");
 		ret = -ETIME;
 	}
+
+cmd_cleanup:
 	xhci_free_command(xhci, cmd);
 	return ret;
 }
@@ -484,10 +499,13 @@ static void xhci_hub_report_usb3_link_state(struct xhci_hcd *xhci,
 	u32 pls = status_reg & PORT_PLS_MASK;
 
 	/* resume state is a xHCI internal state.
-	 * Do not report it to usb core.
+	 * Do not report it to usb core, instead, pretend to be U3,
+	 * thus usb core knows it's not ready for transfer
 	 */
-	if (pls == XDEV_RESUME)
+	if (pls == XDEV_RESUME) {
+		*status |= USB_SS_PORT_LS_U3;
 		return;
+	}
 
 	/* When the CAS bit is set then warm reset
 	 * should be performed on port
@@ -588,7 +606,14 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 		status |= USB_PORT_STAT_C_RESET << 16;
 	/* USB3.0 only */
 	if (hcd->speed == HCD_USB3) {
-		if ((raw_port_status & PORT_PLC))
+		/* Port link change with port in resume state should not be
+		 * reported to usbcore, as this is an internal state to be
+		 * handled by xhci driver. Reporting PLC to usbcore may
+		 * cause usbcore clearing PLC first and port change event
+		 * irq won't be generated.
+		 */
+		if ((raw_port_status & PORT_PLC) &&
+			(raw_port_status & PORT_PLS_MASK) != XDEV_RESUME)
 			status |= USB_PORT_STAT_C_LINK_STATE << 16;
 		if ((raw_port_status & PORT_WRC))
 			status |= USB_PORT_STAT_C_BH_RESET << 16;
@@ -606,8 +631,30 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 		if ((raw_port_status & PORT_RESET) ||
 				!(raw_port_status & PORT_PE))
 			return 0xffffffff;
-		if (time_after_eq(jiffies,
-					bus_state->resume_done[wIndex])) {
+		/* did port event handler already start resume timing? */
+		if (!bus_state->resume_done[wIndex]) {
+			/* If not, maybe we are in a host initated resume? */
+			if (test_bit(wIndex, &bus_state->resuming_ports)) {
+				/* Host initated resume doesn't time the resume
+				 * signalling using resume_done[].
+				 * It manually sets RESUME state, sleeps 20ms
+				 * and sets U0 state. This should probably be
+				 * changed, but not right now.
+				 */
+			} else {
+				/* port resume was discovered now and here,
+				 * start resume timing
+				 */
+				unsigned long timeout = jiffies +
+					msecs_to_jiffies(USB_RESUME_TIMEOUT);
+
+				set_bit(wIndex, &bus_state->resuming_ports);
+				bus_state->resume_done[wIndex] = timeout;
+				mod_timer(&hcd->rh_timer, timeout);
+			}
+		/* Has resume been signalled for USB_RESUME_TIME yet? */
+		} else if (time_after_eq(jiffies,
+					 bus_state->resume_done[wIndex])) {
 			int time_left;
 
 			xhci_dbg(xhci, "Resume USB2 port %d\n",
@@ -616,6 +663,9 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 			clear_bit(wIndex, &bus_state->resuming_ports);
 
 			set_bit(wIndex, &bus_state->rexit_ports);
+
+			xhci_test_and_clear_bit(xhci, port_array, wIndex,
+						PORT_PLC);
 			xhci_set_link_state(xhci, port_array, wIndex,
 					XDEV_U0);
 
@@ -648,12 +698,23 @@ static u32 xhci_get_port_status(struct usb_hcd *hcd,
 		} else {
 			/*
 			 * The resume has been signaling for less than
-			 * 20ms. Report the port status as SUSPEND,
-			 * let the usbcore check port status again
-			 * and clear resume signaling later.
+			 * USB_RESUME_TIME. Report the port status as SUSPEND,
+			 * let the usbcore check port status again and clear
+			 * resume signaling later.
 			 */
 			status |= USB_PORT_STAT_SUSPEND;
 		}
+	}
+	/*
+	 * Clear stale usb2 resume signalling variables in case port changed
+	 * state during resume signalling. For example on error
+	 */
+	if ((bus_state->resume_done[wIndex] ||
+	     test_bit(wIndex, &bus_state->resuming_ports)) &&
+	    (raw_port_status & PORT_PLS_MASK) != XDEV_U3 &&
+	    (raw_port_status & PORT_PLS_MASK) != XDEV_RESUME) {
+		bus_state->resume_done[wIndex] = 0;
+		clear_bit(wIndex, &bus_state->resuming_ports);
 	}
 	if ((raw_port_status & PORT_PLS_MASK) == XDEV_U0
 			&& (raw_port_status & PORT_POWER)
@@ -985,6 +1046,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				if ((temp & PORT_PE) == 0)
 					goto error;
 
+				set_bit(wIndex, &bus_state->resuming_ports);
 				xhci_set_link_state(xhci, port_array, wIndex,
 							XDEV_RESUME);
 				spin_unlock_irqrestore(&xhci->lock, flags);
@@ -992,6 +1054,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				spin_lock_irqsave(&xhci->lock, flags);
 				xhci_set_link_state(xhci, port_array, wIndex,
 							XDEV_U0);
+				clear_bit(wIndex, &bus_state->resuming_ports);
 			}
 			bus_state->port_c_suspend |= 1 << wIndex;
 
@@ -1120,10 +1183,10 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 	spin_lock_irqsave(&xhci->lock, flags);
 
 	if (hcd->self.root_hub->do_remote_wakeup) {
-		if (bus_state->resuming_ports) {
+		if (bus_state->resuming_ports ||	/* USB2 */
+		    bus_state->port_remote_wakeup) {	/* USB3 */
 			spin_unlock_irqrestore(&xhci->lock, flags);
-			xhci_dbg(xhci, "suspend failed because "
-						"a port is resuming\n");
+			xhci_dbg(xhci, "suspend failed because a port is resuming\n");
 			return -EBUSY;
 		}
 	}
@@ -1176,6 +1239,35 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 	return 0;
 }
 
+/*
+ * Workaround for missing Cold Attach Status (CAS) if device re-plugged in S3.
+ * warm reset a USB3 device stuck in polling or compliance mode after resume.
+ * See Intel 100/c230 series PCH specification update Doc #332692-006 Errata #8
+ */
+static bool xhci_port_missing_cas_quirk(int port_index,
+					     __le32 __iomem **port_array)
+{
+	u32 portsc;
+
+	portsc = readl(port_array[port_index]);
+
+	/* if any of these are set we are not stuck */
+	if (portsc & (PORT_CONNECT | PORT_CAS))
+		return false;
+
+	if (((portsc & PORT_PLS_MASK) != XDEV_POLLING) &&
+	    ((portsc & PORT_PLS_MASK) != XDEV_COMP_MODE))
+		return false;
+
+	/* clear wakeup/change bits, and do a warm port reset */
+	portsc &= ~(PORT_RWC_BITS | PORT_CEC | PORT_WAKE_BITS);
+	portsc |= PORT_WR;
+	writel(portsc, port_array[port_index]);
+	/* flush write */
+	readl(port_array[port_index]);
+	return true;
+}
+
 int xhci_bus_resume(struct usb_hcd *hcd)
 {
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
@@ -1210,6 +1302,14 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 		int slot_id;
 
 		temp = readl(port_array[port_index]);
+
+		/* warm reset CAS limited ports stuck in polling/compliance */
+		if ((xhci->quirks & XHCI_MISSING_CAS) &&
+		    (hcd->speed >= HCD_USB3) &&
+		    xhci_port_missing_cas_quirk(port_index, port_array)) {
+			xhci_dbg(xhci, "reset stuck port %d\n", port_index);
+			continue;
+		}
 		if (DEV_SUPERSPEED(temp))
 			temp &= ~(PORT_RWC_BITS | PORT_CEC | PORT_WAKE_BITS);
 		else

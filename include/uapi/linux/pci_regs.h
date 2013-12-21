@@ -106,7 +106,7 @@
 #define PCI_SUBSYSTEM_ID	0x2e
 #define PCI_ROM_ADDRESS		0x30	/* Bits 31..11 are address, 10..1 reserved */
 #define  PCI_ROM_ADDRESS_ENABLE	0x01
-#define PCI_ROM_ADDRESS_MASK	(~0x7ffUL)
+#define PCI_ROM_ADDRESS_MASK	(~0x7ffU)
 
 #define PCI_CAPABILITY_LIST	0x34	/* Offset of first capability list entry */
 
@@ -319,6 +319,7 @@
 #define PCI_MSIX_PBA		8	/* Pending Bit Array offset */
 #define  PCI_MSIX_PBA_BIR	0x00000007 /* BAR index */
 #define  PCI_MSIX_PBA_OFFSET	0xfffffff8 /* Offset into specified BAR */
+#define PCI_MSIX_FLAGS_BIRMASK	PCI_MSIX_PBA_BIR /* deprecated */
 #define PCI_CAP_MSIX_SIZEOF	12	/* size of MSIX registers */
 
 /* MSI-X Table entry format */

@@ -33,6 +33,7 @@
 #include <linux/slab.h>
 #include <drm/drmP.h>
 #include <drm/radeon_drm.h>
+#include <drm/drm_cache.h>
 #include "radeon.h"
 #include "radeon_trace.h"
 
@@ -75,7 +76,6 @@ static void radeon_ttm_bo_destroy(struct ttm_buffer_object *tbo)
 	bo = container_of(tbo, struct radeon_bo, tbo);
 
 	radeon_update_memory_usage(bo, bo->tbo.mem.mem_type, -1);
-	radeon_mn_unregister(bo);
 
 	mutex_lock(&bo->rdev->gem.mutex);
 	list_del_init(&bo->list);
@@ -226,19 +226,26 @@ int radeon_bo_create(struct radeon_device *rdev,
 	/* XXX: Write-combined CPU mappings of GTT seem broken on 32-bit
 	 * See https://bugs.freedesktop.org/show_bug.cgi?id=84627
 	 */
-	bo->flags &= ~RADEON_GEM_GTT_WC;
+	bo->flags &= ~(RADEON_GEM_GTT_WC | RADEON_GEM_GTT_UC);
 #elif defined(CONFIG_X86) && !defined(CONFIG_X86_PAT)
 	/* Don't try to enable write-combining when it can't work, or things
 	 * may be slow
 	 * See https://bugs.freedesktop.org/show_bug.cgi?id=88758
 	 */
-
+#ifndef CONFIG_COMPILE_TEST
 #warning Please enable CONFIG_MTRR and CONFIG_X86_PAT for better performance \
 	 thanks to write-combining
+#endif
 
 	DRM_INFO_ONCE("Please enable CONFIG_MTRR and CONFIG_X86_PAT for "
 		      "better performance thanks to write-combining\n");
-	bo->flags &= ~RADEON_GEM_GTT_WC;
+	bo->flags &= ~(RADEON_GEM_GTT_WC | RADEON_GEM_GTT_UC);
+#else
+	/* For architectures that don't support WC memory,
+	 * mask out the WC flag from the BO
+	 */
+	if (!drm_arch_can_wc_memory())
+		bo->flags &= ~RADEON_GEM_GTT_WC;
 #endif
 
 	radeon_ttm_placement_from_domain(bo, domain);

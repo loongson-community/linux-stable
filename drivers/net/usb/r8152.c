@@ -1263,6 +1263,7 @@ static int alloc_all_mem(struct r8152 *tp)
 	spin_lock_init(&tp->rx_lock);
 	spin_lock_init(&tp->tx_lock);
 	INIT_LIST_HEAD(&tp->tx_free);
+	INIT_LIST_HEAD(&tp->rx_done);
 	skb_queue_head_init(&tp->tx_queue);
 	skb_queue_head_init(&tp->rx_queue);
 
@@ -1837,6 +1838,9 @@ static int r8152_poll(struct napi_struct *napi, int budget)
 		napi_complete(napi);
 		if (!list_empty(&tp->rx_done))
 			napi_schedule(napi);
+		else if (!skb_queue_empty(&tp->tx_queue) &&
+			 !list_empty(&tp->tx_free))
+			napi_schedule(napi);
 	}
 
 	return work_done;
@@ -1925,7 +1929,6 @@ static void _rtl8152_set_rx_mode(struct net_device *netdev)
 	__le32 tmp[2];
 	u32 ocp_data;
 
-	clear_bit(RTL8152_SET_RX_MODE, &tp->flags);
 	netif_stop_queue(netdev);
 	ocp_data = ocp_read_dword(tp, MCU_TYPE_PLA, PLA_RCR);
 	ocp_data &= ~RCR_ACPT_ALL;
@@ -2359,8 +2362,6 @@ static void rtl_phy_reset(struct r8152 *tp)
 {
 	u16 data;
 	int i;
-
-	clear_bit(PHY_RESET, &tp->flags);
 
 	data = r8152_mdio_read(tp, MII_BMCR);
 
@@ -2856,10 +2857,9 @@ static int rtl8152_set_speed(struct r8152 *tp, u8 autoneg, u16 speed, u8 duplex)
 	r8152_mdio_write(tp, MII_ADVERTISE, anar);
 	r8152_mdio_write(tp, MII_BMCR, bmcr);
 
-	if (test_bit(PHY_RESET, &tp->flags)) {
+	if (test_and_clear_bit(PHY_RESET, &tp->flags)) {
 		int i;
 
-		clear_bit(PHY_RESET, &tp->flags);
 		for (i = 0; i < 50; i++) {
 			msleep(20);
 			if ((r8152_mdio_read(tp, MII_BMCR) & BMCR_RESET) == 0)
@@ -2868,7 +2868,6 @@ static int rtl8152_set_speed(struct r8152 *tp, u8 autoneg, u16 speed, u8 duplex)
 	}
 
 out:
-
 	return ret;
 }
 
@@ -2924,7 +2923,6 @@ static void set_carrier(struct r8152 *tp)
 	struct net_device *netdev = tp->netdev;
 	u8 speed;
 
-	clear_bit(RTL8152_LINK_CHG, &tp->flags);
 	speed = rtl8152_get_speed(tp);
 
 	if (speed & LINK_STATUS) {
@@ -2965,20 +2963,18 @@ static void rtl_work_func_t(struct work_struct *work)
 		goto out1;
 	}
 
-	if (test_bit(RTL8152_LINK_CHG, &tp->flags))
+	if (test_and_clear_bit(RTL8152_LINK_CHG, &tp->flags))
 		set_carrier(tp);
 
-	if (test_bit(RTL8152_SET_RX_MODE, &tp->flags))
+	if (test_and_clear_bit(RTL8152_SET_RX_MODE, &tp->flags))
 		_rtl8152_set_rx_mode(tp->netdev);
 
 	/* don't schedule napi before linking */
-	if (test_bit(SCHEDULE_NAPI, &tp->flags) &&
-	    netif_carrier_ok(tp->netdev)) {
-		clear_bit(SCHEDULE_NAPI, &tp->flags);
+	if (test_and_clear_bit(SCHEDULE_NAPI, &tp->flags) &&
+	    netif_carrier_ok(tp->netdev))
 		napi_schedule(&tp->napi);
-	}
 
-	if (test_bit(PHY_RESET, &tp->flags))
+	if (test_and_clear_bit(PHY_RESET, &tp->flags))
 		rtl_phy_reset(tp);
 
 	mutex_unlock(&tp->control);
@@ -3005,17 +3001,6 @@ static int rtl8152_open(struct net_device *netdev)
 	}
 
 	mutex_lock(&tp->control);
-
-	/* The WORK_ENABLE may be set when autoresume occurs */
-	if (test_bit(WORK_ENABLE, &tp->flags)) {
-		clear_bit(WORK_ENABLE, &tp->flags);
-		usb_kill_urb(tp->intr_urb);
-		cancel_delayed_work_sync(&tp->schedule);
-
-		/* disable the tx/rx, if the workqueue has enabled them. */
-		if (netif_carrier_ok(netdev))
-			tp->rtl_ops.disable(tp);
-	}
 
 	tp->rtl_ops.up(tp);
 
@@ -3062,12 +3047,6 @@ static int rtl8152_close(struct net_device *netdev)
 		rtl_stop_rx(tp);
 	} else {
 		mutex_lock(&tp->control);
-
-		/* The autosuspend may have been enabled and wouldn't
-		 * be disable when autoresume occurs, because the
-		 * netif_running() would be false.
-		 */
-		rtl_runtime_suspend_enable(tp, false);
 
 		tp->rtl_ops.down(tp);
 
@@ -3369,7 +3348,7 @@ static int rtl8152_resume(struct usb_interface *intf)
 		netif_device_attach(tp->netdev);
 	}
 
-	if (netif_running(tp->netdev)) {
+	if (netif_running(tp->netdev) && tp->netdev->flags & IFF_UP) {
 		if (test_bit(SELECTIVE_SUSPEND, &tp->flags)) {
 			rtl_runtime_suspend_enable(tp, false);
 			clear_bit(SELECTIVE_SUSPEND, &tp->flags);
@@ -3387,6 +3366,8 @@ static int rtl8152_resume(struct usb_interface *intf)
 		}
 		usb_submit_urb(tp->intr_urb, GFP_KERNEL);
 	} else if (test_bit(SELECTIVE_SUSPEND, &tp->flags)) {
+		if (tp->netdev->flags & IFF_UP)
+			rtl_runtime_suspend_enable(tp, false);
 		clear_bit(SELECTIVE_SUSPEND, &tp->flags);
 	}
 

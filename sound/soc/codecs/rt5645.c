@@ -487,7 +487,7 @@ static const struct snd_kcontrol_new rt5645_snd_controls[] = {
 
 	/* IN1/IN2 Control */
 	SOC_SINGLE_TLV("IN1 Boost", RT5645_IN1_CTRL1,
-		RT5645_BST_SFT1, 8, 0, bst_tlv),
+		RT5645_BST_SFT1, 12, 0, bst_tlv),
 	SOC_SINGLE_TLV("IN2 Boost", RT5645_IN2_CTRL,
 		RT5645_BST_SFT2, 8, 0, bst_tlv),
 
@@ -2837,6 +2837,8 @@ static int rt5645_i2c_probe(struct i2c_client *i2c,
 		}
 	}
 
+	INIT_DELAYED_WORK(&rt5645->jack_detect_work, rt5645_jack_detect_work);
+
 	if (rt5645->i2c->irq) {
 		ret = request_threaded_irq(rt5645->i2c->irq, NULL, rt5645_irq,
 			IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING
@@ -2854,8 +2856,6 @@ static int rt5645_i2c_probe(struct i2c_client *i2c,
 		if (ret)
 			dev_err(&i2c->dev, "Fail gpio_direction hp_det_gpio\n");
 	}
-
-	INIT_DELAYED_WORK(&rt5645->jack_detect_work, rt5645_jack_detect_work);
 
 	return snd_soc_register_codec(&i2c->dev, &soc_codec_dev_rt5645,
 				      rt5645_dai, ARRAY_SIZE(rt5645_dai));

@@ -339,6 +339,14 @@ configured less than Maximum supported fifo bytes */
 				  UART_FCR7_64BYTE,
 		.flags		= UART_CAP_FIFO,
 	},
+	[PORT_RT2880] = {
+		.name		= "Palmchip BK-3103",
+		.fifo_size	= 16,
+		.tx_loadsz	= 16,
+		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
+		.rxtrig_bytes	= {1, 4, 8, 14},
+		.flags		= UART_CAP_FIFO,
+	},
 };
 
 /* Uart divisor latch read */
@@ -783,22 +791,16 @@ static int size_fifo(struct uart_8250_port *up)
  */
 static unsigned int autoconfig_read_divisor_id(struct uart_8250_port *p)
 {
-	unsigned char old_dll, old_dlm, old_lcr;
-	unsigned int id;
+	unsigned char old_lcr;
+	unsigned int id, old_dl;
 
 	old_lcr = serial_in(p, UART_LCR);
 	serial_out(p, UART_LCR, UART_LCR_CONF_MODE_A);
+	old_dl = serial_dl_read(p);
+	serial_dl_write(p, 0);
+	id = serial_dl_read(p);
+	serial_dl_write(p, old_dl);
 
-	old_dll = serial_in(p, UART_DLL);
-	old_dlm = serial_in(p, UART_DLM);
-
-	serial_out(p, UART_DLL, 0);
-	serial_out(p, UART_DLM, 0);
-
-	id = serial_in(p, UART_DLL) | serial_in(p, UART_DLM) << 8;
-
-	serial_out(p, UART_DLL, old_dll);
-	serial_out(p, UART_DLM, old_dlm);
 	serial_out(p, UART_LCR, old_lcr);
 
 	return id;

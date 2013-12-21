@@ -1074,7 +1074,11 @@ static void intel_uncore_fw_domains_init(struct drm_device *dev)
 	} else if (IS_HASWELL(dev) || IS_BROADWELL(dev)) {
 		dev_priv->uncore.funcs.force_wake_get =
 			fw_domains_get_with_thread_status;
-		dev_priv->uncore.funcs.force_wake_put = fw_domains_put;
+		if (IS_HASWELL(dev))
+			dev_priv->uncore.funcs.force_wake_put =
+				fw_domains_put_with_fifo;
+		else
+			dev_priv->uncore.funcs.force_wake_put = fw_domains_put;
 		fw_domain_init(dev_priv, FW_DOMAIN_ID_RENDER,
 			       FORCEWAKE_MT, FORCEWAKE_ACK_HSW);
 	} else if (IS_IVYBRIDGE(dev)) {
@@ -1220,10 +1224,12 @@ int i915_reg_read_ioctl(struct drm_device *dev,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_i915_reg_read *reg = data;
 	struct register_whitelist const *entry = whitelist;
+	unsigned size;
+	u64 offset;
 	int i, ret = 0;
 
 	for (i = 0; i < ARRAY_SIZE(whitelist); i++, entry++) {
-		if (entry->offset == reg->offset &&
+		if (entry->offset == (reg->offset & -entry->size) &&
 		    (1 << INTEL_INFO(dev)->gen & entry->gen_bitmask))
 			break;
 	}
@@ -1231,23 +1237,33 @@ int i915_reg_read_ioctl(struct drm_device *dev,
 	if (i == ARRAY_SIZE(whitelist))
 		return -EINVAL;
 
+	/* We use the low bits to encode extra flags as the register should
+	 * be naturally aligned (and those that are not so aligned merely
+	 * limit the available flags for that register).
+	 */
+	offset = entry->offset;
+	size = entry->size;
+	size |= reg->offset ^ offset;
+
 	intel_runtime_pm_get(dev_priv);
 
-	switch (entry->size) {
+	switch (size) {
+	case 8 | 1:
+		reg->val = I915_READ64_2x32(offset, offset+4);
+		break;
 	case 8:
-		reg->val = I915_READ64(reg->offset);
+		reg->val = I915_READ64(offset);
 		break;
 	case 4:
-		reg->val = I915_READ(reg->offset);
+		reg->val = I915_READ(offset);
 		break;
 	case 2:
-		reg->val = I915_READ16(reg->offset);
+		reg->val = I915_READ16(offset);
 		break;
 	case 1:
-		reg->val = I915_READ8(reg->offset);
+		reg->val = I915_READ8(offset);
 		break;
 	default:
-		MISSING_CASE(entry->size);
 		ret = -EINVAL;
 		goto out;
 	}

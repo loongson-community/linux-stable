@@ -375,7 +375,7 @@ struct gpio_chip *gpiochip_find(void *data,
 
 	spin_lock_irqsave(&gpio_lock, flags);
 	list_for_each_entry(chip, &gpio_chips, list)
-		if (match(chip, data))
+		if (chip && match(chip, data))
 			break;
 
 	/* No match? */
@@ -1998,7 +1998,8 @@ struct gpio_desc *__must_check __gpiod_get_index(struct device *dev,
 		return desc;
 	}
 
-	status = gpiod_request(desc, con_id);
+	/* If a connection label was passed use that, else use the device name as label */
+	status = gpiod_request(desc, con_id ? con_id : dev_name(dev));
 	if (status < 0)
 		return ERR_PTR(status);
 

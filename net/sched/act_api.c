@@ -45,7 +45,7 @@ void tcf_hash_destroy(struct tc_action *a)
 }
 EXPORT_SYMBOL(tcf_hash_destroy);
 
-int tcf_hash_release(struct tc_action *a, int bind)
+int __tcf_hash_release(struct tc_action *a, bool bind, bool strict)
 {
 	struct tcf_common *p = a->priv;
 	int ret = 0;
@@ -53,7 +53,7 @@ int tcf_hash_release(struct tc_action *a, int bind)
 	if (p) {
 		if (bind)
 			p->tcfc_bindcnt--;
-		else if (p->tcfc_bindcnt > 0)
+		else if (strict && p->tcfc_bindcnt > 0)
 			return -EPERM;
 
 		p->tcfc_refcnt--;
@@ -64,9 +64,10 @@ int tcf_hash_release(struct tc_action *a, int bind)
 			ret = 1;
 		}
 	}
+
 	return ret;
 }
-EXPORT_SYMBOL(tcf_hash_release);
+EXPORT_SYMBOL(__tcf_hash_release);
 
 static int tcf_dump_walker(struct sk_buff *skb, struct netlink_callback *cb,
 			   struct tc_action *a)
@@ -92,8 +93,10 @@ static int tcf_dump_walker(struct sk_buff *skb, struct netlink_callback *cb,
 			a->order = n_i;
 
 			nest = nla_nest_start(skb, a->order);
-			if (nest == NULL)
+			if (nest == NULL) {
+				index--;
 				goto nla_put_failure;
+			}
 			err = tcf_action_dump_1(skb, a, 0, 0);
 			if (err < 0) {
 				index--;
@@ -136,7 +139,7 @@ static int tcf_del_walker(struct sk_buff *skb, struct tc_action *a)
 		head = &hinfo->htab[tcf_hash(i, hinfo->hmask)];
 		hlist_for_each_entry_safe(p, n, head, tcfc_head) {
 			a->priv = p;
-			ret = tcf_hash_release(a, 0);
+			ret = __tcf_hash_release(a, false, true);
 			if (ret == ACT_P_DELETED) {
 				module_put(a->ops->owner);
 				n_i++;
@@ -413,7 +416,7 @@ int tcf_action_destroy(struct list_head *actions, int bind)
 	int ret = 0;
 
 	list_for_each_entry_safe(a, tmp, actions, list) {
-		ret = tcf_hash_release(a, bind);
+		ret = __tcf_hash_release(a, bind, true);
 		if (ret == ACT_P_DELETED)
 			module_put(a->ops->owner);
 		else if (ret < 0)
@@ -801,10 +804,8 @@ static int tca_action_flush(struct net *net, struct nlattr *nla,
 		goto out_module_put;
 
 	err = a.ops->walk(skb, &dcb, RTM_DELACTION, &a);
-	if (err < 0)
+	if (err <= 0)
 		goto out_module_put;
-	if (err == 0)
-		goto noflush_out;
 
 	nla_nest_end(skb, nest);
 
@@ -821,7 +822,6 @@ static int tca_action_flush(struct net *net, struct nlattr *nla,
 out_module_put:
 	module_put(a.ops->owner);
 err_out:
-noflush_out:
 	kfree_skb(skb);
 	return err;
 }

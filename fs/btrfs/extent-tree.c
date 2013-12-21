@@ -3260,13 +3260,6 @@ again:
 		goto again;
 	}
 
-	/* We've already setup this transaction, go ahead and exit */
-	if (block_group->cache_generation == trans->transid &&
-	    i_size_read(inode)) {
-		dcs = BTRFS_DC_SETUP;
-		goto out_put;
-	}
-
 	/*
 	 * We want to set the generation to 0, that way if anything goes wrong
 	 * from here on out we know not to trust this cache when we load up next
@@ -3289,6 +3282,13 @@ again:
 		goto out_put;
 	}
 	WARN_ON(ret);
+
+	/* We've already setup this transaction, go ahead and exit */
+	if (block_group->cache_generation == trans->transid &&
+	    i_size_read(inode)) {
+		dcs = BTRFS_DC_SETUP;
+		goto out_put;
+	}
 
 	if (i_size_read(inode) > 0) {
 		ret = btrfs_check_trunc_cache_free_space(root,
@@ -3732,6 +3732,7 @@ static int update_space_info(struct btrfs_fs_info *info, u64 flags,
 				    info->space_info_kobj, "%s",
 				    alloc_name(found->flags));
 	if (ret) {
+		percpu_counter_destroy(&found->total_bytes_pinned);
 		kfree(found);
 		return ret;
 	}
@@ -3975,6 +3976,11 @@ commit_trans:
 		    !atomic_read(&root->fs_info->open_ioctl_trans)) {
 			need_commit--;
 
+			if (need_commit > 0) {
+				btrfs_start_delalloc_roots(fs_info, 0, -1);
+				btrfs_wait_ordered_roots(fs_info, -1);
+			}
+
 			trans = btrfs_join_transaction(root);
 			if (IS_ERR(trans))
 				return PTR_ERR(trans);
@@ -3985,11 +3991,12 @@ commit_trans:
 				if (ret)
 					return ret;
 				/*
-				 * make sure that all running delayed iput are
-				 * done
+				 * The cleaner kthread might still be doing iput
+				 * operations. Wait for it to finish so that
+				 * more space is released.
 				 */
-				down_write(&root->fs_info->delayed_iput_sem);
-				up_write(&root->fs_info->delayed_iput_sem);
+				mutex_lock(&root->fs_info->cleaner_delayed_iput_mutex);
+				mutex_unlock(&root->fs_info->cleaner_delayed_iput_mutex);
 				goto again;
 			} else {
 				btrfs_end_transaction(trans, root);
@@ -7498,7 +7505,7 @@ btrfs_init_new_buffer(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		set_extent_dirty(&trans->transaction->dirty_pages, buf->start,
 			 buf->start + buf->len - 1, GFP_NOFS);
 	}
-	trans->blocks_used++;
+	trans->dirty = true;
 	/* this returns a buffer locked for blocking */
 	return buf;
 }

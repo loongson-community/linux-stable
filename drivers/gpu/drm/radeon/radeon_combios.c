@@ -1255,10 +1255,15 @@ struct radeon_encoder_lvds *radeon_combios_get_lvds_info(struct radeon_encoder
 
 			if ((RBIOS16(tmp) == lvds->native_mode.hdisplay) &&
 			    (RBIOS16(tmp + 2) == lvds->native_mode.vdisplay)) {
+				u32 hss = (RBIOS16(tmp + 21) - RBIOS16(tmp + 19) - 1) * 8;
+
+				if (hss > lvds->native_mode.hdisplay)
+					hss = (10 - 1) * 8;
+
 				lvds->native_mode.htotal = lvds->native_mode.hdisplay +
 					(RBIOS16(tmp + 17) - RBIOS16(tmp + 19)) * 8;
 				lvds->native_mode.hsync_start = lvds->native_mode.hdisplay +
-					(RBIOS16(tmp + 21) - RBIOS16(tmp + 19) - 1) * 8;
+					hss;
 				lvds->native_mode.hsync_end = lvds->native_mode.hsync_start +
 					(RBIOS8(tmp + 23) * 8);
 
@@ -3381,6 +3386,21 @@ void radeon_combios_asic_init(struct drm_device *dev)
 	    rdev->pdev->subsystem_vendor == 0x103c &&
 	    rdev->pdev->subsystem_device == 0x30ae)
 		return;
+
+	/* quirk for rs4xx HP Compaq dc5750 Small Form Factor to make it resume
+	 * - it hangs on resume inside the dynclk 1 table.
+	 */
+	if (rdev->family == CHIP_RS480 &&
+	    rdev->pdev->subsystem_vendor == 0x103c &&
+	    rdev->pdev->subsystem_device == 0x280a)
+		return;
+	/* quirk for rs4xx Toshiba Sattellite L20-183 latop to make it resume
+	 * - it hangs on resume inside the dynclk 1 table.
+	 */
+	if (rdev->family == CHIP_RS400 &&
+	    rdev->pdev->subsystem_vendor == 0x1179 &&
+	    rdev->pdev->subsystem_device == 0xff31)
+	        return;
 
 	/* DYN CLK 1 */
 	table = combios_get_table_offset(dev, COMBIOS_DYN_CLK_1_TABLE);

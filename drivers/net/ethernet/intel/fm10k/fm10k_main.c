@@ -216,7 +216,7 @@ static void fm10k_reuse_rx_page(struct fm10k_ring *rx_ring,
 
 static inline bool fm10k_page_is_reserved(struct page *page)
 {
-	return (page_to_nid(page) != numa_mem_id()) || page->pfmemalloc;
+	return (page_to_nid(page) != numa_mem_id()) || page_is_pfmemalloc(page);
 }
 
 static bool fm10k_can_reuse_rx_page(struct fm10k_rx_buffer *rx_buffer,
@@ -1239,7 +1239,7 @@ static bool fm10k_clean_tx_irq(struct fm10k_q_vector *q_vector,
 			break;
 
 		/* prevent any other reads prior to eop_desc */
-		read_barrier_depends();
+		smp_rmb();
 
 		/* if DD is not set pending work has not been completed */
 		if (!(eop_desc->flags & FM10K_TXD_FLAG_DONE))

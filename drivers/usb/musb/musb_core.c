@@ -132,7 +132,7 @@ static inline struct musb *dev_to_musb(struct device *dev)
 /*-------------------------------------------------------------------------*/
 
 #ifndef CONFIG_BLACKFIN
-static int musb_ulpi_read(struct usb_phy *phy, u32 offset)
+static int musb_ulpi_read(struct usb_phy *phy, u32 reg)
 {
 	void __iomem *addr = phy->io_priv;
 	int	i = 0;
@@ -151,7 +151,7 @@ static int musb_ulpi_read(struct usb_phy *phy, u32 offset)
 	 * ULPICarKitControlDisableUTMI after clearing POWER_SUSPENDM.
 	 */
 
-	musb_writeb(addr, MUSB_ULPI_REG_ADDR, (u8)offset);
+	musb_writeb(addr, MUSB_ULPI_REG_ADDR, (u8)reg);
 	musb_writeb(addr, MUSB_ULPI_REG_CONTROL,
 			MUSB_ULPI_REG_REQ | MUSB_ULPI_RDN_WR);
 
@@ -176,7 +176,7 @@ out:
 	return ret;
 }
 
-static int musb_ulpi_write(struct usb_phy *phy, u32 offset, u32 data)
+static int musb_ulpi_write(struct usb_phy *phy, u32 val, u32 reg)
 {
 	void __iomem *addr = phy->io_priv;
 	int	i = 0;
@@ -191,8 +191,8 @@ static int musb_ulpi_write(struct usb_phy *phy, u32 offset, u32 data)
 	power &= ~MUSB_POWER_SUSPENDM;
 	musb_writeb(addr, MUSB_POWER, power);
 
-	musb_writeb(addr, MUSB_ULPI_REG_ADDR, (u8)offset);
-	musb_writeb(addr, MUSB_ULPI_REG_DATA, (u8)data);
+	musb_writeb(addr, MUSB_ULPI_REG_ADDR, (u8)reg);
+	musb_writeb(addr, MUSB_ULPI_REG_DATA, (u8)val);
 	musb_writeb(addr, MUSB_ULPI_REG_CONTROL, MUSB_ULPI_REG_REQ);
 
 	while (!(musb_readb(addr, MUSB_ULPI_REG_CONTROL)
@@ -863,7 +863,7 @@ b_host:
 	 */
 	if (int_usb & MUSB_INTR_RESET) {
 		handled = IRQ_HANDLED;
-		if (devctl & MUSB_DEVCTL_HM) {
+		if (is_host_active(musb)) {
 			/*
 			 * When BABBLE happens what we can depends on which
 			 * platform MUSB is running, because some platforms
@@ -873,9 +873,7 @@ b_host:
 			 * drop the session.
 			 */
 			dev_err(musb->controller, "Babble\n");
-
-			if (is_host_active(musb))
-				musb_recover_from_babble(musb);
+			musb_recover_from_babble(musb);
 		} else {
 			dev_dbg(musb->controller, "BUS RESET as %s\n",
 				usb_otg_state_string(musb->xceiv->otg->state));

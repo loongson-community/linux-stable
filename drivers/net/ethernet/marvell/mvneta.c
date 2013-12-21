@@ -222,7 +222,7 @@
 /* Various constants */
 
 /* Coalescing */
-#define MVNETA_TXDONE_COAL_PKTS		1
+#define MVNETA_TXDONE_COAL_PKTS		0	/* interrupt per packet */
 #define MVNETA_RX_COAL_PKTS		32
 #define MVNETA_RX_COAL_USEC		100
 
@@ -310,6 +310,7 @@ struct mvneta_port {
 	unsigned int link;
 	unsigned int duplex;
 	unsigned int speed;
+	unsigned int tx_csum_limit;
 	int use_inband_status:1;
 };
 
@@ -857,6 +858,10 @@ static void mvneta_port_disable(struct mvneta_port *pp)
 	val &= ~MVNETA_GMAC0_PORT_ENABLE;
 	mvreg_write(pp, MVNETA_GMAC_CTRL_0, val);
 
+	pp->link = 0;
+	pp->duplex = -1;
+	pp->speed = 0;
+
 	udelay(200);
 }
 
@@ -948,7 +953,7 @@ static void mvneta_defaults_set(struct mvneta_port *pp)
 	/* Set CPU queue access map - all CPUs have access to all RX
 	 * queues and to all TX queues
 	 */
-	for (cpu = 0; cpu < CONFIG_NR_CPUS; cpu++)
+	for_each_present_cpu(cpu)
 		mvreg_write(pp, MVNETA_CPU_MAP(cpu),
 			    (MVNETA_CPU_RXQ_ACCESS_ALL_MASK |
 			     MVNETA_CPU_TXQ_ACCESS_ALL_MASK));
@@ -1013,6 +1018,12 @@ static void mvneta_defaults_set(struct mvneta_port *pp)
 		val = mvreg_read(pp, MVNETA_GMAC_CLOCK_DIVIDER);
 		val |= MVNETA_GMAC_1MS_CLOCK_ENABLE;
 		mvreg_write(pp, MVNETA_GMAC_CLOCK_DIVIDER, val);
+	} else {
+		val = mvreg_read(pp, MVNETA_GMAC_AUTONEG_CONFIG);
+		val &= ~(MVNETA_GMAC_INBAND_AN_ENABLE |
+		       MVNETA_GMAC_AN_SPEED_EN |
+		       MVNETA_GMAC_AN_DUPLEX_EN);
+		mvreg_write(pp, MVNETA_GMAC_AUTONEG_CONFIG, val);
 	}
 
 	mvneta_set_ucast_table(pp, -1);
@@ -2502,8 +2513,10 @@ static int mvneta_change_mtu(struct net_device *dev, int mtu)
 
 	dev->mtu = mtu;
 
-	if (!netif_running(dev))
+	if (!netif_running(dev)) {
+		netdev_update_features(dev);
 		return 0;
+	}
 
 	/* The interface is running, so we have to force a
 	 * reallocation of the queues
@@ -2532,7 +2545,24 @@ static int mvneta_change_mtu(struct net_device *dev, int mtu)
 	mvneta_start_dev(pp);
 	mvneta_port_up(pp);
 
+	netdev_update_features(dev);
+
 	return 0;
+}
+
+static netdev_features_t mvneta_fix_features(struct net_device *dev,
+					     netdev_features_t features)
+{
+	struct mvneta_port *pp = netdev_priv(dev);
+
+	if (pp->tx_csum_limit && dev->mtu > pp->tx_csum_limit) {
+		features &= ~(NETIF_F_IP_CSUM | NETIF_F_TSO);
+		netdev_info(dev,
+			    "Disable IP checksum for MTU greater than %dB\n",
+			    pp->tx_csum_limit);
+	}
+
+	return features;
 }
 
 /* Get mac address */
@@ -2856,6 +2886,7 @@ static const struct net_device_ops mvneta_netdev_ops = {
 	.ndo_set_rx_mode     = mvneta_set_rx_mode,
 	.ndo_set_mac_address = mvneta_set_mac_addr,
 	.ndo_change_mtu      = mvneta_change_mtu,
+	.ndo_fix_features    = mvneta_fix_features,
 	.ndo_get_stats64     = mvneta_get_stats64,
 	.ndo_do_ioctl        = mvneta_ioctl,
 };
@@ -3002,8 +3033,8 @@ static int mvneta_probe(struct platform_device *pdev)
 	const char *dt_mac_addr;
 	char hw_mac_addr[ETH_ALEN];
 	const char *mac_from;
+	const char *managed;
 	int phy_mode;
-	int fixed_phy = 0;
 	int err;
 
 	/* Our multiqueue support is not complete, so for now, only
@@ -3037,7 +3068,6 @@ static int mvneta_probe(struct platform_device *pdev)
 			dev_err(&pdev->dev, "cannot register fixed PHY\n");
 			goto err_free_irq;
 		}
-		fixed_phy = 1;
 
 		/* In the case of a fixed PHY, the DT node associated
 		 * to the PHY is the Ethernet MAC DT node.
@@ -3061,8 +3091,10 @@ static int mvneta_probe(struct platform_device *pdev)
 	pp = netdev_priv(dev);
 	pp->phy_node = phy_node;
 	pp->phy_interface = phy_mode;
-	pp->use_inband_status = (phy_mode == PHY_INTERFACE_MODE_SGMII) &&
-				fixed_phy;
+
+	err = of_property_read_string(dn, "managed", &managed);
+	pp->use_inband_status = (err == 0 &&
+				 strcmp(managed, "in-band-status") == 0);
 
 	pp->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(pp->clk)) {
@@ -3101,6 +3133,9 @@ static int mvneta_probe(struct platform_device *pdev)
 		}
 	}
 
+	if (of_device_is_compatible(dn, "marvell,armada-370-neta"))
+		pp->tx_csum_limit = 1600;
+
 	pp->tx_ring_size = MVNETA_MAX_TXD;
 	pp->rx_ring_size = MVNETA_MAX_RXD;
 
@@ -3126,7 +3161,7 @@ static int mvneta_probe(struct platform_device *pdev)
 	dev->features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO;
 	dev->hw_features |= dev->features;
 	dev->vlan_features |= dev->features;
-	dev->priv_flags |= IFF_UNICAST_FLT;
+	dev->priv_flags |= IFF_UNICAST_FLT | IFF_LIVE_ADDR_CHANGE;
 	dev->gso_max_segs = MVNETA_MAX_TSO_SEGS;
 
 	err = register_netdev(dev);
@@ -3179,6 +3214,7 @@ static int mvneta_remove(struct platform_device *pdev)
 
 static const struct of_device_id mvneta_match[] = {
 	{ .compatible = "marvell,armada-370-neta" },
+	{ .compatible = "marvell,armada-xp-neta" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, mvneta_match);

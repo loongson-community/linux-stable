@@ -14,6 +14,8 @@
  *    GNU General Public License for more details.
  */
 
+#include <linux/delay.h>
+
 #include "si2168_priv.h"
 
 static const struct dvb_frontend_ops si2168_ops;
@@ -375,6 +377,7 @@ static int si2168_init(struct dvb_frontend *fe)
 		if (ret)
 			goto err;
 
+		udelay(100);
 		memcpy(cmd.args, "\x85", 1);
 		cmd.wlen = 1;
 		cmd.rlen = 1;
@@ -457,6 +460,10 @@ static int si2168_init(struct dvb_frontend *fe)
 		/* firmware is in the new format */
 		for (remaining = fw->size; remaining > 0; remaining -= 17) {
 			len = fw->data[fw->size - remaining];
+			if (len > SI2168_ARGLEN) {
+				ret = -EINVAL;
+				break;
+			}
 			memcpy(cmd.args, &fw->data[(fw->size - remaining) + 1], len);
 			cmd.wlen = len;
 			cmd.rlen = 1;

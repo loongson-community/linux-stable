@@ -22,6 +22,8 @@ struct usb_mixer_interface {
 	struct urb *rc_urb;
 	struct usb_ctrlrequest *rc_setup_packet;
 	u8 rc_buffer[6];
+
+	bool disconnected;
 };
 
 #define MAX_CHANNELS	16	/* max logical channels */
@@ -33,6 +35,8 @@ enum {
 	USB_MIXER_U8,
 	USB_MIXER_S16,
 	USB_MIXER_U16,
+	USB_MIXER_S32,
+	USB_MIXER_U32,
 };
 
 typedef void (*usb_mixer_elem_dump_func_t)(struct snd_info_buffer *buffer,
@@ -62,6 +66,7 @@ struct usb_mixer_elem_info {
 	int cached;
 	int cache_val[MAX_CHANNELS];
 	u8 initialized;
+	u8 min_mute;
 	void *private_data;
 };
 

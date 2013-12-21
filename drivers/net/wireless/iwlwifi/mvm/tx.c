@@ -225,7 +225,7 @@ void iwl_mvm_set_tx_cmd_rate(struct iwl_mvm *mvm, struct iwl_tx_cmd *tx_cmd,
 
 	if (info->band == IEEE80211_BAND_2GHZ &&
 	    !iwl_mvm_bt_coex_is_shared_ant_avail(mvm))
-		rate_flags = BIT(mvm->cfg->non_shared_ant) << RATE_MCS_ANT_POS;
+		rate_flags = mvm->cfg->non_shared_ant << RATE_MCS_ANT_POS;
 	else
 		rate_flags =
 			BIT(mvm->mgmt_last_antenna_idx) << RATE_MCS_ANT_POS;
@@ -369,6 +369,15 @@ int iwl_mvm_tx_skb_non_sta(struct iwl_mvm *mvm, struct sk_buff *skb)
 		iwl_trans_free_tx_cmd(mvm->trans, dev_cmd);
 		return -1;
 	}
+
+	/*
+	 * Increase the pending frames counter, so that later when a reply comes
+	 * in and the counter is decreased - we don't start getting negative
+	 * values.
+	 * Note that we don't need to make sure it isn't agg'd, since we're
+	 * TXing non-sta
+	 */
+	atomic_inc(&mvm->pending_frames[sta_id]);
 
 	return 0;
 }

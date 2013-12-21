@@ -219,9 +219,10 @@ getname_kernel(const char * filename)
 	if (len <= EMBEDDED_NAME_MAX) {
 		result->name = (char *)result->iname;
 	} else if (len <= PATH_MAX) {
+		const size_t size = offsetof(struct filename, iname[1]);
 		struct filename *tmp;
 
-		tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);
+		tmp = kmalloc(size, GFP_KERNEL);
 		if (unlikely(!tmp)) {
 			__putname(result);
 			return ERR_PTR(-ENOMEM);
@@ -504,6 +505,24 @@ struct nameidata {
 	struct file	*base;
 	char *saved_names[MAX_NESTED_LINKS + 1];
 };
+
+/**
+ * path_connected - Verify that a path->dentry is below path->mnt.mnt_root
+ * @path: nameidate to verify
+ *
+ * Rename can sometimes move a file or directory outside of a bind
+ * mount, path_connected allows those cases to be detected.
+ */
+static bool path_connected(const struct path *path)
+{
+	struct vfsmount *mnt = path->mnt;
+
+	/* Only bind mounts can have disconnected paths */
+	if (mnt->mnt_root == mnt->mnt_sb->s_root)
+		return true;
+
+	return is_subdir(path->dentry, mnt->mnt_root);
+}
 
 /*
  * Path walking has 2 modes, rcu-walk and ref-walk (see
@@ -1194,6 +1213,8 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 				goto failed;
 			nd->path.dentry = parent;
 			nd->seq = seq;
+			if (unlikely(!path_connected(&nd->path)))
+				goto failed;
 			break;
 		}
 		if (!follow_up_rcu(&nd->path))
@@ -1290,7 +1311,7 @@ static void follow_mount(struct path *path)
 	}
 }
 
-static void follow_dotdot(struct nameidata *nd)
+static int follow_dotdot(struct nameidata *nd)
 {
 	if (!nd->root.mnt)
 		set_root(nd);
@@ -1306,6 +1327,10 @@ static void follow_dotdot(struct nameidata *nd)
 			/* rare case of legitimate dget_parent()... */
 			nd->path.dentry = dget_parent(nd->path.dentry);
 			dput(old);
+			if (unlikely(!path_connected(&nd->path))) {
+				path_put(&nd->path);
+				return -ENOENT;
+			}
 			break;
 		}
 		if (!follow_up(&nd->path))
@@ -1313,6 +1338,7 @@ static void follow_dotdot(struct nameidata *nd)
 	}
 	follow_mount(&nd->path);
 	nd->inode = nd->path.dentry->d_inode;
+	return 0;
 }
 
 /*
@@ -1428,8 +1454,6 @@ static int lookup_fast(struct nameidata *nd,
 		negative = d_is_negative(dentry);
 		if (read_seqcount_retry(&dentry->d_seq, seq))
 			return -ECHILD;
-		if (negative)
-			return -ENOENT;
 
 		/*
 		 * This sequence count validates that the parent had no
@@ -1450,6 +1474,12 @@ static int lookup_fast(struct nameidata *nd,
 				goto unlazy;
 			}
 		}
+		/*
+		 * Note: do negative dentry check after revalidation in
+		 * case that drops it.
+		 */
+		if (negative)
+			return -ENOENT;
 		path->mnt = mnt;
 		path->dentry = dentry;
 		if (likely(__follow_mount_rcu(nd, path, inode)))
@@ -1541,7 +1571,7 @@ static inline int handle_dots(struct nameidata *nd, int type)
 			if (follow_dotdot_rcu(nd))
 				return -ECHILD;
 		} else
-			follow_dotdot(nd);
+			return follow_dotdot(nd);
 	}
 	return 0;
 }
@@ -1590,10 +1620,10 @@ static inline int walk_component(struct nameidata *nd, struct path *path,
 		if (err < 0)
 			goto out_err;
 
-		inode = path->dentry->d_inode;
 		err = -ENOENT;
 		if (d_is_negative(path->dentry))
 			goto out_path_put;
+		inode = path->dentry->d_inode;
 	}
 
 	if (should_follow_link(path->dentry, follow)) {
@@ -1864,6 +1894,9 @@ static int path_init(int dfd, const struct filename *name, unsigned int flags,
 {
 	int retval = 0;
 	const char *s = name->name;
+
+	if (!*s)
+		flags &= ~LOOKUP_RCU;
 
 	nd->last_type = LAST_ROOT; /* if there are only slashes... */
 	nd->flags = flags | LOOKUP_JUMPED | LOOKUP_PARENT;
@@ -2290,7 +2323,7 @@ mountpoint_last(struct nameidata *nd, struct path *path)
 	if (unlikely(nd->last_type != LAST_NORM)) {
 		error = handle_dots(nd, nd->last_type);
 		if (error)
-			goto out;
+			return error;
 		dentry = dget(nd->path.dentry);
 		goto done;
 	}
@@ -2810,22 +2843,10 @@ no_open:
 		dentry = lookup_real(dir, dentry, nd->flags);
 		if (IS_ERR(dentry))
 			return PTR_ERR(dentry);
-
-		if (create_error) {
-			int open_flag = op->open_flag;
-
-			error = create_error;
-			if ((open_flag & O_EXCL)) {
-				if (!dentry->d_inode)
-					goto out;
-			} else if (!dentry->d_inode) {
-				goto out;
-			} else if ((open_flag & O_TRUNC) &&
-				   d_is_reg(dentry)) {
-				goto out;
-			}
-			/* will fail later, go on to get the right error */
-		}
+	}
+	if (create_error && !dentry->d_inode) {
+		error = create_error;
+		goto out;
 	}
 looked_up:
 	path->dentry = dentry;
@@ -3049,6 +3070,7 @@ retry_lookup:
 		path_to_nameidata(path, nd);
 		goto out;
 	}
+	inode = path->dentry->d_inode;
 finish_lookup:
 	/* we _can_ be in RCU mode here */
 	if (should_follow_link(path->dentry, !symlink_ok)) {
@@ -3123,6 +3145,10 @@ opened:
 			goto exit_fput;
 	}
 out:
+	if (unlikely(error > 0)) {
+		WARN_ON(1);
+		error = -EINVAL;
+	}
 	if (got_write)
 		mnt_drop_write(nd->path.mnt);
 	path_put(&save_parent);

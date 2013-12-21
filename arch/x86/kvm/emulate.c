@@ -2400,6 +2400,7 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
 		ctxt->eflags &= ~(X86_EFLAGS_VM | X86_EFLAGS_IF);
 	}
 
+	ctxt->tf = (ctxt->eflags & X86_EFLAGS_TF) != 0;
 	return X86EMUL_CONTINUE;
 }
 
@@ -4479,6 +4480,8 @@ int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len)
 	bool op_prefix = false;
 	bool has_seg_override = false;
 	struct opcode opcode;
+	u16 dummy;
+	struct desc_struct desc;
 
 	ctxt->memop.type = OP_NONE;
 	ctxt->memopp = NULL;
@@ -4497,6 +4500,11 @@ int x86_decode_insn(struct x86_emulate_ctxt *ctxt, void *insn, int insn_len)
 	switch (mode) {
 	case X86EMUL_MODE_REAL:
 	case X86EMUL_MODE_VM86:
+		def_op_bytes = def_ad_bytes = 2;
+		ctxt->ops->get_segment(ctxt, &dummy, &desc, NULL, VCPU_SREG_CS);
+		if (desc.d)
+			def_op_bytes = def_ad_bytes = 4;
+		break;
 	case X86EMUL_MODE_PROT16:
 		def_op_bytes = def_ad_bytes = 2;
 		break;

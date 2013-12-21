@@ -55,7 +55,6 @@ static int snd_line6_impulse_volume_put(struct snd_kcontrol *kcontrol,
 		err = line6_pcm_acquire(line6pcm, LINE6_STREAM_IMPULSE);
 		if (err < 0) {
 			line6pcm->impulse_volume = 0;
-			line6_pcm_release(line6pcm, LINE6_STREAM_IMPULSE);
 			return err;
 		}
 	} else {
@@ -186,12 +185,8 @@ static int line6_stream_start(struct snd_line6_pcm *line6pcm, int direction,
 	int ret = 0;
 
 	spin_lock_irqsave(&pstr->lock, flags);
-	if (!test_and_set_bit(type, &pstr->running)) {
-		if (pstr->active_urbs || pstr->unlink_urbs) {
-			ret = -EBUSY;
-			goto error;
-		}
-
+	if (!test_and_set_bit(type, &pstr->running) &&
+	    !(pstr->active_urbs || pstr->unlink_urbs)) {
 		pstr->count = 0;
 		/* Submit all currently available URBs */
 		if (direction == SNDRV_PCM_STREAM_PLAYBACK)
@@ -199,7 +194,6 @@ static int line6_stream_start(struct snd_line6_pcm *line6pcm, int direction,
 		else
 			ret = line6_submit_audio_in_all_urbs(line6pcm);
 	}
- error:
 	if (ret < 0)
 		clear_bit(type, &pstr->running);
 	spin_unlock_irqrestore(&pstr->lock, flags);
@@ -216,7 +210,9 @@ static void line6_stream_stop(struct snd_line6_pcm *line6pcm, int direction,
 	spin_lock_irqsave(&pstr->lock, flags);
 	clear_bit(type, &pstr->running);
 	if (!pstr->running) {
+		spin_unlock_irqrestore(&pstr->lock, flags);
 		line6_unlink_audio_urbs(line6pcm, pstr);
+		spin_lock_irqsave(&pstr->lock, flags);
 		if (direction == SNDRV_PCM_STREAM_CAPTURE) {
 			line6pcm->prev_fbuf = NULL;
 			line6pcm->prev_fsize = 0;

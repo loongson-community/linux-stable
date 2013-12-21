@@ -16,6 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
+#include <linux/leds.h>
 #include <linux/export.h>
 #include <linux/sched.h>
 #include <linux/bitops.h>
@@ -26,6 +27,7 @@
 #include <linux/dm9000.h>
 #include <linux/mtd/physmap.h>
 #include <linux/mtd/partitions.h>
+#include <linux/regulator/machine.h>
 #include <linux/i2c/pxa-i2c.h>
 
 #include <asm/types.h>
@@ -534,6 +536,8 @@ static void __init trizeps4_init(void)
 
 	BCR_writew(trizeps_conxs_bcr);
 	board_backlight_power(1);
+
+	regulator_has_full_constraints();
 }
 
 static void __init trizeps4_map_io(void)

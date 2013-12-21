@@ -1200,6 +1200,10 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			When zero, profiling data is discarded and associated
 			debugfs files are removed at module unload time.
 
+	goldfish	[X86] Enable the goldfish android emulator platform.
+			Don't use this when you are not running on the
+			android emulator
+
 	gpt		[EFI] Forces disk with valid GPT signature but
 			invalid Protective MBR to be treated as GPT. If the
 			primary GPT is corrupted, it enables the backup/alternate
@@ -1398,7 +1402,15 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 			The list of supported hash algorithms is defined
 			in crypto/hash_info.h.
 
-	ima_tcb		[IMA]
+	ima_policy=	[IMA]
+			The builtin measurement policy to load during IMA
+			setup.  Specyfing "tcb" as the value, measures all
+			programs exec'd, files mmap'd for exec, and all files
+			opened with the read mode bit set by either the
+			effective uid (euid=0) or uid=0.
+			Format: "tcb"
+
+	ima_tcb		[IMA] Deprecated.  Use ima_policy= instead.
 			Load a policy which meets the needs of the Trusted
 			Computing Base.  This means IMA will measure all
 			programs exec'd, files mmap'd for exec, and all files
@@ -2423,6 +2435,8 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 
 	nointroute	[IA-64]
 
+	noinvpcid	[X86] Disable the INVPCID cpu feature.
+
 	nojitter	[IA-64] Disables jitter checking for ITC timers.
 
 	no-kvmclock	[X86,KVM] Disable paravirtualized KVM clock driver
@@ -2457,10 +2471,10 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	nopat		[X86] Disable PAT (page attribute table extension of
 			pagetables) support.
 
+	nopcid		[X86-64] Disable the PCID cpu feature.
+
 	norandmaps	Don't use address space randomization.  Equivalent to
 			echo 0 > /proc/sys/kernel/randomize_va_space
-
-	noreplace-paravirt	[X86,IA-64,PV_OPS] Don't patch paravirt_ops
 
 	noreplace-smp	[X86-32,SMP] Don't replace SMP instructions
 			with UP alternatives
@@ -3441,6 +3455,13 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 	spia_pedr=
 	spia_peddr=
 
+	stack_guard_gap=	[MM]
+			override the default stack gap protection. The value
+			is in page units and it defines how many pages prior
+			to (for stacks growing down) resp. after (for stacks
+			growing up) the main stack are reserved for no other
+			mapping. Default value is 256 pages.
+
 	stacktrace	[FTRACE]
 			Enabled the stack tracer on boot up.
 
@@ -3800,6 +3821,8 @@ bytes respectively. Such letter suffixes can also be entirely omitted.
 					sector if the number is odd);
 				i = IGNORE_DEVICE (don't bind to this
 					device);
+				j = NO_REPORT_LUNS (don't use report luns
+					command, uas only);
 				l = NOT_LOCKABLE (don't try to lock and
 					unlock ejectable media);
 				m = MAX_SECTORS_64 (don't transfer more

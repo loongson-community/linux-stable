@@ -119,7 +119,7 @@ int kernfs_iop_setattr(struct dentry *dentry, struct iattr *iattr)
 		return -EINVAL;
 
 	mutex_lock(&kernfs_mutex);
-	error = inode_change_ok(inode, iattr);
+	error = setattr_prepare(dentry, iattr);
 	if (error)
 		goto out;
 
@@ -296,6 +296,8 @@ static void kernfs_init_inode(struct kernfs_node *kn, struct inode *inode)
 	case KERNFS_DIR:
 		inode->i_op = &kernfs_dir_iops;
 		inode->i_fop = &kernfs_dir_fops;
+		if (kn->flags & KERNFS_EMPTY_DIR)
+			make_empty_dir_inode(inode);
 		break;
 	case KERNFS_FILE:
 		inode->i_size = kn->attr.size;

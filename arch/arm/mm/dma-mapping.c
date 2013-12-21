@@ -764,12 +764,30 @@ static void arm_coherent_dma_free(struct device *dev, size_t size, void *cpu_add
 	__arm_dma_free(dev, size, cpu_addr, handle, attrs, true);
 }
 
+/*
+ * The whole dma_get_sgtable() idea is fundamentally unsafe - it seems
+ * that the intention is to allow exporting memory allocated via the
+ * coherent DMA APIs through the dma_buf API, which only accepts a
+ * scattertable.  This presents a couple of problems:
+ * 1. Not all memory allocated via the coherent DMA APIs is backed by
+ *    a struct page
+ * 2. Passing coherent DMA memory into the streaming APIs is not allowed
+ *    as we will try to flush the memory through a different alias to that
+ *    actually being used (and the flushes are redundant.)
+ */
 int arm_dma_get_sgtable(struct device *dev, struct sg_table *sgt,
 		 void *cpu_addr, dma_addr_t handle, size_t size,
 		 struct dma_attrs *attrs)
 {
-	struct page *page = pfn_to_page(dma_to_pfn(dev, handle));
+	unsigned long pfn = dma_to_pfn(dev, handle);
+	struct page *page;
 	int ret;
+
+	/* If the PFN is not valid, we do not have a struct page */
+	if (!pfn_valid(pfn))
+		return -ENXIO;
+
+	page = pfn_to_page(pfn);
 
 	ret = sg_alloc_table(sgt, 1, GFP_KERNEL);
 	if (unlikely(ret))
@@ -1395,11 +1413,18 @@ static int arm_iommu_mmap_attrs(struct device *dev, struct vm_area_struct *vma,
 	unsigned long uaddr = vma->vm_start;
 	unsigned long usize = vma->vm_end - vma->vm_start;
 	struct page **pages = __iommu_get_pages(cpu_addr, attrs);
+	unsigned long nr_pages = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	unsigned long off = vma->vm_pgoff;
 
 	vma->vm_page_prot = __get_dma_pgprot(attrs, vma->vm_page_prot);
 
 	if (!pages)
 		return -ENXIO;
+
+	if (off >= nr_pages || (usize >> PAGE_SHIFT) > nr_pages - off)
+		return -ENXIO;
+
+	pages += off;
 
 	do {
 		int ret = vm_insert_page(vma, uaddr, *pages++);
@@ -1953,7 +1978,7 @@ static int extend_iommu_mapping(struct dma_iommu_mapping *mapping)
 {
 	int next_bitmap;
 
-	if (mapping->nr_bitmaps > mapping->extensions)
+	if (mapping->nr_bitmaps >= mapping->extensions)
 		return -EINVAL;
 
 	next_bitmap = mapping->nr_bitmaps;

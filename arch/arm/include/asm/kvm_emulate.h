@@ -28,6 +28,18 @@
 unsigned long *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num);
 unsigned long *vcpu_spsr(struct kvm_vcpu *vcpu);
 
+static inline unsigned long vcpu_get_reg(struct kvm_vcpu *vcpu,
+					 u8 reg_num)
+{
+	return *vcpu_reg(vcpu, reg_num);
+}
+
+static inline void vcpu_set_reg(struct kvm_vcpu *vcpu, u8 reg_num,
+				unsigned long val)
+{
+	*vcpu_reg(vcpu, reg_num) = val;
+}
+
 bool kvm_condition_valid(struct kvm_vcpu *vcpu);
 void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
@@ -129,6 +141,11 @@ static inline bool kvm_vcpu_dabt_isextabt(struct kvm_vcpu *vcpu)
 static inline bool kvm_vcpu_dabt_iss1tw(struct kvm_vcpu *vcpu)
 {
 	return kvm_vcpu_get_hsr(vcpu) & HSR_DABT_S1PTW;
+}
+
+static inline bool kvm_vcpu_dabt_is_cm(struct kvm_vcpu *vcpu)
+{
+	return !!(kvm_vcpu_get_hsr(vcpu) & HSR_DABT_CM);
 }
 
 /* Get Access Size from a data abort */

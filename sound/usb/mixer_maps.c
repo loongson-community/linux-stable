@@ -341,6 +341,26 @@ static const struct usbmix_name_map scms_usb3318_map[] = {
 	{ 0 }
 };
 
+/* Bose companion 5, the dB conversion factor is 16 instead of 256 */
+static struct usbmix_dB_map bose_companion5_dB = {-5006, -6};
+static struct usbmix_name_map bose_companion5_map[] = {
+	{ 3, NULL, .dB = &bose_companion5_dB },
+	{ 0 }	/* terminator */
+};
+
+/*
+ * Dell usb dock with ALC4020 codec had a firmware problem where it got
+ * screwed up when zero volume is passed; just skip it as a workaround
+ *
+ * Also the extension unit gives an access error, so skip it as well.
+ */
+static const struct usbmix_name_map dell_alc4020_map[] = {
+	{ 4, NULL },	/* extension unit */
+	{ 16, NULL },
+	{ 19, NULL },
+	{ 0 }
+};
+
 /*
  * Control map entries
  */
@@ -424,6 +444,10 @@ static struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		.map = aureon_51_2_map,
 	},
 	{
+		.id = USB_ID(0x0bda, 0x4014),
+		.map = dell_alc4020_map,
+	},
+	{
 		.id = USB_ID(0x0dba, 0x1000),
 		.map = mbox1_map,
 	},
@@ -450,6 +474,11 @@ static struct usbmix_ctl_map usbmix_ctl_maps[] = {
 		/* Arcam rPAC */
 		.id = USB_ID(0x25c4, 0x0003),
 		.map = scms_usb3318_map,
+	},
+	{
+		/* Bose Companion 5 */
+		.id = USB_ID(0x05a7, 0x1020),
+		.map = bose_companion5_map,
 	},
 	{ 0 } /* terminator */
 };

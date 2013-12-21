@@ -583,7 +583,7 @@ static struct scatterlist *scsi_sg_alloc(unsigned int nents, gfp_t gfp_mask)
 
 static void scsi_free_sgtable(struct scsi_data_buffer *sdb, bool mq)
 {
-	if (mq && sdb->table.nents <= SCSI_MAX_SG_SEGMENTS)
+	if (mq && sdb->table.orig_nents <= SCSI_MAX_SG_SEGMENTS)
 		return;
 	__sg_free_table(&sdb->table, SCSI_MAX_SG_SEGMENTS, mq, scsi_sg_free);
 }
@@ -597,8 +597,8 @@ static int scsi_alloc_sgtable(struct scsi_data_buffer *sdb, int nents, bool mq)
 
 	if (mq) {
 		if (nents <= SCSI_MAX_SG_SEGMENTS) {
-			sdb->table.nents = nents;
-			sg_init_table(sdb->table.sgl, sdb->table.nents);
+			sdb->table.nents = sdb->table.orig_nents = nents;
+			sg_init_table(sdb->table.sgl, nents);
 			return 0;
 		}
 		first_chunk = sdb->table.sgl;
@@ -909,9 +909,12 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 	}
 
 	/*
-	 * If we finished all bytes in the request we are done now.
+	 * special case: failed zero length commands always need to
+	 * drop down into the retry code. Otherwise, if we finished
+	 * all bytes in the request we are done now.
 	 */
-	if (!scsi_end_request(req, error, good_bytes, 0))
+	if (!(blk_rq_bytes(req) == 0 && error) &&
+	    !scsi_end_request(req, error, good_bytes, 0))
 		return;
 
 	/*
@@ -1116,7 +1119,8 @@ int scsi_init_io(struct scsi_cmnd *cmd)
 	bool is_mq = (rq->mq_ctx != NULL);
 	int error;
 
-	BUG_ON(!rq->nr_phys_segments);
+	if (WARN_ON_ONCE(!rq->nr_phys_segments))
+		return -EINVAL;
 
 	error = scsi_init_sgtable(rq, &cmd->sdb);
 	if (error)

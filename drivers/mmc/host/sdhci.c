@@ -55,8 +55,7 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode);
 static void sdhci_tuning_timer(unsigned long data);
 static void sdhci_enable_preset_value(struct sdhci_host *host, bool enable);
 static int sdhci_pre_dma_transfer(struct sdhci_host *host,
-					struct mmc_data *data,
-					struct sdhci_host_next *next);
+					struct mmc_data *data);
 static int sdhci_do_get_cd(struct sdhci_host *host);
 
 #ifdef CONFIG_PM
@@ -510,7 +509,7 @@ static int sdhci_adma_table_pre(struct sdhci_host *host,
 		goto fail;
 	BUG_ON(host->align_addr & host->align_mask);
 
-	host->sg_count = sdhci_pre_dma_transfer(host, data, NULL);
+	host->sg_count = sdhci_pre_dma_transfer(host, data);
 	if (host->sg_count < 0)
 		goto unmap_align;
 
@@ -556,9 +555,12 @@ static int sdhci_adma_table_pre(struct sdhci_host *host,
 
 		BUG_ON(len > 65536);
 
-		/* tran, valid */
-		sdhci_adma_write_desc(host, desc, addr, len, ADMA2_TRAN_VALID);
-		desc += host->desc_sz;
+		if (len) {
+			/* tran, valid */
+			sdhci_adma_write_desc(host, desc, addr, len,
+					      ADMA2_TRAN_VALID);
+			desc += host->desc_sz;
+		}
 
 		/*
 		 * If this triggers then we have a calculation bug
@@ -649,9 +651,11 @@ static void sdhci_adma_table_post(struct sdhci_host *host,
 		}
 	}
 
-	if (!data->host_cookie)
+	if (data->host_cookie == COOKIE_MAPPED) {
 		dma_unmap_sg(mmc_dev(host->mmc), data->sg,
 			data->sg_len, direction);
+		data->host_cookie = COOKIE_UNMAPPED;
+	}
 }
 
 static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
@@ -677,9 +681,20 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 	if (!data)
 		target_timeout = cmd->busy_timeout * 1000;
 	else {
-		target_timeout = data->timeout_ns / 1000;
-		if (host->clock)
-			target_timeout += data->timeout_clks / host->clock;
+		target_timeout = DIV_ROUND_UP(data->timeout_ns, 1000);
+		if (host->clock && data->timeout_clks) {
+			unsigned long long val;
+
+			/*
+			 * data->timeout_clks is in units of clock cycles.
+			 * host->clock is in Hz.  target_timeout is in us.
+			 * Hence, us = 1000000 * cycles / Hz.  Round up.
+			 */
+			val = 1000000ULL * data->timeout_clks;
+			if (do_div(val, host->clock))
+				target_timeout++;
+			target_timeout += val;
+		}
 	}
 
 	/*
@@ -847,8 +862,8 @@ static void sdhci_prepare_data(struct sdhci_host *host, struct mmc_command *cmd)
 		} else {
 			int sg_cnt;
 
-			sg_cnt = sdhci_pre_dma_transfer(host, data, NULL);
-			if (sg_cnt == 0) {
+			sg_cnt = sdhci_pre_dma_transfer(host, data);
+			if (sg_cnt <= 0) {
 				/*
 				 * This only happens when someone fed
 				 * us an invalid request.
@@ -963,11 +978,13 @@ static void sdhci_finish_data(struct sdhci_host *host)
 		if (host->flags & SDHCI_USE_ADMA)
 			sdhci_adma_table_post(host, data);
 		else {
-			if (!data->host_cookie)
+			if (data->host_cookie == COOKIE_MAPPED) {
 				dma_unmap_sg(mmc_dev(host->mmc),
 					data->sg, data->sg_len,
 					(data->flags & MMC_DATA_READ) ?
 					DMA_FROM_DEVICE : DMA_TO_DEVICE);
+				data->host_cookie = COOKIE_UNMAPPED;
+			}
 		}
 	}
 
@@ -1146,6 +1163,7 @@ static u16 sdhci_get_preset_value(struct sdhci_host *host)
 		preset = sdhci_readw(host, SDHCI_PRESET_FOR_SDR104);
 		break;
 	case MMC_TIMING_UHS_DDR50:
+	case MMC_TIMING_MMC_DDR52:
 		preset = sdhci_readw(host, SDHCI_PRESET_FOR_DDR50);
 		break;
 	case MMC_TIMING_MMC_HS400:
@@ -1255,7 +1273,9 @@ clock_set:
 			return;
 		}
 		timeout--;
-		mdelay(1);
+		spin_unlock_irq(&host->lock);
+		usleep_range(900, 1100);
+		spin_lock_irq(&host->lock);
 	}
 
 	clk |= SDHCI_CLOCK_CARD_EN;
@@ -1598,7 +1618,8 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 				 (ios->timing == MMC_TIMING_UHS_SDR25) ||
 				 (ios->timing == MMC_TIMING_UHS_SDR50) ||
 				 (ios->timing == MMC_TIMING_UHS_SDR104) ||
-				 (ios->timing == MMC_TIMING_UHS_DDR50))) {
+				 (ios->timing == MMC_TIMING_UHS_DDR50) ||
+				 (ios->timing == MMC_TIMING_MMC_DDR52))) {
 			u16 preset;
 
 			sdhci_enable_preset_value(host, true);
@@ -2036,7 +2057,27 @@ static int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 			ctrl &= ~SDHCI_CTRL_EXEC_TUNING;
 			sdhci_writew(host, ctrl, SDHCI_HOST_CONTROL2);
 
+			sdhci_do_reset(host, SDHCI_RESET_CMD);
+			sdhci_do_reset(host, SDHCI_RESET_DATA);
+
 			err = -EIO;
+
+			if (cmd.opcode != MMC_SEND_TUNING_BLOCK_HS200)
+				goto out;
+
+			sdhci_writel(host, host->ier, SDHCI_INT_ENABLE);
+			sdhci_writel(host, host->ier, SDHCI_SIGNAL_ENABLE);
+
+			spin_unlock_irqrestore(&host->lock, flags);
+
+			memset(&cmd, 0, sizeof(cmd));
+			cmd.opcode = MMC_STOP_TRANSMISSION;
+			cmd.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+			cmd.busy_timeout = 50;
+			mmc_wait_for_cmd(mmc, &cmd, 0);
+
+			spin_lock_irqsave(&host->lock, flags);
+
 			goto out;
 		}
 
@@ -2129,49 +2170,36 @@ static void sdhci_post_req(struct mmc_host *mmc, struct mmc_request *mrq,
 	struct mmc_data *data = mrq->data;
 
 	if (host->flags & SDHCI_REQ_USE_DMA) {
-		if (data->host_cookie)
+		if (data->host_cookie == COOKIE_GIVEN ||
+				data->host_cookie == COOKIE_MAPPED)
 			dma_unmap_sg(mmc_dev(host->mmc), data->sg, data->sg_len,
 					 data->flags & MMC_DATA_WRITE ?
 					 DMA_TO_DEVICE : DMA_FROM_DEVICE);
-		mrq->data->host_cookie = 0;
+		data->host_cookie = COOKIE_UNMAPPED;
 	}
 }
 
 static int sdhci_pre_dma_transfer(struct sdhci_host *host,
-				       struct mmc_data *data,
-				       struct sdhci_host_next *next)
+				       struct mmc_data *data)
 {
 	int sg_count;
 
-	if (!next && data->host_cookie &&
-	    data->host_cookie != host->next_data.cookie) {
-		pr_debug(DRIVER_NAME "[%s] invalid cookie: %d, next-cookie %d\n",
-			__func__, data->host_cookie, host->next_data.cookie);
-		data->host_cookie = 0;
+	if (data->host_cookie == COOKIE_MAPPED) {
+		data->host_cookie = COOKIE_GIVEN;
+		return data->sg_count;
 	}
 
-	/* Check if next job is already prepared */
-	if (next ||
-	    (!next && data->host_cookie != host->next_data.cookie)) {
-		sg_count = dma_map_sg(mmc_dev(host->mmc), data->sg,
-				     data->sg_len,
-				     data->flags & MMC_DATA_WRITE ?
-				     DMA_TO_DEVICE : DMA_FROM_DEVICE);
+	WARN_ON(data->host_cookie == COOKIE_GIVEN);
 
-	} else {
-		sg_count = host->next_data.sg_count;
-		host->next_data.sg_count = 0;
-	}
-
+	sg_count = dma_map_sg(mmc_dev(host->mmc), data->sg, data->sg_len,
+				data->flags & MMC_DATA_WRITE ?
+				DMA_TO_DEVICE : DMA_FROM_DEVICE);
 
 	if (sg_count == 0)
-		return -EINVAL;
+		return -ENOSPC;
 
-	if (next) {
-		next->sg_count = sg_count;
-		data->host_cookie = ++next->cookie < 0 ? 1 : next->cookie;
-	} else
-		host->sg_count = sg_count;
+	data->sg_count = sg_count;
+	data->host_cookie = COOKIE_MAPPED;
 
 	return sg_count;
 }
@@ -2181,16 +2209,10 @@ static void sdhci_pre_req(struct mmc_host *mmc, struct mmc_request *mrq,
 {
 	struct sdhci_host *host = mmc_priv(mmc);
 
-	if (mrq->data->host_cookie) {
-		mrq->data->host_cookie = 0;
-		return;
-	}
+	mrq->data->host_cookie = COOKIE_UNMAPPED;
 
 	if (host->flags & SDHCI_REQ_USE_DMA)
-		if (sdhci_pre_dma_transfer(host,
-					mrq->data,
-					&host->next_data) < 0)
-			mrq->data->host_cookie = 0;
+		sdhci_pre_dma_transfer(host, mrq->data);
 }
 
 static void sdhci_card_event(struct mmc_host *mmc)
@@ -2630,7 +2652,8 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
 			pr_err("%s: Card is consuming too much power!\n",
 				mmc_hostname(host->mmc));
 
-		if (intmask & SDHCI_INT_CARD_INT) {
+		if ((intmask & SDHCI_INT_CARD_INT) &&
+		    (host->ier & SDHCI_INT_CARD_INT)) {
 			sdhci_enable_sdio_irq_nolock(host, false);
 			host->thread_isr |= SDHCI_INT_CARD_INT;
 			result = IRQ_WAKE_THREAD;
@@ -2804,7 +2827,7 @@ static int sdhci_runtime_pm_put(struct sdhci_host *host)
 
 static void sdhci_runtime_pm_bus_on(struct sdhci_host *host)
 {
-	if (host->runtime_suspended || host->bus_on)
+	if (host->bus_on)
 		return;
 	host->bus_on = true;
 	pm_runtime_get_noresume(host->mmc->parent);
@@ -2812,7 +2835,7 @@ static void sdhci_runtime_pm_bus_on(struct sdhci_host *host)
 
 static void sdhci_runtime_pm_bus_off(struct sdhci_host *host)
 {
-	if (host->runtime_suspended || !host->bus_on)
+	if (!host->bus_on)
 		return;
 	host->bus_on = false;
 	pm_runtime_put_noidle(host->mmc->parent);
@@ -3037,8 +3060,11 @@ int sdhci_add_host(struct sdhci_host *host)
 						      GFP_KERNEL);
 		host->align_buffer = kmalloc(host->align_buffer_sz, GFP_KERNEL);
 		if (!host->adma_table || !host->align_buffer) {
-			dma_free_coherent(mmc_dev(mmc), host->adma_table_sz,
-					  host->adma_table, host->adma_addr);
+			if (host->adma_table)
+				dma_free_coherent(mmc_dev(mmc),
+						  host->adma_table_sz,
+						  host->adma_table,
+						  host->adma_addr);
 			kfree(host->align_buffer);
 			pr_warn("%s: Unable to allocate ADMA buffers - falling back to standard DMA\n",
 				mmc_hostname(mmc));
@@ -3085,7 +3111,6 @@ int sdhci_add_host(struct sdhci_host *host)
 		host->max_clk = host->ops->get_max_clock(host);
 	}
 
-	host->next_data.cookie = 1;
 	/*
 	 * In case of Host Controller v3.00, find out whether clock
 	 * multiplier is supported.
@@ -3135,13 +3160,13 @@ int sdhci_add_host(struct sdhci_host *host)
 		if (caps[0] & SDHCI_TIMEOUT_CLK_UNIT)
 			host->timeout_clk *= 1000;
 
+		if (override_timeout_clk)
+			host->timeout_clk = override_timeout_clk;
+
 		mmc->max_busy_timeout = host->ops->get_max_timeout_count ?
 			host->ops->get_max_timeout_count(host) : 1 << 27;
 		mmc->max_busy_timeout /= host->timeout_clk;
 	}
-
-	if (override_timeout_clk)
-		host->timeout_clk = override_timeout_clk;
 
 	mmc->caps |= MMC_CAP_SDIO_IRQ | MMC_CAP_ERASE | MMC_CAP_CMD23;
 	mmc->caps2 |= MMC_CAP2_SDIO_IRQ_NOTHREAD;
@@ -3315,12 +3340,13 @@ int sdhci_add_host(struct sdhci_host *host)
 				   SDHCI_MAX_CURRENT_MULTIPLIER;
 	}
 
-	/* If OCR set by external regulators, use it instead */
+	/* If OCR set by host, use it instead. */
+	if (host->ocr_mask)
+		ocr_avail = host->ocr_mask;
+
+	/* If OCR set by external regulators, give it highest prio. */
 	if (mmc->ocr_avail)
 		ocr_avail = mmc->ocr_avail;
-
-	if (host->ocr_mask)
-		ocr_avail &= host->ocr_mask;
 
 	mmc->ocr_avail = ocr_avail;
 	mmc->ocr_avail_sdio = ocr_avail;

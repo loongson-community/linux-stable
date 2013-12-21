@@ -534,6 +534,9 @@ static int vnt_start(struct ieee80211_hw *hw)
 		goto free_all;
 	}
 
+	if (vnt_key_init_table(priv))
+		goto free_all;
+
 	priv->int_interval = 1;  /* bInterval is set to 1 */
 
 	vnt_int_start_interrupt(priv);
@@ -701,7 +704,7 @@ static void vnt_bss_info_changed(struct ieee80211_hw *hw,
 
 	priv->current_aid = conf->aid;
 
-	if (changed & BSS_CHANGED_BSSID)
+	if (changed & BSS_CHANGED_BSSID && conf->bssid)
 		vnt_mac_set_bssid_addr(priv, (u8 *)conf->bssid);
 
 

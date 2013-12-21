@@ -1961,6 +1961,7 @@ static struct clk_branch gcc_crypto_ahb_clk = {
 				"pcnoc_bfdcd_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -1996,6 +1997,7 @@ static struct clk_branch gcc_crypto_clk = {
 				"crypto_clk_src",
 			},
 			.num_parents = 1,
+			.flags = CLK_SET_RATE_PARENT,
 			.ops = &clk_branch2_ops,
 		},
 	},
@@ -2278,7 +2280,7 @@ static struct clk_branch gcc_prng_ahb_clk = {
 	.halt_check = BRANCH_HALT_VOTED,
 	.clkr = {
 		.enable_reg = 0x45004,
-		.enable_mask = BIT(0),
+		.enable_mask = BIT(8),
 		.hw.init = &(struct clk_init_data){
 			.name = "gcc_prng_ahb_clk",
 			.parent_names = (const char *[]){

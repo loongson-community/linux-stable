@@ -249,6 +249,7 @@ static void ieee80211_restart_work(struct work_struct *work)
 {
 	struct ieee80211_local *local =
 		container_of(work, struct ieee80211_local, restart_work);
+	struct ieee80211_sub_if_data *sdata;
 
 	/* wait for scan work complete */
 	flush_workqueue(local->workqueue);
@@ -257,6 +258,8 @@ static void ieee80211_restart_work(struct work_struct *work)
 	     "%s called with hardware scan in progress\n", __func__);
 
 	rtnl_lock();
+	list_for_each_entry(sdata, &local->interfaces, list)
+		flush_delayed_work(&sdata->dec_tailroom_needed_wk);
 	ieee80211_scan_cancel(local);
 	ieee80211_reconfig(local);
 	rtnl_unlock();
@@ -884,12 +887,17 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		supp_ht = supp_ht || sband->ht_cap.ht_supported;
 		supp_vht = supp_vht || sband->vht_cap.vht_supported;
 
-		if (sband->ht_cap.ht_supported)
-			local->rx_chains =
-				max(ieee80211_mcs_to_chains(&sband->ht_cap.mcs),
-				    local->rx_chains);
+		if (!sband->ht_cap.ht_supported)
+			continue;
 
 		/* TODO: consider VHT for RX chains, hopefully it's the same */
+		local->rx_chains =
+			max(ieee80211_mcs_to_chains(&sband->ht_cap.mcs),
+			    local->rx_chains);
+
+		/* no need to mask, SM_PS_DISABLED has all bits set */
+		sband->ht_cap.cap |= WLAN_HT_CAP_SM_PS_DISABLED <<
+			             IEEE80211_HT_CAP_SM_PS_SHIFT;
 	}
 
 	/* if low-level driver supports AP, we also support VLAN */

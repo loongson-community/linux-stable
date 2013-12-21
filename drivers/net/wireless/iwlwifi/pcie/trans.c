@@ -7,6 +7,7 @@
  *
  * Copyright(c) 2007 - 2015 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
+ * Copyright(c) 2016 Intel Deutschland GmbH
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -33,6 +34,7 @@
  *
  * Copyright(c) 2005 - 2015 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2015 Intel Mobile Communications GmbH
+ * Copyright(c) 2016 Intel Deutschland GmbH
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -457,10 +459,16 @@ static void iwl_pcie_apm_stop(struct iwl_trans *trans, bool op_mode_leave)
 		if (trans->cfg->device_family == IWL_DEVICE_FAMILY_7000)
 			iwl_set_bits_prph(trans, APMG_PCIDEV_STT_REG,
 					  APMG_PCIDEV_STT_VAL_WAKE_ME);
-		else if (trans->cfg->device_family == IWL_DEVICE_FAMILY_8000)
+		else if (trans->cfg->device_family == IWL_DEVICE_FAMILY_8000) {
+			iwl_set_bit(trans, CSR_DBG_LINK_PWR_MGMT_REG,
+				    CSR_RESET_LINK_PWR_MGMT_DISABLED);
 			iwl_set_bit(trans, CSR_HW_IF_CONFIG_REG,
 				    CSR_HW_IF_CONFIG_REG_PREPARE |
 				    CSR_HW_IF_CONFIG_REG_ENABLE_PME);
+			mdelay(1);
+			iwl_clear_bit(trans, CSR_DBG_LINK_PWR_MGMT_REG,
+				      CSR_RESET_LINK_PWR_MGMT_DISABLED);
+		}
 		mdelay(5);
 	}
 
@@ -554,6 +562,10 @@ static int iwl_pcie_prepare_card_hw(struct iwl_trans *trans)
 	/* If the card is ready, exit 0 */
 	if (ret >= 0)
 		return 0;
+
+	iwl_set_bit(trans, CSR_DBG_LINK_PWR_MGMT_REG,
+		    CSR_RESET_LINK_PWR_MGMT_DISABLED);
+	msleep(1);
 
 	for (iter = 0; iter < 10; iter++) {
 		/* If HW is not ready, prepare the conditions to check again */
@@ -699,8 +711,8 @@ static int iwl_pcie_rsa_race_bug_wa(struct iwl_trans *trans)
 	 */
 	val = iwl_read_prph(trans, PREG_AUX_BUS_WPROT_0);
 	if (val & (BIT(1) | BIT(17))) {
-		IWL_INFO(trans,
-			 "can't access the RSA semaphore it is write protected\n");
+		IWL_DEBUG_INFO(trans,
+				"can't access the RSA semaphore it is write protected\n");
 		return 0;
 	}
 
@@ -871,9 +883,16 @@ static void iwl_pcie_apply_destination(struct iwl_trans *trans)
 	if (dest->monitor_mode == EXTERNAL_MODE && trans_pcie->fw_mon_size) {
 		iwl_write_prph(trans, le32_to_cpu(dest->base_reg),
 			       trans_pcie->fw_mon_phys >> dest->base_shift);
-		iwl_write_prph(trans, le32_to_cpu(dest->end_reg),
-			       (trans_pcie->fw_mon_phys +
-				trans_pcie->fw_mon_size) >> dest->end_shift);
+		if (trans->cfg->device_family == IWL_DEVICE_FAMILY_8000)
+			iwl_write_prph(trans, le32_to_cpu(dest->end_reg),
+					(trans_pcie->fw_mon_phys +
+					trans_pcie->fw_mon_size - 256) >>
+						dest->end_shift);
+		else
+			iwl_write_prph(trans, le32_to_cpu(dest->end_reg),
+					(trans_pcie->fw_mon_phys +
+					trans_pcie->fw_mon_size) >>
+						dest->end_shift);
 	}
 }
 
@@ -2514,6 +2533,12 @@ struct iwl_trans *iwl_trans_pcie_alloc(struct pci_dev *pdev,
 
 		trans->hw_rev = (trans->hw_rev & 0xfff0) |
 				(CSR_HW_REV_STEP(trans->hw_rev << 2) << 2);
+
+		ret = iwl_pcie_prepare_card_hw(trans);
+		if (ret) {
+			IWL_WARN(trans, "Exit HW not ready\n");
+			goto out_pci_disable_msi;
+		}
 
 		/*
 		 * in-order to recognize C step driver should read chip version

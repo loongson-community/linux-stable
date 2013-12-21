@@ -237,7 +237,6 @@ struct radeon_afmt {
 	int offset;
 	bool last_buffer_filled_status;
 	int id;
-	struct r600_audio_pin *pin;
 };
 
 struct radeon_mode_info {
@@ -331,6 +330,7 @@ struct radeon_crtc {
 	u16 lut_r[256], lut_g[256], lut_b[256];
 	bool enabled;
 	bool can_tile;
+	bool cursor_out_of_bounds;
 	uint32_t crtc_offset;
 	struct drm_gem_object *cursor_bo;
 	uint64_t cursor_addr;
@@ -343,7 +343,6 @@ struct radeon_crtc {
 	int max_cursor_width;
 	int max_cursor_height;
 	uint32_t legacy_display_base_addr;
-	uint32_t legacy_cursor_offset;
 	enum radeon_rmx_type rmx_type;
 	u8 h_border;
 	u8 v_border;
@@ -440,6 +439,7 @@ struct radeon_encoder_atom_dig {
 	uint8_t backlight_level;
 	int panel_mode;
 	struct radeon_afmt *afmt;
+	struct r600_audio_pin *pin;
 	int active_mst_links;
 };
 
@@ -753,8 +753,10 @@ extern u8 radeon_dp_getsinktype(struct radeon_connector *radeon_connector);
 extern bool radeon_dp_getdpcd(struct radeon_connector *radeon_connector);
 extern int radeon_dp_get_panel_mode(struct drm_encoder *encoder,
 				    struct drm_connector *connector);
-int radeon_dp_get_max_link_rate(struct drm_connector *connector,
-				u8 *dpcd);
+extern int radeon_dp_get_dp_link_config(struct drm_connector *connector,
+					const u8 *dpcd,
+					unsigned pix_clock,
+					unsigned *dp_lanes, unsigned *dp_rate);
 extern void radeon_dp_set_rx_power_state(struct drm_connector *connector,
 					 u8 power_state);
 extern void radeon_dp_aux_init(struct radeon_connector *radeon_connector);

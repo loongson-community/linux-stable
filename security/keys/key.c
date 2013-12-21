@@ -296,6 +296,8 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 		key->flags |= 1 << KEY_FLAG_IN_QUOTA;
 	if (flags & KEY_ALLOC_TRUSTED)
 		key->flags |= 1 << KEY_FLAG_TRUSTED;
+	if (flags & KEY_ALLOC_UID_KEYRING)
+		key->flags |= 1 << KEY_FLAG_UID_KEYRING;
 
 #ifdef KEY_DEBUGGING
 	key->magic = KEY_DEBUG_MAGIC;
@@ -578,7 +580,7 @@ int key_reject_and_link(struct key *key,
 
 	mutex_unlock(&key_construction_mutex);
 
-	if (keyring)
+	if (keyring && link_ret == 0)
 		__key_link_end(keyring, &key->index_key, edit);
 
 	/* wake up anyone waiting for a key to be constructed */
@@ -905,6 +907,16 @@ error:
 	 */
 	__key_link_end(keyring, &index_key, edit);
 
+	key = key_ref_to_ptr(key_ref);
+	if (test_bit(KEY_FLAG_USER_CONSTRUCT, &key->flags)) {
+		ret = wait_for_key_construction(key, true);
+		if (ret < 0) {
+			key_ref_put(key_ref);
+			key_ref = ERR_PTR(ret);
+			goto error_free_prep;
+		}
+	}
+
 	key_ref = __key_update(key_ref, &prep);
 	goto error_free_prep;
 }
@@ -934,12 +946,11 @@ int key_update(key_ref_t key_ref, const void *payload, size_t plen)
 	/* the key must be writable */
 	ret = key_permission(key_ref, KEY_NEED_WRITE);
 	if (ret < 0)
-		goto error;
+		return ret;
 
 	/* attempt to update it if supported */
-	ret = -EOPNOTSUPP;
 	if (!key->type->update)
-		goto error;
+		return -EOPNOTSUPP;
 
 	memset(&prep, 0, sizeof(prep));
 	prep.data = payload;

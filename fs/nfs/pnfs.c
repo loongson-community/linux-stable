@@ -1472,6 +1472,7 @@ pnfs_update_layout(struct inode *ino,
 		goto out;
 
 lookup_again:
+	nfs4_client_recover_expired_lease(clp);
 	first = false;
 	spin_lock(&ino->i_lock);
 	lo = pnfs_find_alloc_layout(ino, ctx, gfp_flags);
@@ -1821,6 +1822,7 @@ int pnfs_write_done_resend_to_mds(struct nfs_pgio_header *hdr)
 	/* Resend all requests through the MDS */
 	nfs_pageio_init_write(&pgio, hdr->inode, FLUSH_STABLE, true,
 			      hdr->completion_ops);
+	set_bit(NFS_CONTEXT_RESEND_WRITES, &hdr->args.context->flags);
 	return nfs_pageio_resend(&pgio, hdr);
 }
 EXPORT_SYMBOL_GPL(pnfs_write_done_resend_to_mds);
@@ -1865,6 +1867,7 @@ pnfs_write_through_mds(struct nfs_pageio_descriptor *desc,
 		mirror->pg_recoalesce = 1;
 	}
 	nfs_pgio_data_destroy(hdr);
+	hdr->release(hdr);
 }
 
 static enum pnfs_try_status
@@ -1979,6 +1982,7 @@ pnfs_read_through_mds(struct nfs_pageio_descriptor *desc,
 		mirror->pg_recoalesce = 1;
 	}
 	nfs_pgio_data_destroy(hdr);
+	hdr->release(hdr);
 }
 
 /*

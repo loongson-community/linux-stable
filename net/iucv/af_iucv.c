@@ -709,6 +709,9 @@ static int iucv_sock_bind(struct socket *sock, struct sockaddr *addr,
 	if (!addr || addr->sa_family != AF_IUCV)
 		return -EINVAL;
 
+	if (addr_len < sizeof(struct sockaddr_iucv))
+		return -EINVAL;
+
 	lock_sock(sk);
 	if (sk->sk_state != IUCV_OPEN) {
 		err = -EBADFD;
@@ -2379,9 +2382,11 @@ static int afiucv_iucv_init(void)
 	af_iucv_dev->driver = &af_iucv_driver;
 	err = device_register(af_iucv_dev);
 	if (err)
-		goto out_driver;
+		goto out_iucv_dev;
 	return 0;
 
+out_iucv_dev:
+	put_device(af_iucv_dev);
 out_driver:
 	driver_unregister(&af_iucv_driver);
 out_iucv:

@@ -656,6 +656,44 @@ __acquires(hwep->lock)
 	return 0;
 }
 
+static int _ep_set_halt(struct usb_ep *ep, int value, bool check_transfer)
+{
+	struct ci_hw_ep *hwep = container_of(ep, struct ci_hw_ep, ep);
+	int direction, retval = 0;
+	unsigned long flags;
+
+	if (ep == NULL || hwep->ep.desc == NULL)
+		return -EINVAL;
+
+	if (usb_endpoint_xfer_isoc(hwep->ep.desc))
+		return -EOPNOTSUPP;
+
+	spin_lock_irqsave(hwep->lock, flags);
+
+	if (value && hwep->dir == TX && check_transfer &&
+		!list_empty(&hwep->qh.queue) &&
+			!usb_endpoint_xfer_control(hwep->ep.desc)) {
+		spin_unlock_irqrestore(hwep->lock, flags);
+		return -EAGAIN;
+	}
+
+	direction = hwep->dir;
+	do {
+		retval |= hw_ep_set_halt(hwep->ci, hwep->num, hwep->dir, value);
+
+		if (!value)
+			hwep->wedge = 0;
+
+		if (hwep->type == USB_ENDPOINT_XFER_CONTROL)
+			hwep->dir = (hwep->dir == TX) ? RX : TX;
+
+	} while (hwep->dir != direction);
+
+	spin_unlock_irqrestore(hwep->lock, flags);
+	return retval;
+}
+
+
 /**
  * _gadget_stop_activity: stops all USB activity, flushes & disables all endpts
  * @gadget: gadget
@@ -901,6 +939,15 @@ static int isr_setup_status_phase(struct ci_hdrc *ci)
 	int retval;
 	struct ci_hw_ep *hwep;
 
+	/*
+	 * Unexpected USB controller behavior, caused by bad signal integrity
+	 * or ground reference problems, can lead to isr_setup_status_phase
+	 * being called with ci->status equal to NULL.
+	 * If this situation occurs, you should review your USB hardware design.
+	 */
+	if (WARN_ON_ONCE(!ci->status))
+		return -EPIPE;
+
 	hwep = (ci->ep0_dir == TX) ? ci->ep0out : ci->ep0in;
 	ci->status->context = ci;
 	ci->status->complete = isr_setup_status_complete;
@@ -1051,7 +1098,7 @@ __acquires(ci->lock)
 				num += ci->hw_ep_max / 2;
 
 			spin_unlock(&ci->lock);
-			err = usb_ep_set_halt(&ci->ci_hw_ep[num].ep);
+			err = _ep_set_halt(&ci->ci_hw_ep[num].ep, 1, false);
 			spin_lock(&ci->lock);
 			if (!err)
 				isr_setup_status_phase(ci);
@@ -1110,8 +1157,8 @@ delegate:
 
 	if (err < 0) {
 		spin_unlock(&ci->lock);
-		if (usb_ep_set_halt(&hwep->ep))
-			dev_err(ci->dev, "error: ep_set_halt\n");
+		if (_ep_set_halt(&hwep->ep, 1, false))
+			dev_err(ci->dev, "error: _ep_set_halt\n");
 		spin_lock(&ci->lock);
 	}
 }
@@ -1142,9 +1189,9 @@ __acquires(ci->lock)
 					err = isr_setup_status_phase(ci);
 				if (err < 0) {
 					spin_unlock(&ci->lock);
-					if (usb_ep_set_halt(&hwep->ep))
+					if (_ep_set_halt(&hwep->ep, 1, false))
 						dev_err(ci->dev,
-							"error: ep_set_halt\n");
+						"error: _ep_set_halt\n");
 					spin_lock(&ci->lock);
 				}
 			}
@@ -1390,41 +1437,7 @@ static int ep_dequeue(struct usb_ep *ep, struct usb_request *req)
  */
 static int ep_set_halt(struct usb_ep *ep, int value)
 {
-	struct ci_hw_ep *hwep = container_of(ep, struct ci_hw_ep, ep);
-	int direction, retval = 0;
-	unsigned long flags;
-
-	if (ep == NULL || hwep->ep.desc == NULL)
-		return -EINVAL;
-
-	if (usb_endpoint_xfer_isoc(hwep->ep.desc))
-		return -EOPNOTSUPP;
-
-	spin_lock_irqsave(hwep->lock, flags);
-
-#ifndef STALL_IN
-	/* g_file_storage MS compliant but g_zero fails chapter 9 compliance */
-	if (value && hwep->type == USB_ENDPOINT_XFER_BULK && hwep->dir == TX &&
-	    !list_empty(&hwep->qh.queue)) {
-		spin_unlock_irqrestore(hwep->lock, flags);
-		return -EAGAIN;
-	}
-#endif
-
-	direction = hwep->dir;
-	do {
-		retval |= hw_ep_set_halt(hwep->ci, hwep->num, hwep->dir, value);
-
-		if (!value)
-			hwep->wedge = 0;
-
-		if (hwep->type == USB_ENDPOINT_XFER_CONTROL)
-			hwep->dir = (hwep->dir == TX) ? RX : TX;
-
-	} while (hwep->dir != direction);
-
-	spin_unlock_irqrestore(hwep->lock, flags);
-	return retval;
+	return _ep_set_halt(ep, value, true);
 }
 
 /**
@@ -1574,8 +1587,11 @@ static int ci_udc_pullup(struct usb_gadget *_gadget, int is_on)
 {
 	struct ci_hdrc *ci = container_of(_gadget, struct ci_hdrc, gadget);
 
-	/* Data+ pullup controlled by OTG state machine in OTG fsm mode */
-	if (ci_otg_is_fsm_mode(ci))
+	/*
+	 * Data+ pullup controlled by OTG state machine in OTG fsm mode;
+	 * and don't touch Data+ in host mode for dual role config.
+	 */
+	if (ci_otg_is_fsm_mode(ci) || ci->role == CI_ROLE_HOST)
 		return 0;
 
 	pm_runtime_get_sync(&ci->gadget.dev);
@@ -1726,6 +1742,22 @@ static int ci_udc_start(struct usb_gadget *gadget,
 	return retval;
 }
 
+static void ci_udc_stop_for_otg_fsm(struct ci_hdrc *ci)
+{
+	if (!ci_otg_is_fsm_mode(ci))
+		return;
+
+	mutex_lock(&ci->fsm.lock);
+	if (ci->fsm.otg->state == OTG_STATE_A_PERIPHERAL) {
+		ci->fsm.a_bidl_adis_tmout = 1;
+		ci_hdrc_otg_fsm_start(ci);
+	} else if (ci->fsm.otg->state == OTG_STATE_B_PERIPHERAL) {
+		ci->fsm.protocol = PROTO_UNDEF;
+		ci->fsm.otg->state = OTG_STATE_UNDEFINED;
+	}
+	mutex_unlock(&ci->fsm.lock);
+}
+
 /**
  * ci_udc_stop: unregister a gadget driver
  */
@@ -1750,6 +1782,7 @@ static int ci_udc_stop(struct usb_gadget *gadget)
 	ci->driver = NULL;
 	spin_unlock_irqrestore(&ci->lock, flags);
 
+	ci_udc_stop_for_otg_fsm(ci);
 	return 0;
 }
 
@@ -1925,6 +1958,7 @@ static void udc_id_switch_for_host(struct ci_hdrc *ci)
 int ci_hdrc_gadget_init(struct ci_hdrc *ci)
 {
 	struct ci_role_driver *rdrv;
+	int ret;
 
 	if (!hw_read(ci, CAP_DCCPARAMS, DCCPARAMS_DC))
 		return -ENXIO;
@@ -1937,7 +1971,10 @@ int ci_hdrc_gadget_init(struct ci_hdrc *ci)
 	rdrv->stop	= udc_id_switch_for_host;
 	rdrv->irq	= udc_irq;
 	rdrv->name	= "gadget";
-	ci->roles[CI_ROLE_GADGET] = rdrv;
 
-	return udc_start(ci);
+	ret = udc_start(ci);
+	if (!ret)
+		ci->roles[CI_ROLE_GADGET] = rdrv;
+
+	return ret;
 }

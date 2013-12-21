@@ -1053,13 +1053,10 @@ static struct dm_rq_target_io *tio_from_request(struct request *rq)
  */
 static void rq_completed(struct mapped_device *md, int rw, bool run_queue)
 {
-	int nr_requests_pending;
-
 	atomic_dec(&md->pending[rw]);
 
 	/* nudge anyone waiting on suspend queue */
-	nr_requests_pending = md_in_flight(md);
-	if (!nr_requests_pending)
+	if (!md_in_flight(md))
 		wake_up(&md->wait);
 
 	/*
@@ -1068,13 +1065,8 @@ static void rq_completed(struct mapped_device *md, int rw, bool run_queue)
 	 * back into ->request_fn() could deadlock attempting to grab the
 	 * queue lock again.
 	 */
-	if (run_queue) {
-		if (md->queue->mq_ops)
-			blk_mq_run_hw_queues(md->queue, true);
-		else if (!nr_requests_pending ||
-			 (nr_requests_pending >= md->queue->nr_congestion_on))
-			blk_run_queue_async(md->queue);
-	}
+	if (!md->queue->mq_ops && run_queue)
+		blk_run_queue_async(md->queue);
 
 	/*
 	 * dm_put() must be at the end of this function. See the comment above
@@ -1150,6 +1142,8 @@ static void dm_unprep_request(struct request *rq)
 
 	if (clone)
 		free_rq_clone(clone);
+	else if (!tio->md->queue->mq_ops)
+		free_rq_tio(tio);
 }
 
 /*
@@ -1206,8 +1200,14 @@ static void stop_queue(struct request_queue *q)
 {
 	if (!q->mq_ops)
 		old_stop_queue(q);
-	else
+	else {
+		spin_lock_irq(q->queue_lock);
+		queue_flag_set(QUEUE_FLAG_STOPPED, q);
+		spin_unlock_irq(q->queue_lock);
+
+		blk_mq_cancel_requeue_work(q);
 		blk_mq_stop_hw_queues(q);
+	}
 }
 
 static void old_start_queue(struct request_queue *q)
@@ -1224,8 +1224,10 @@ static void start_queue(struct request_queue *q)
 {
 	if (!q->mq_ops)
 		old_start_queue(q);
-	else
+	else {
+		queue_flag_clear_unlocked(QUEUE_FLAG_STOPPED, q);
 		blk_mq_start_stopped_hw_queues(q, true);
+	}
 }
 
 static void dm_done(struct request *clone, int error, bool mapped)
@@ -1298,7 +1300,10 @@ static void dm_complete_request(struct request *rq, int error)
 	struct dm_rq_target_io *tio = tio_from_request(rq);
 
 	tio->error = error;
-	blk_complete_request(rq);
+	if (!rq->q->mq_ops)
+		blk_complete_request(rq);
+	else
+		blk_mq_complete_request(rq);
 }
 
 /*
@@ -1430,11 +1435,62 @@ void dm_accept_partial_bio(struct bio *bio, unsigned n_sectors)
 }
 EXPORT_SYMBOL_GPL(dm_accept_partial_bio);
 
+/*
+ * Flush current->bio_list when the target map method blocks.
+ * This fixes deadlocks in snapshot and possibly in other targets.
+ */
+struct dm_offload {
+	struct blk_plug plug;
+	struct blk_plug_cb cb;
+};
+
+static void flush_current_bio_list(struct blk_plug_cb *cb, bool from_schedule)
+{
+	struct dm_offload *o = container_of(cb, struct dm_offload, cb);
+	struct bio_list list;
+	struct bio *bio;
+
+	INIT_LIST_HEAD(&o->cb.list);
+
+	if (unlikely(!current->bio_list))
+		return;
+
+	list = *current->bio_list;
+	bio_list_init(current->bio_list);
+
+	while ((bio = bio_list_pop(&list))) {
+		struct bio_set *bs = bio->bi_pool;
+		if (unlikely(!bs) || bs == fs_bio_set) {
+			bio_list_add(current->bio_list, bio);
+			continue;
+		}
+
+		spin_lock(&bs->rescue_lock);
+		bio_list_add(&bs->rescue_list, bio);
+		queue_work(bs->rescue_workqueue, &bs->rescue_work);
+		spin_unlock(&bs->rescue_lock);
+	}
+}
+
+static void dm_offload_start(struct dm_offload *o)
+{
+	blk_start_plug(&o->plug);
+	o->cb.callback = flush_current_bio_list;
+	list_add(&o->cb.list, &current->plug->cb_list);
+}
+
+static void dm_offload_end(struct dm_offload *o)
+{
+	list_del(&o->cb.list);
+	blk_finish_plug(&o->plug);
+}
+
 static void __map_bio(struct dm_target_io *tio)
 {
 	int r;
 	sector_t sector;
 	struct mapped_device *md;
+	struct dm_offload o;
 	struct bio *clone = &tio->clone;
 	struct dm_target *ti = tio->ti;
 
@@ -1447,7 +1503,11 @@ static void __map_bio(struct dm_target_io *tio)
 	 */
 	atomic_inc(&tio->io->io_count);
 	sector = clone->bi_iter.bi_sector;
+
+	dm_offload_start(&o);
 	r = ti->type->map(ti, clone);
+	dm_offload_end(&o);
+
 	if (r == DM_MAPIO_REMAPPED) {
 		/* the bio has been remapped so dispatch it */
 
@@ -1723,7 +1783,8 @@ static int dm_merge_bvec(struct request_queue *q,
 	struct mapped_device *md = q->queuedata;
 	struct dm_table *map = dm_get_live_table_fast(md);
 	struct dm_target *ti;
-	sector_t max_sectors, max_size = 0;
+	sector_t max_sectors;
+	int max_size = 0;
 
 	if (unlikely(!map))
 		goto out;
@@ -1736,18 +1797,10 @@ static int dm_merge_bvec(struct request_queue *q,
 	 * Find maximum amount of I/O that won't need splitting
 	 */
 	max_sectors = min(max_io_len(bvm->bi_sector, ti),
-			  (sector_t) queue_max_sectors(q));
+			  (sector_t) BIO_MAX_SECTORS);
 	max_size = (max_sectors << SECTOR_SHIFT) - bvm->bi_size;
-
-	/*
-	 * FIXME: this stop-gap fix _must_ be cleaned up (by passing a sector_t
-	 * to the targets' merge function since it holds sectors not bytes).
-	 * Just doing this as an interim fix for stable@ because the more
-	 * comprehensive cleanup of switching to sector_t will impact every
-	 * DM target that implements a ->merge hook.
-	 */
-	if (max_size > INT_MAX)
-		max_size = INT_MAX;
+	if (max_size < 0)
+		max_size = 0;
 
 	/*
 	 * merge_bvec_fn() returns number of bytes
@@ -1755,13 +1808,13 @@ static int dm_merge_bvec(struct request_queue *q,
 	 * max is precomputed maximal io size
 	 */
 	if (max_size && ti->type->merge)
-		max_size = ti->type->merge(ti, bvm, biovec, (int) max_size);
+		max_size = ti->type->merge(ti, bvm, biovec, max_size);
 	/*
 	 * If the target doesn't support merge method and some of the devices
-	 * provided their merge_bvec method (we know this by looking for the
-	 * max_hw_sectors that dm_set_device_limits may set), then we can't
-	 * allow bios with multiple vector entries.  So always set max_size
-	 * to 0, and the code below allows just one page.
+	 * provided their merge_bvec method (we know this by looking at
+	 * queue_max_hw_sectors), then we can't allow bios with multiple vector
+	 * entries.  So always set max_size to 0, and the code below allows
+	 * just one page.
 	 */
 	else if (queue_max_hw_sectors(q) <= PAGE_SIZE >> 9)
 		max_size = 0;
@@ -2149,7 +2202,7 @@ static void dm_request_fn(struct request_queue *q)
 	goto out;
 
 delay_and_out:
-	blk_delay_queue(q, HZ / 100);
+	blk_delay_queue(q, 10);
 out:
 	dm_put_live_table(md, srcu_idx);
 }
@@ -2741,6 +2794,17 @@ static int dm_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
 	}
 	dm_put_live_table(md, srcu_idx);
 
+	/*
+	 * On suspend dm_stop_queue() handles stopping the blk-mq
+	 * request_queue BUT: even though the hw_queues are marked
+	 * BLK_MQ_S_STOPPED at that point there is still a race that
+	 * is allowing block/blk-mq.c to call ->queue_rq against a
+	 * hctx that it really shouldn't.  The following check guards
+	 * against this rarity (albeit _not_ race-free).
+	 */
+	if (unlikely(test_bit(BLK_MQ_S_STOPPED, &hctx->state)))
+		return BLK_MQ_RQ_QUEUE_BUSY;
+
 	if (ti->type->busy && ti->type->busy(ti))
 		return BLK_MQ_RQ_QUEUE_BUSY;
 
@@ -2936,8 +3000,6 @@ static void __dm_destroy(struct mapped_device *md, bool wait)
 
 	might_sleep();
 
-	map = dm_get_live_table(md, &srcu_idx);
-
 	spin_lock(&_minor_lock);
 	idr_replace(&_minor_idr, MINOR_ALLOCED, MINOR(disk_devt(dm_disk(md))));
 	set_bit(DMF_FREEING, &md->flags);
@@ -2951,14 +3013,14 @@ static void __dm_destroy(struct mapped_device *md, bool wait)
 	 * do not race with internal suspend.
 	 */
 	mutex_lock(&md->suspend_lock);
+	map = dm_get_live_table(md, &srcu_idx);
 	if (!dm_suspended_md(md)) {
 		dm_table_presuspend_targets(map);
 		dm_table_postsuspend_targets(map);
 	}
-	mutex_unlock(&md->suspend_lock);
-
 	/* dm_put_live_table must be before msleep, otherwise deadlock is possible */
 	dm_put_live_table(md, srcu_idx);
+	mutex_unlock(&md->suspend_lock);
 
 	/*
 	 * Rare, but there may be I/O requests still going to complete,
@@ -3142,7 +3204,8 @@ static void unlock_fs(struct mapped_device *md)
  * Caller must hold md->suspend_lock
  */
 static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
-			unsigned suspend_flags, int interruptible)
+			unsigned suspend_flags, int interruptible,
+			int dmf_suspended_flag)
 {
 	bool do_lockfs = suspend_flags & DM_SUSPEND_LOCKFS_FLAG;
 	bool noflush = suspend_flags & DM_SUSPEND_NOFLUSH_FLAG;
@@ -3209,6 +3272,8 @@ static int __dm_suspend(struct mapped_device *md, struct dm_table *map,
 	 * to finish.
 	 */
 	r = dm_wait_for_completion(md, interruptible);
+	if (!r)
+		set_bit(dmf_suspended_flag, &md->flags);
 
 	if (noflush)
 		clear_bit(DMF_NOFLUSH_SUSPENDING, &md->flags);
@@ -3270,11 +3335,9 @@ retry:
 
 	map = rcu_dereference_protected(md->map, lockdep_is_held(&md->suspend_lock));
 
-	r = __dm_suspend(md, map, suspend_flags, TASK_INTERRUPTIBLE);
+	r = __dm_suspend(md, map, suspend_flags, TASK_INTERRUPTIBLE, DMF_SUSPENDED);
 	if (r)
 		goto out_unlock;
-
-	set_bit(DMF_SUSPENDED, &md->flags);
 
 	dm_table_postsuspend_targets(map);
 
@@ -3369,9 +3432,8 @@ static void __dm_internal_suspend(struct mapped_device *md, unsigned suspend_fla
 	 * would require changing .presuspend to return an error -- avoid this
 	 * until there is a need for more elaborate variants of internal suspend.
 	 */
-	(void) __dm_suspend(md, map, suspend_flags, TASK_UNINTERRUPTIBLE);
-
-	set_bit(DMF_SUSPENDED_INTERNALLY, &md->flags);
+	(void) __dm_suspend(md, map, suspend_flags, TASK_UNINTERRUPTIBLE,
+			    DMF_SUSPENDED_INTERNALLY);
 
 	dm_table_postsuspend_targets(map);
 }
@@ -3509,11 +3571,15 @@ struct mapped_device *dm_get_from_kobject(struct kobject *kobj)
 
 	md = container_of(kobj, struct mapped_device, kobj_holder.kobj);
 
-	if (test_bit(DMF_FREEING, &md->flags) ||
-	    dm_deleting_md(md))
-		return NULL;
-
+	spin_lock(&_minor_lock);
+	if (test_bit(DMF_FREEING, &md->flags) || dm_deleting_md(md)) {
+		md = NULL;
+		goto out;
+	}
 	dm_get(md);
+out:
+	spin_unlock(&_minor_lock);
+
 	return md;
 }
 

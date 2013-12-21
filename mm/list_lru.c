@@ -103,6 +103,7 @@ bool list_lru_add(struct list_lru *lru, struct list_head *item)
 	if (list_empty(item)) {
 		list_add_tail(item, &l->list);
 		l->nr_items++;
+		nlru->nr_items++;
 		spin_unlock(&nlru->lock);
 		return true;
 	}
@@ -122,6 +123,7 @@ bool list_lru_del(struct list_lru *lru, struct list_head *item)
 	if (!list_empty(item)) {
 		list_del_init(item);
 		l->nr_items--;
+		nlru->nr_items--;
 		spin_unlock(&nlru->lock);
 		return true;
 	}
@@ -169,15 +171,10 @@ EXPORT_SYMBOL_GPL(list_lru_count_one);
 
 unsigned long list_lru_count_node(struct list_lru *lru, int nid)
 {
-	long count = 0;
-	int memcg_idx;
+	struct list_lru_node *nlru;
 
-	count += __list_lru_count_one(lru, nid, -1);
-	if (list_lru_memcg_aware(lru)) {
-		for_each_memcg_cache_index(memcg_idx)
-			count += __list_lru_count_one(lru, nid, memcg_idx);
-	}
-	return count;
+	nlru = &lru->node[nid];
+	return nlru->nr_items;
 }
 EXPORT_SYMBOL_GPL(list_lru_count_node);
 
@@ -212,6 +209,7 @@ restart:
 			assert_spin_locked(&nlru->lock);
 		case LRU_REMOVED:
 			isolated++;
+			nlru->nr_items--;
 			/*
 			 * If the lru lock has been dropped, our list
 			 * traversal is now invalid and so we have to
@@ -532,6 +530,8 @@ int __list_lru_init(struct list_lru *lru, bool memcg_aware,
 	err = memcg_init_list_lru(lru, memcg_aware);
 	if (err) {
 		kfree(lru->node);
+		/* Do this so a list_lru_destroy() doesn't crash: */
+		lru->node = NULL;
 		goto out;
 	}
 

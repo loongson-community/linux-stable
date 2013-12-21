@@ -179,7 +179,6 @@ asmlinkage void secondary_start_kernel(void)
 	set_cpu_online(cpu, true);
 	complete(&cpu_running);
 
-	local_dbg_enable();
 	local_irq_enable();
 	local_async_enable();
 
@@ -569,7 +568,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	struct pt_regs *old_regs = set_irq_regs(regs);
 
 	if ((unsigned)ipinr < NR_IPI) {
-		trace_ipi_entry(ipi_types[ipinr]);
+		trace_ipi_entry_rcuidle(ipi_types[ipinr]);
 		__inc_irq_stat(cpu, ipi_irqs[ipinr]);
 	}
 
@@ -612,7 +611,7 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	}
 
 	if ((unsigned)ipinr < NR_IPI)
-		trace_ipi_exit(ipi_types[ipinr]);
+		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
 	set_irq_regs(old_regs);
 }
 

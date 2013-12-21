@@ -129,8 +129,11 @@ struct tpm_chip *tpmm_chip_alloc(struct device *dev,
 
 	device_initialize(&chip->dev);
 
-	chip->cdev.owner = chip->pdev->driver->owner;
 	cdev_init(&chip->cdev, &tpm_fops);
+	chip->cdev.owner = chip->pdev->driver->owner;
+	chip->cdev.kobj.parent = &chip->dev.kobj;
+
+	devm_add_action(dev, (void (*)(void *)) put_device, &chip->dev);
 
 	return chip;
 }
@@ -167,7 +170,7 @@ static int tpm_dev_add_device(struct tpm_chip *chip)
 static void tpm_dev_del_device(struct tpm_chip *chip)
 {
 	cdev_del(&chip->cdev);
-	device_unregister(&chip->dev);
+	device_del(&chip->dev);
 }
 
 static int tpm1_chip_register(struct tpm_chip *chip)

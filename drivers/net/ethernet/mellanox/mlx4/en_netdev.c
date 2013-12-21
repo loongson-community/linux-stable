@@ -1973,10 +1973,6 @@ void mlx4_en_free_resources(struct mlx4_en_priv *priv)
 			mlx4_en_destroy_cq(priv, &priv->rx_cq[i]);
 	}
 
-	if (priv->base_tx_qpn) {
-		mlx4_qp_release_range(priv->mdev->dev, priv->base_tx_qpn, priv->tx_ring_num);
-		priv->base_tx_qpn = 0;
-	}
 }
 
 int mlx4_en_alloc_resources(struct mlx4_en_priv *priv)
@@ -2334,8 +2330,6 @@ out:
 	/* set offloads */
 	priv->dev->hw_enc_features |= NETIF_F_IP_CSUM | NETIF_F_RXCSUM |
 				      NETIF_F_TSO | NETIF_F_GSO_UDP_TUNNEL;
-	priv->dev->hw_features |= NETIF_F_GSO_UDP_TUNNEL;
-	priv->dev->features    |= NETIF_F_GSO_UDP_TUNNEL;
 }
 
 static void mlx4_en_del_vxlan_offloads(struct work_struct *work)
@@ -2346,8 +2340,6 @@ static void mlx4_en_del_vxlan_offloads(struct work_struct *work)
 	/* unset offloads */
 	priv->dev->hw_enc_features &= ~(NETIF_F_IP_CSUM | NETIF_F_RXCSUM |
 				      NETIF_F_TSO | NETIF_F_GSO_UDP_TUNNEL);
-	priv->dev->hw_features &= ~NETIF_F_GSO_UDP_TUNNEL;
-	priv->dev->features    &= ~NETIF_F_GSO_UDP_TUNNEL;
 
 	ret = mlx4_SET_PORT_VXLAN(priv->mdev->dev, priv->port,
 				  VXLAN_STEER_BY_OUTER_MAC, 0);
@@ -2942,6 +2934,11 @@ int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
 		en_warn(priv,
 			"No RSS hash capabilities exposed, using Toeplitz\n");
 		priv->rss_hash_fn = ETH_RSS_HASH_TOP;
+	}
+
+	if (mdev->dev->caps.tunnel_offload_mode == MLX4_TUNNEL_OFFLOAD_MODE_VXLAN) {
+		dev->hw_features |= NETIF_F_GSO_UDP_TUNNEL;
+		dev->features    |= NETIF_F_GSO_UDP_TUNNEL;
 	}
 
 	mdev->pndev[port] = dev;

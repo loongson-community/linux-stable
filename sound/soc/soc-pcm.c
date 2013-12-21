@@ -163,6 +163,10 @@ int dpcm_dapm_stream_event(struct snd_soc_pcm_runtime *fe, int dir,
 		dev_dbg(be->dev, "ASoC: BE %s event %d dir %d\n",
 				be->dai_link->name, event, dir);
 
+		if ((event == SND_SOC_DAPM_STREAM_STOP) &&
+		    (be->dpcm[dir].users >= 1))
+			continue;
+
 		snd_soc_dapm_stream_event(be, dir, event);
 	}
 
@@ -1661,7 +1665,8 @@ int dpcm_be_dai_hw_free(struct snd_soc_pcm_runtime *fe, int stream)
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_PREPARE) &&
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_HW_FREE) &&
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_PAUSED) &&
-		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_STOP))
+		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_STOP) &&
+		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_SUSPEND))
 			continue;
 
 		dev_dbg(be->dev, "ASoC: hw_free BE %s\n",
@@ -1990,8 +1995,10 @@ static int dpcm_fe_dai_do_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_STOP;
+		break;
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
+		fe->dpcm[stream].state = SND_SOC_DPCM_STATE_PAUSED;
 		break;
 	}
 

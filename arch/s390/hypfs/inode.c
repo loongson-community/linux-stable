@@ -323,7 +323,7 @@ static void hypfs_kill_super(struct super_block *sb)
 
 	if (sb->s_root)
 		hypfs_delete_tree(sb->s_root);
-	if (sb_info->update_file)
+	if (sb_info && sb_info->update_file)
 		hypfs_remove(sb_info->update_file);
 	kfree(sb->s_fs_info);
 	sb->s_fs_info = NULL;
@@ -456,8 +456,6 @@ static const struct super_operations hypfs_s_ops = {
 	.show_options	= hypfs_show_options,
 };
 
-static struct kobject *s390_kobj;
-
 static int __init hypfs_init(void)
 {
 	int rc;
@@ -481,18 +479,16 @@ static int __init hypfs_init(void)
 		rc = -ENODATA;
 		goto fail_hypfs_sprp_exit;
 	}
-	s390_kobj = kobject_create_and_add("s390", hypervisor_kobj);
-	if (!s390_kobj) {
-		rc = -ENOMEM;
+	rc = sysfs_create_mount_point(hypervisor_kobj, "s390");
+	if (rc)
 		goto fail_hypfs_diag0c_exit;
-	}
 	rc = register_filesystem(&hypfs_type);
 	if (rc)
 		goto fail_filesystem;
 	return 0;
 
 fail_filesystem:
-	kobject_put(s390_kobj);
+	sysfs_remove_mount_point(hypervisor_kobj, "s390");
 fail_hypfs_diag0c_exit:
 	hypfs_diag0c_exit();
 fail_hypfs_sprp_exit:
@@ -510,7 +506,7 @@ fail_dbfs_exit:
 static void __exit hypfs_exit(void)
 {
 	unregister_filesystem(&hypfs_type);
-	kobject_put(s390_kobj);
+	sysfs_remove_mount_point(hypervisor_kobj, "s390");
 	hypfs_diag0c_exit();
 	hypfs_sprp_exit();
 	hypfs_vm_exit();

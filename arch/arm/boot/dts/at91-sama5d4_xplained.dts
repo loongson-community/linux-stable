@@ -98,7 +98,7 @@
 
 				phy0: ethernet-phy@1 {
 					interrupt-parent = <&pioE>;
-					interrupts = <1 IRQ_TYPE_EDGE_FALLING>;
+					interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
 					reg = <1>;
 				};
 			};
@@ -115,6 +115,8 @@
 			};
 
 			usart3: serial@fc00c000 {
+				atmel,use-dma-rx;
+				atmel,use-dma-tx;
 				status = "okay";
 			};
 

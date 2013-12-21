@@ -679,6 +679,70 @@ out:
 }
 
 /*
+ * Iterate the EFI memory map in reverse order because the regions
+ * will be mapped top-down. The end result is the same as if we had
+ * mapped things forward, but doesn't require us to change the
+ * existing implementation of efi_map_region().
+ */
+static inline void *efi_map_next_entry_reverse(void *entry)
+{
+	/* Initial call */
+	if (!entry)
+		return memmap.map_end - memmap.desc_size;
+
+	entry -= memmap.desc_size;
+	if (entry < memmap.map)
+		return NULL;
+
+	return entry;
+}
+
+/*
+ * efi_map_next_entry - Return the next EFI memory map descriptor
+ * @entry: Previous EFI memory map descriptor
+ *
+ * This is a helper function to iterate over the EFI memory map, which
+ * we do in different orders depending on the current configuration.
+ *
+ * To begin traversing the memory map @entry must be %NULL.
+ *
+ * Returns %NULL when we reach the end of the memory map.
+ */
+static void *efi_map_next_entry(void *entry)
+{
+	if (!efi_enabled(EFI_OLD_MEMMAP) && efi_enabled(EFI_64BIT)) {
+		/*
+		 * Starting in UEFI v2.5 the EFI_PROPERTIES_TABLE
+		 * config table feature requires us to map all entries
+		 * in the same order as they appear in the EFI memory
+		 * map. That is to say, entry N must have a lower
+		 * virtual address than entry N+1. This is because the
+		 * firmware toolchain leaves relative references in
+		 * the code/data sections, which are split and become
+		 * separate EFI memory regions. Mapping things
+		 * out-of-order leads to the firmware accessing
+		 * unmapped addresses.
+		 *
+		 * Since we need to map things this way whether or not
+		 * the kernel actually makes use of
+		 * EFI_PROPERTIES_TABLE, let's just switch to this
+		 * scheme by default for 64-bit.
+		 */
+		return efi_map_next_entry_reverse(entry);
+	}
+
+	/* Initial call */
+	if (!entry)
+		return memmap.map;
+
+	entry += memmap.desc_size;
+	if (entry >= memmap.map_end)
+		return NULL;
+
+	return entry;
+}
+
+/*
  * Map the efi memory ranges of the runtime services and update new_mmap with
  * virtual addresses.
  */
@@ -688,7 +752,8 @@ static void * __init efi_map_regions(int *count, int *pg_shift)
 	unsigned long left = 0;
 	efi_memory_desc_t *md;
 
-	for (p = memmap.map; p < memmap.map_end; p += memmap.desc_size) {
+	p = NULL;
+	while ((p = efi_map_next_entry(p))) {
 		md = p;
 		if (!(md->attribute & EFI_MEMORY_RUNTIME)) {
 #ifdef CONFIG_X86_64
@@ -778,7 +843,7 @@ static void __init kexec_enter_virtual_mode(void)
  * This function will switch the EFI runtime services to virtual mode.
  * Essentially, we look through the EFI memmap and map every region that
  * has the runtime attribute bit set in its memory descriptor into the
- * ->trampoline_pgd page table using a top-down VA allocation scheme.
+ * efi_pgd page table.
  *
  * The old method which used to update that memory descriptor with the
  * virtual address obtained from ioremap() is still supported when the
@@ -788,8 +853,8 @@ static void __init kexec_enter_virtual_mode(void)
  *
  * The new method does a pagetable switch in a preemption-safe manner
  * so that we're in a different address space when calling a runtime
- * function. For function arguments passing we do copy the PGDs of the
- * kernel page table into ->trampoline_pgd prior to each call.
+ * function. For function arguments passing we do copy the PUDs of the
+ * kernel page table into efi_pgd prior to each call.
  *
  * Specially for kexec boot, efi runtime maps in previous kernel should
  * be passed in via setup_data. In that case runtime ranges will be mapped
@@ -803,6 +868,12 @@ static void __init __efi_enter_virtual_mode(void)
 	efi_status_t status;
 
 	efi.systab = NULL;
+
+	if (efi_alloc_page_tables()) {
+		pr_err("Failed to allocate EFI page tables\n");
+		clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+		return;
+	}
 
 	efi_merge_regions();
 	new_memmap = efi_map_regions(&count, &pg_shift);
@@ -863,28 +934,11 @@ static void __init __efi_enter_virtual_mode(void)
 	efi_runtime_mkexec();
 
 	/*
-	 * We mapped the descriptor array into the EFI pagetable above but we're
-	 * not unmapping it here. Here's why:
-	 *
-	 * We're copying select PGDs from the kernel page table to the EFI page
-	 * table and when we do so and make changes to those PGDs like unmapping
-	 * stuff from them, those changes appear in the kernel page table and we
-	 * go boom.
-	 *
-	 * From setup_real_mode():
-	 *
-	 * ...
-	 * trampoline_pgd[0] = init_level4_pgt[pgd_index(__PAGE_OFFSET)].pgd;
-	 *
-	 * In this particular case, our allocation is in PGD 0 of the EFI page
-	 * table but we've copied that PGD from PGD[272] of the EFI page table:
-	 *
-	 *	pgd_index(__PAGE_OFFSET = 0xffff880000000000) = 272
-	 *
-	 * where the direct memory mapping in kernel space is.
-	 *
-	 * new_memmap's VA comes from that direct mapping and thus clearing it,
-	 * it would get cleared in the kernel page table too.
+	 * We mapped the descriptor array into the EFI pagetable above
+	 * but we're not unmapping it here because if we're running in
+	 * EFI mixed mode we need all of memory to be accessible when
+	 * we pass parameters to the EFI runtime services in the
+	 * thunking code.
 	 *
 	 * efi_cleanup_page_tables(__pa(new_memmap), 1 << pg_shift);
 	 */
@@ -946,6 +1000,11 @@ u64 efi_mem_attributes(unsigned long phys_addr)
 
 static int __init arch_parse_efi_cmdline(char *str)
 {
+	if (!str) {
+		pr_warn("need at least one option\n");
+		return -EINVAL;
+	}
+
 	if (parse_option_str(str, "old_map"))
 		set_bit(EFI_OLD_MEMMAP, &efi.flags);
 	if (parse_option_str(str, "debug"))

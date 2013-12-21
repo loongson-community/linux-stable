@@ -62,9 +62,10 @@ int seq_open(struct file *file, const struct seq_operations *op)
 	memset(p, 0, sizeof(*p));
 	mutex_init(&p->lock);
 	p->op = op;
-#ifdef CONFIG_USER_NS
-	p->user_ns = file->f_cred->user_ns;
-#endif
+
+	// No refcounting: the lifetime of 'p' is constrained
+	// to the lifetime of the file.
+	p->file = file;
 
 	/*
 	 * Wrappers around seq_open(e.g. swaps_open) need to be
@@ -212,8 +213,10 @@ ssize_t seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 		size -= n;
 		buf += n;
 		copied += n;
-		if (!m->count)
+		if (!m->count) {
+			m->from = 0;
 			m->index++;
+		}
 		if (!size)
 			goto Done;
 	}

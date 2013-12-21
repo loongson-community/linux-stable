@@ -1607,7 +1607,8 @@ static void blk_mq_exit_hctx(struct request_queue *q,
 {
 	unsigned flush_start_tag = set->queue_depth;
 
-	blk_mq_tag_idle(hctx);
+	if (blk_mq_hw_queue_mapped(hctx))
+		blk_mq_tag_idle(hctx);
 
 	if (set->ops->exit_request)
 		set->ops->exit_request(set->driver_data,
@@ -1968,7 +1969,7 @@ struct request_queue *blk_mq_init_allocated_queue(struct blk_mq_tag_set *set,
 		goto err_hctxs;
 
 	setup_timer(&q->timeout, blk_mq_rq_timer, (unsigned long) q);
-	blk_queue_rq_timeout(q, set->timeout ? set->timeout : 30000);
+	blk_queue_rq_timeout(q, set->timeout ? set->timeout : 30 * HZ);
 
 	q->nr_queues = nr_cpu_ids;
 	q->nr_hw_queues = set->nr_hw_queues;

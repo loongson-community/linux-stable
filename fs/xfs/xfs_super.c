@@ -504,9 +504,9 @@ xfs_showargs(
 		seq_printf(m, "," MNTOPT_LOGBSIZE "=%dk", mp->m_logbsize >> 10);
 
 	if (mp->m_logname)
-		seq_printf(m, "," MNTOPT_LOGDEV "=%s", mp->m_logname);
+		seq_show_option(m, MNTOPT_LOGDEV, mp->m_logname);
 	if (mp->m_rtname)
-		seq_printf(m, "," MNTOPT_RTDEV "=%s", mp->m_rtname);
+		seq_show_option(m, MNTOPT_RTDEV, mp->m_rtname);
 
 	if (mp->m_dalign > 0)
 		seq_printf(m, "," MNTOPT_SUNIT "=%d",
@@ -853,8 +853,15 @@ xfs_init_mount_workqueues(
 	if (!mp->m_eofblocks_workqueue)
 		goto out_destroy_log;
 
+	mp->m_sync_workqueue = alloc_workqueue("xfs-sync/%s", WQ_FREEZABLE, 0,
+					       mp->m_fsname);
+	if (!mp->m_sync_workqueue)
+		goto out_destroy_eofb;
+
 	return 0;
 
+out_destroy_eofb:
+	destroy_workqueue(mp->m_eofblocks_workqueue);
 out_destroy_log:
 	destroy_workqueue(mp->m_log_workqueue);
 out_destroy_reclaim:
@@ -875,6 +882,7 @@ STATIC void
 xfs_destroy_mount_workqueues(
 	struct xfs_mount	*mp)
 {
+	destroy_workqueue(mp->m_sync_workqueue);
 	destroy_workqueue(mp->m_eofblocks_workqueue);
 	destroy_workqueue(mp->m_log_workqueue);
 	destroy_workqueue(mp->m_reclaim_workqueue);
@@ -1230,6 +1238,16 @@ xfs_fs_remount(
 		if (mp->m_flags & XFS_MOUNT_NORECOVERY) {
 			xfs_warn(mp,
 		"ro->rw transition prohibited on norecovery mount");
+			return -EINVAL;
+		}
+
+		if (XFS_SB_VERSION_NUM(sbp) == XFS_SB_VERSION_5 &&
+		    xfs_sb_has_ro_compat_feature(sbp,
+					XFS_SB_FEAT_RO_COMPAT_UNKNOWN)) {
+			xfs_warn(mp,
+"ro->rw transition prohibited on unknown (0x%x) ro-compat filesystem",
+				(sbp->sb_features_ro_compat &
+					XFS_SB_FEAT_RO_COMPAT_UNKNOWN));
 			return -EINVAL;
 		}
 

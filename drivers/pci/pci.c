@@ -1691,20 +1691,12 @@ static void pci_pme_list_scan(struct work_struct *work)
 		}
 	}
 	if (!list_empty(&pci_pme_list))
-		schedule_delayed_work(&pci_pme_work,
-				      msecs_to_jiffies(PME_TIMEOUT));
+		queue_delayed_work(system_freezable_wq, &pci_pme_work,
+				   msecs_to_jiffies(PME_TIMEOUT));
 	mutex_unlock(&pci_pme_list_mutex);
 }
 
-/**
- * pci_pme_active - enable or disable PCI device's PME# function
- * @dev: PCI device to handle.
- * @enable: 'true' to enable PME# generation; 'false' to disable it.
- *
- * The caller must verify that the device is capable of generating PME# before
- * calling this function with @enable equal to 'true'.
- */
-void pci_pme_active(struct pci_dev *dev, bool enable)
+static void __pci_pme_active(struct pci_dev *dev, bool enable)
 {
 	u16 pmcsr;
 
@@ -1718,6 +1710,19 @@ void pci_pme_active(struct pci_dev *dev, bool enable)
 		pmcsr &= ~PCI_PM_CTRL_PME_ENABLE;
 
 	pci_write_config_word(dev, dev->pm_cap + PCI_PM_CTRL, pmcsr);
+}
+
+/**
+ * pci_pme_active - enable or disable PCI device's PME# function
+ * @dev: PCI device to handle.
+ * @enable: 'true' to enable PME# generation; 'false' to disable it.
+ *
+ * The caller must verify that the device is capable of generating PME# before
+ * calling this function with @enable equal to 'true'.
+ */
+void pci_pme_active(struct pci_dev *dev, bool enable)
+{
+	__pci_pme_active(dev, enable);
 
 	/*
 	 * PCI (as opposed to PCIe) PME requires that the device have
@@ -1752,8 +1757,9 @@ void pci_pme_active(struct pci_dev *dev, bool enable)
 			mutex_lock(&pci_pme_list_mutex);
 			list_add(&pme_dev->list, &pci_pme_list);
 			if (list_is_singular(&pci_pme_list))
-				schedule_delayed_work(&pci_pme_work,
-						      msecs_to_jiffies(PME_TIMEOUT));
+				queue_delayed_work(system_freezable_wq,
+						   &pci_pme_work,
+						   msecs_to_jiffies(PME_TIMEOUT));
 			mutex_unlock(&pci_pme_list_mutex);
 		} else {
 			mutex_lock(&pci_pme_list_mutex);
@@ -1993,6 +1999,10 @@ bool pci_dev_run_wake(struct pci_dev *dev)
 	if (!dev->pme_support)
 		return false;
 
+	/* PME-capable in principle, but not from the intended sleep state */
+	if (!pci_pme_capable(dev, pci_target_state(dev)))
+		return false;
+
 	while (bus->parent) {
 		struct pci_dev *bridge = bus->self;
 
@@ -2018,17 +2028,61 @@ EXPORT_SYMBOL_GPL(pci_dev_run_wake);
  * reconfigured due to wakeup settings difference between system and runtime
  * suspend and the current power state of it is suitable for the upcoming
  * (system) transition.
+ *
+ * If the device is not configured for system wakeup, disable PME for it before
+ * returning 'true' to prevent it from waking up the system unnecessarily.
  */
 bool pci_dev_keep_suspended(struct pci_dev *pci_dev)
 {
 	struct device *dev = &pci_dev->dev;
 
 	if (!pm_runtime_suspended(dev)
-	    || (device_can_wakeup(dev) && !device_may_wakeup(dev))
-	    || platform_pci_need_resume(pci_dev))
+	    || pci_target_state(pci_dev) != pci_dev->current_state
+	    || platform_pci_need_resume(pci_dev)
+	    || (pci_dev->dev_flags & PCI_DEV_FLAGS_NEEDS_RESUME))
 		return false;
 
-	return pci_target_state(pci_dev) == pci_dev->current_state;
+	/*
+	 * At this point the device is good to go unless it's been configured
+	 * to generate PME at the runtime suspend time, but it is not supposed
+	 * to wake up the system.  In that case, simply disable PME for it
+	 * (it will have to be re-enabled on exit from system resume).
+	 *
+	 * If the device's power state is D3cold and the platform check above
+	 * hasn't triggered, the device's configuration is suitable and we don't
+	 * need to manipulate it at all.
+	 */
+	spin_lock_irq(&dev->power.lock);
+
+	if (pm_runtime_suspended(dev) && pci_dev->current_state < PCI_D3cold &&
+	    !device_may_wakeup(dev))
+		__pci_pme_active(pci_dev, false);
+
+	spin_unlock_irq(&dev->power.lock);
+	return true;
+}
+
+/**
+ * pci_dev_complete_resume - Finalize resume from system sleep for a device.
+ * @pci_dev: Device to handle.
+ *
+ * If the device is runtime suspended and wakeup-capable, enable PME for it as
+ * it might have been disabled during the prepare phase of system suspend if
+ * the device was not configured for system wakeup.
+ */
+void pci_dev_complete_resume(struct pci_dev *pci_dev)
+{
+	struct device *dev = &pci_dev->dev;
+
+	if (!pci_dev_run_wake(pci_dev))
+		return;
+
+	spin_lock_irq(&dev->power.lock);
+
+	if (pm_runtime_suspended(dev) && pci_dev->current_state < PCI_D3cold)
+		__pci_pme_active(pci_dev, true);
+
+	spin_unlock_irq(&dev->power.lock);
 }
 
 void pci_config_pm_runtime_get(struct pci_dev *pdev)
@@ -3597,6 +3651,10 @@ static bool pci_bus_resetable(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 
+
+	if (bus->self && (bus->self->dev_flags & PCI_DEV_FLAGS_NO_BUS_RESET))
+		return false;
+
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		if (dev->dev_flags & PCI_DEV_FLAGS_NO_BUS_RESET ||
 		    (dev->subordinate && !pci_bus_resetable(dev->subordinate)))
@@ -4216,36 +4274,6 @@ int pci_select_bars(struct pci_dev *dev, unsigned long flags)
 }
 EXPORT_SYMBOL(pci_select_bars);
 
-/**
- * pci_resource_bar - get position of the BAR associated with a resource
- * @dev: the PCI device
- * @resno: the resource number
- * @type: the BAR type to be filled in
- *
- * Returns BAR position in config space, or 0 if the BAR is invalid.
- */
-int pci_resource_bar(struct pci_dev *dev, int resno, enum pci_bar_type *type)
-{
-	int reg;
-
-	if (resno < PCI_ROM_RESOURCE) {
-		*type = pci_bar_unknown;
-		return PCI_BASE_ADDRESS_0 + 4 * resno;
-	} else if (resno == PCI_ROM_RESOURCE) {
-		*type = pci_bar_mem32;
-		return dev->rom_base_reg;
-	} else if (resno < PCI_BRIDGE_RESOURCES) {
-		/* device specific resource */
-		*type = pci_bar_unknown;
-		reg = pci_iov_resource_bar(dev, resno);
-		if (reg)
-			return reg;
-	}
-
-	dev_err(&dev->dev, "BAR %d: invalid resource\n", resno);
-	return 0;
-}
-
 /* Some architectures require additional programming to enable VGA */
 static arch_set_vga_state_t arch_set_vga_state;
 
@@ -4323,6 +4351,17 @@ bool pci_device_is_present(struct pci_dev *pdev)
 	return pci_bus_read_dev_vendor_id(pdev->bus, pdev->devfn, &v, 0);
 }
 EXPORT_SYMBOL_GPL(pci_device_is_present);
+
+void pci_ignore_hotplug(struct pci_dev *dev)
+{
+	struct pci_dev *bridge = dev->bus->self;
+
+	dev->ignore_hotplug = 1;
+	/* Propagate the "ignore hotplug" setting to the parent bridge. */
+	if (bridge)
+		bridge->ignore_hotplug = 1;
+}
+EXPORT_SYMBOL_GPL(pci_ignore_hotplug);
 
 #define RESOURCE_ALIGNMENT_PARAM_SIZE COMMAND_LINE_SIZE
 static char resource_alignment_param[RESOURCE_ALIGNMENT_PARAM_SIZE] = {0};
@@ -4509,8 +4548,10 @@ int pci_get_new_domain_nr(void)
 void pci_bus_assign_domain_nr(struct pci_bus *bus, struct device *parent)
 {
 	static int use_dt_domains = -1;
-	int domain = of_get_pci_domain_nr(parent->of_node);
+	int domain = -1;
 
+	if (parent)
+		domain = of_get_pci_domain_nr(parent->of_node);
 	/*
 	 * Check DT domain and use_dt_domains values.
 	 *

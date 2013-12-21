@@ -15,7 +15,9 @@
 	BUILD_BUG_ON(sizeof(addrtype) != (high - low + 1) * sizeof(long));\
 	asm volatile(							\
 		"	lctlg	%1,%2,%0\n"				\
-		: : "Q" (*(addrtype *)(&array)), "i" (low), "i" (high));\
+		:							\
+		: "Q" (*(addrtype *)(&array)), "i" (low), "i" (high)	\
+		: "memory");						\
 }
 
 #define __ctl_store(array, low, high) {					\
@@ -57,7 +59,10 @@ union ctlreg0 {
 		unsigned long lap  : 1; /* Low-address-protection control */
 		unsigned long	   : 4;
 		unsigned long edat : 1; /* Enhanced-DAT-enablement control */
-		unsigned long	   : 23;
+		unsigned long	   : 4;
+		unsigned long afp  : 1; /* AFP-register control */
+		unsigned long vx   : 1; /* Vector enablement control */
+		unsigned long	   : 17;
 	};
 };
 

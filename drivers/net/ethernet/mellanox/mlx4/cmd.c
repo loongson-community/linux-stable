@@ -2262,6 +2262,17 @@ static int sync_toggles(struct mlx4_dev *dev)
 		rd_toggle = swab32(readl(&priv->mfunc.comm->slave_read));
 		if (wr_toggle == 0xffffffff || rd_toggle == 0xffffffff) {
 			/* PCI might be offline */
+
+			/* If device removal has been requested,
+			 * do not continue retrying.
+			 */
+			if (dev->persist->interface_state &
+			    MLX4_INTERFACE_STATE_NOWAIT) {
+				mlx4_warn(dev,
+					  "communication channel is offline\n");
+				return -EIO;
+			}
+
 			msleep(100);
 			wr_toggle = swab32(readl(&priv->mfunc.comm->
 					   slave_write));
@@ -2382,7 +2393,7 @@ int mlx4_multi_func_init(struct mlx4_dev *dev)
 			}
 		}
 
-		memset(&priv->mfunc.master.cmd_eqe, 0, dev->caps.eqe_size);
+		memset(&priv->mfunc.master.cmd_eqe, 0, sizeof(struct mlx4_eqe));
 		priv->mfunc.master.cmd_eqe.type = MLX4_EVENT_TYPE_CMD;
 		INIT_WORK(&priv->mfunc.master.comm_work,
 			  mlx4_master_comm_channel);

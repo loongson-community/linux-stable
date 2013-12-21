@@ -155,8 +155,8 @@ bool	transport_wait_for_tasks(struct se_cmd *);
 int	transport_check_aborted_status(struct se_cmd *, int);
 int	transport_send_check_condition_and_sense(struct se_cmd *,
 		sense_reason_t, int);
-int	target_get_sess_cmd(struct se_session *, struct se_cmd *, bool);
-int	target_put_sess_cmd(struct se_session *, struct se_cmd *);
+int	target_get_sess_cmd(struct se_cmd *, bool);
+int	target_put_sess_cmd(struct se_cmd *);
 void	target_sess_cmd_list_set_waiting(struct se_session *);
 void	target_wait_for_sess_cmds(struct se_session *);
 
@@ -171,6 +171,8 @@ int	transport_lookup_tmr_lun(struct se_cmd *, u32);
 
 struct se_node_acl *core_tpg_get_initiator_node_acl(struct se_portal_group *tpg,
 		unsigned char *);
+bool	target_tpg_has_node_acl(struct se_portal_group *tpg,
+		const char *);
 struct se_node_acl *core_tpg_check_initiator_node_acl(struct se_portal_group *,
 		unsigned char *);
 void	core_tpg_clear_object_luns(struct se_portal_group *);

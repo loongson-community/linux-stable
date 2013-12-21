@@ -875,9 +875,12 @@ static int ethtool_get_regs(struct net_device *dev, char __user *useraddr)
 	if (regs.len > reglen)
 		regs.len = reglen;
 
-	regbuf = vzalloc(reglen);
-	if (reglen && !regbuf)
-		return -ENOMEM;
+	regbuf = NULL;
+	if (reglen) {
+		regbuf = vzalloc(reglen);
+		if (!regbuf)
+			return -ENOMEM;
+	}
 
 	ops->get_regs(dev, &regs, regbuf);
 
@@ -1273,7 +1276,7 @@ static int ethtool_get_strings(struct net_device *dev, void __user *useraddr)
 
 	gstrings.len = ret;
 
-	data = kmalloc(gstrings.len * ETH_GSTRING_LEN, GFP_USER);
+	data = kcalloc(gstrings.len, ETH_GSTRING_LEN, GFP_USER);
 	if (!data)
 		return -ENOMEM;
 

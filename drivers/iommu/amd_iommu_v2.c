@@ -508,6 +508,13 @@ static void do_fault(struct work_struct *work)
 		goto out;
 	}
 
+	if (!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE))) {
+		/* handle_mm_fault would BUG_ON() */
+		up_read(&mm->mmap_sem);
+		handle_fault_error(fault);
+		goto out;
+	}
+
 	ret = handle_mm_fault(mm, vma, address, write);
 	if (ret & VM_FAULT_ERROR) {
 		/* failed to service fault */
@@ -668,9 +675,9 @@ out_clear_state:
 
 out_unregister:
 	mmu_notifier_unregister(&pasid_state->mn, mm);
+	mmput(mm);
 
 out_free:
-	mmput(mm);
 	free_pasid_state(pasid_state);
 
 out:

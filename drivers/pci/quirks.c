@@ -288,6 +288,18 @@ static void quirk_citrine(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_IBM,	PCI_DEVICE_ID_IBM_CITRINE,	quirk_citrine);
 
+/*
+ * This chip can cause bus lockups if config addresses above 0x600
+ * are read or written.
+ */
+static void quirk_nfp6000(struct pci_dev *dev)
+{
+	dev->cfg_size = 0x600;
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NETRONOME,	PCI_DEVICE_ID_NETRONOME_NFP4000,	quirk_nfp6000);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NETRONOME,	PCI_DEVICE_ID_NETRONOME_NFP6000,	quirk_nfp6000);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NETRONOME,	PCI_DEVICE_ID_NETRONOME_NFP6000_VF,	quirk_nfp6000);
+
 /*  On IBM Crocodile ipr SAS adapters, expand BAR to system page size */
 static void quirk_extend_bar_to_page(struct pci_dev *dev)
 {
@@ -1576,6 +1588,18 @@ DECLARE_PCI_FIXUP_RESUME_EARLY(PCI_VENDOR_ID_JMICRON, PCI_DEVICE_ID_JMICRON_JMB3
 
 #endif
 
+static void quirk_jmicron_async_suspend(struct pci_dev *dev)
+{
+	if (dev->multifunction) {
+		device_disable_async_suspend(&dev->dev);
+		dev_info(&dev->dev, "async suspend disabled to avoid multi-function power-on ordering issue\n");
+	}
+}
+DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_JMICRON, PCI_ANY_ID, PCI_CLASS_STORAGE_IDE, 8, quirk_jmicron_async_suspend);
+DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_JMICRON, PCI_ANY_ID, PCI_CLASS_STORAGE_SATA_AHCI, 0, quirk_jmicron_async_suspend);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_JMICRON, 0x2362, quirk_jmicron_async_suspend);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_JMICRON, 0x236f, quirk_jmicron_async_suspend);
+
 #ifdef CONFIG_X86_IO_APIC
 static void quirk_alder_ioapic(struct pci_dev *pdev)
 {
@@ -1902,6 +1926,31 @@ static void quirk_netmos(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_CLASS_HEADER(PCI_VENDOR_ID_NETMOS, PCI_ANY_ID,
 			 PCI_CLASS_COMMUNICATION_SERIAL, 8, quirk_netmos);
+
+/*
+ * Quirk non-zero PCI functions to route VPD access through function 0 for
+ * devices that share VPD resources between functions.  The functions are
+ * expected to be identical devices.
+ */
+static void quirk_f0_vpd_link(struct pci_dev *dev)
+{
+	struct pci_dev *f0;
+
+	if (!PCI_FUNC(dev->devfn))
+		return;
+
+	f0 = pci_get_slot(dev->bus, PCI_DEVFN(PCI_SLOT(dev->devfn), 0));
+	if (!f0)
+		return;
+
+	if (f0->vpd && dev->class == f0->class &&
+	    dev->vendor == f0->vendor && dev->device == f0->device)
+		dev->dev_flags |= PCI_DEV_FLAGS_VPD_REF_F0;
+
+	pci_dev_put(f0);
+}
+DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_INTEL, PCI_ANY_ID,
+			      PCI_CLASS_NETWORK_ETHERNET, 8, quirk_f0_vpd_link);
 
 static void quirk_e100_interrupt(struct pci_dev *dev)
 {
@@ -2838,12 +2887,15 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x3c28, vtd_mask_spec_errors);
 
 static void fixup_ti816x_class(struct pci_dev *dev)
 {
+	u32 class = dev->class;
+
 	/* TI 816x devices do not have class code set when in PCIe boot mode */
-	dev_info(&dev->dev, "Setting PCI class for 816x PCIe device\n");
-	dev->class = PCI_CLASS_MULTIMEDIA_VIDEO;
+	dev->class = PCI_CLASS_MULTIMEDIA_VIDEO << 8;
+	dev_info(&dev->dev, "PCI class overridden (%#08x -> %#08x)\n",
+		 class, dev->class);
 }
 DECLARE_PCI_FIXUP_CLASS_EARLY(PCI_VENDOR_ID_TI, 0xb800,
-				 PCI_CLASS_NOT_DEFINED, 0, fixup_ti816x_class);
+			      PCI_CLASS_NOT_DEFINED, 0, fixup_ti816x_class);
 
 /* Some PCIe devices do not work reliably with the claimed maximum
  * payload size supported.
@@ -3068,13 +3120,15 @@ static void quirk_no_bus_reset(struct pci_dev *dev)
 }
 
 /*
- * Atheros AR93xx chips do not behave after a bus reset.  The device will
- * throw a Link Down error on AER-capable systems and regardless of AER,
- * config space of the device is never accessible again and typically
- * causes the system to hang or reset when access is attempted.
+ * Some Atheros AR9xxx and QCA988x chips do not behave after a bus reset.
+ * The device will throw a Link Down error on AER-capable systems and
+ * regardless of AER, config space of the device is never accessible again
+ * and typically causes the system to hang or reset when access is attempted.
  * http://www.spinics.net/lists/linux-pci/msg34797.html
  */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATHEROS, 0x0030, quirk_no_bus_reset);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATHEROS, 0x0032, quirk_no_bus_reset);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATHEROS, 0x003c, quirk_no_bus_reset);
 
 static void quirk_no_pm_reset(struct pci_dev *dev)
 {
@@ -3591,6 +3645,8 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_MARVELL_EXT, 0x9230,
 			 quirk_dma_func1_alias);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TTI, 0x0642,
 			 quirk_dma_func1_alias);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_TTI, 0x0645,
+			 quirk_dma_func1_alias);
 /* https://bugs.gentoo.org/show_bug.cgi?id=497630 */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_JMICRON,
 			 PCI_DEVICE_ID_JMICRON_JMB388_ESD,
@@ -4013,3 +4069,88 @@ void pci_dev_specific_enable_acs(struct pci_dev *dev)
 		}
 	}
 }
+
+/*
+ * The PCI capabilities list for Intel DH895xCC VFs (device id 0x0443) with
+ * QuickAssist Technology (QAT) is prematurely terminated in hardware.  The
+ * Next Capability pointer in the MSI Capability Structure should point to
+ * the PCIe Capability Structure but is incorrectly hardwired as 0 terminating
+ * the list.
+ */
+static void quirk_intel_qat_vf_cap(struct pci_dev *pdev)
+{
+	int pos, i = 0;
+	u8 next_cap;
+	u16 reg16, *cap;
+	struct pci_cap_saved_state *state;
+
+	/* Bail if the hardware bug is fixed */
+	if (pdev->pcie_cap || pci_find_capability(pdev, PCI_CAP_ID_EXP))
+		return;
+
+	/* Bail if MSI Capability Structure is not found for some reason */
+	pos = pci_find_capability(pdev, PCI_CAP_ID_MSI);
+	if (!pos)
+		return;
+
+	/*
+	 * Bail if Next Capability pointer in the MSI Capability Structure
+	 * is not the expected incorrect 0x00.
+	 */
+	pci_read_config_byte(pdev, pos + 1, &next_cap);
+	if (next_cap)
+		return;
+
+	/*
+	 * PCIe Capability Structure is expected to be at 0x50 and should
+	 * terminate the list (Next Capability pointer is 0x00).  Verify
+	 * Capability Id and Next Capability pointer is as expected.
+	 * Open-code some of set_pcie_port_type() and pci_cfg_space_size_ext()
+	 * to correctly set kernel data structures which have already been
+	 * set incorrectly due to the hardware bug.
+	 */
+	pos = 0x50;
+	pci_read_config_word(pdev, pos, &reg16);
+	if (reg16 == (0x0000 | PCI_CAP_ID_EXP)) {
+		u32 status;
+#ifndef PCI_EXP_SAVE_REGS
+#define PCI_EXP_SAVE_REGS     7
+#endif
+		int size = PCI_EXP_SAVE_REGS * sizeof(u16);
+
+		pdev->pcie_cap = pos;
+		pci_read_config_word(pdev, pos + PCI_EXP_FLAGS, &reg16);
+		pdev->pcie_flags_reg = reg16;
+		pci_read_config_word(pdev, pos + PCI_EXP_DEVCAP, &reg16);
+		pdev->pcie_mpss = reg16 & PCI_EXP_DEVCAP_PAYLOAD;
+
+		pdev->cfg_size = PCI_CFG_SPACE_EXP_SIZE;
+		if (pci_read_config_dword(pdev, PCI_CFG_SPACE_SIZE, &status) !=
+		    PCIBIOS_SUCCESSFUL || (status == 0xffffffff))
+			pdev->cfg_size = PCI_CFG_SPACE_SIZE;
+
+		if (pci_find_saved_cap(pdev, PCI_CAP_ID_EXP))
+			return;
+
+		/*
+		 * Save PCIE cap
+		 */
+		state = kzalloc(sizeof(*state) + size, GFP_KERNEL);
+		if (!state)
+			return;
+
+		state->cap.cap_nr = PCI_CAP_ID_EXP;
+		state->cap.cap_extended = 0;
+		state->cap.size = size;
+		cap = (u16 *)&state->cap.data[0];
+		pcie_capability_read_word(pdev, PCI_EXP_DEVCTL, &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_LNKCTL, &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_SLTCTL, &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_RTCTL,  &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_LNKCTL2, &cap[i++]);
+		pcie_capability_read_word(pdev, PCI_EXP_SLTCTL2, &cap[i++]);
+		hlist_add_head(&state->next, &pdev->saved_cap_space);
+	}
+}
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x443, quirk_intel_qat_vf_cap);

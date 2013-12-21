@@ -2006,21 +2006,19 @@ struct drm_i915_gem_object {
 	/** Record of address bit 17 of each page at last unbind. */
 	unsigned long *bit_17;
 
-	union {
-		/** for phy allocated objects */
-		struct drm_dma_handle *phys_handle;
-
-		struct i915_gem_userptr {
-			uintptr_t ptr;
-			unsigned read_only :1;
-			unsigned workers :4;
+	struct i915_gem_userptr {
+		uintptr_t ptr;
+		unsigned read_only :1;
+		unsigned workers :4;
 #define I915_GEM_USERPTR_MAX_WORKERS 15
 
-			struct i915_mm_struct *mm;
-			struct i915_mmu_object *mmu_object;
-			struct work_struct *work;
-		} userptr;
-	};
+		struct i915_mm_struct *mm;
+		struct i915_mmu_object *mmu_object;
+		struct work_struct *work;
+	} userptr;
+
+	/** for phys allocated objects */
+	struct drm_dma_handle *phys_handle;
 };
 #define to_intel_bo(x) container_of(x, struct drm_i915_gem_object, base)
 
@@ -3190,15 +3188,14 @@ int intel_freq_opcode(struct drm_i915_private *dev_priv, int val);
 #define I915_READ64(reg)	dev_priv->uncore.funcs.mmio_readq(dev_priv, (reg), true)
 
 #define I915_READ64_2x32(lower_reg, upper_reg) ({			\
-		u32 upper = I915_READ(upper_reg);			\
-		u32 lower = I915_READ(lower_reg);			\
-		u32 tmp = I915_READ(upper_reg);				\
-		if (upper != tmp) {					\
-			upper = tmp;					\
-			lower = I915_READ(lower_reg);			\
-			WARN_ON(I915_READ(upper_reg) != upper);		\
-		}							\
-		(u64)upper << 32 | lower; })
+	u32 upper, lower, old_upper, loop = 0;				\
+	upper = I915_READ(upper_reg);					\
+	do {								\
+		old_upper = upper;					\
+		lower = I915_READ(lower_reg);				\
+		upper = I915_READ(upper_reg);				\
+	} while (upper != old_upper && loop++ < 2);			\
+	(u64)upper << 32 | lower; })
 
 #define POSTING_READ(reg)	(void)I915_READ_NOTRACE(reg)
 #define POSTING_READ16(reg)	(void)I915_READ16_NOTRACE(reg)

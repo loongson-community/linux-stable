@@ -98,6 +98,11 @@ static void kvm_flush_dcache_pud(pud_t pud)
 	__kvm_flush_dcache_pud(pud);
 }
 
+static bool kvm_is_device_pfn(unsigned long pfn)
+{
+	return !pfn_valid(pfn);
+}
+
 /**
  * stage2_dissolve_pmd() - clear and flush huge PMD entry
  * @kvm:	pointer to kvm structure.
@@ -213,7 +218,7 @@ static void unmap_ptes(struct kvm *kvm, pmd_t *pmd,
 			kvm_tlb_flush_vmid_ipa(kvm, addr);
 
 			/* No need to invalidate the cache for device mappings */
-			if ((pte_val(old_pte) & PAGE_S2_DEVICE) != PAGE_S2_DEVICE)
+			if (!kvm_is_device_pfn(pte_pfn(old_pte)))
 				kvm_flush_dcache_pte(old_pte);
 
 			put_page(virt_to_page(pte));
@@ -295,6 +300,14 @@ static void unmap_range(struct kvm *kvm, pgd_t *pgdp,
 		next = kvm_pgd_addr_end(addr, end);
 		if (!pgd_none(*pgd))
 			unmap_puds(kvm, pgd, addr, next);
+		/*
+		 * If we are dealing with a large range in
+		 * stage2 table, release the kvm->mmu_lock
+		 * to prevent starvation and lockup detector
+		 * warnings.
+		 */
+		if (kvm && (next != end))
+			cond_resched_lock(&kvm->mmu_lock);
 	} while (pgd++, addr = next, addr != end);
 }
 
@@ -305,8 +318,7 @@ static void stage2_flush_ptes(struct kvm *kvm, pmd_t *pmd,
 
 	pte = pte_offset_kernel(pmd, addr);
 	do {
-		if (!pte_none(*pte) &&
-		    (pte_val(*pte) & PAGE_S2_DEVICE) != PAGE_S2_DEVICE)
+		if (!pte_none(*pte) && !kvm_is_device_pfn(pte_pfn(*pte)))
 			kvm_flush_dcache_pte(*pte);
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 }
@@ -673,47 +685,16 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 	if (!hwpgd)
 		return -ENOMEM;
 
-	/* When the kernel uses more levels of page tables than the
+	/*
+	 * When the kernel uses more levels of page tables than the
 	 * guest, we allocate a fake PGD and pre-populate it to point
 	 * to the next-level page table, which will be the real
 	 * initial page table pointed to by the VTTBR.
-	 *
-	 * When KVM_PREALLOC_LEVEL==2, we allocate a single page for
-	 * the PMD and the kernel will use folded pud.
-	 * When KVM_PREALLOC_LEVEL==1, we allocate 2 consecutive PUD
-	 * pages.
 	 */
-	if (KVM_PREALLOC_LEVEL > 0) {
-		int i;
-
-		/*
-		 * Allocate fake pgd for the page table manipulation macros to
-		 * work.  This is not used by the hardware and we have no
-		 * alignment requirement for this allocation.
-		 */
-		pgd = (pgd_t *)kmalloc(PTRS_PER_S2_PGD * sizeof(pgd_t),
-				       GFP_KERNEL | __GFP_ZERO);
-
-		if (!pgd) {
-			kvm_free_hwpgd(hwpgd);
-			return -ENOMEM;
-		}
-
-		/* Plug the HW PGD into the fake one. */
-		for (i = 0; i < PTRS_PER_S2_PGD; i++) {
-			if (KVM_PREALLOC_LEVEL == 1)
-				pgd_populate(NULL, pgd + i,
-					     (pud_t *)hwpgd + i * PTRS_PER_PUD);
-			else if (KVM_PREALLOC_LEVEL == 2)
-				pud_populate(NULL, pud_offset(pgd, 0) + i,
-					     (pmd_t *)hwpgd + i * PTRS_PER_PMD);
-		}
-	} else {
-		/*
-		 * Allocate actual first-level Stage-2 page table used by the
-		 * hardware for Stage-2 page table walks.
-		 */
-		pgd = (pgd_t *)hwpgd;
+	pgd = kvm_setup_fake_pgd(hwpgd);
+	if (IS_ERR(pgd)) {
+		kvm_free_hwpgd(hwpgd);
+		return PTR_ERR(pgd);
 	}
 
 	kvm_clean_pgd(pgd);
@@ -734,6 +715,7 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
  */
 static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, u64 size)
 {
+	assert_spin_locked(&kvm->mmu_lock);
 	unmap_range(kvm, kvm->arch.pgd, start, size);
 }
 
@@ -792,6 +774,7 @@ void stage2_unmap_vm(struct kvm *kvm)
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
+	down_read(&current->mm->mmap_sem);
 	spin_lock(&kvm->mmu_lock);
 
 	slots = kvm_memslots(kvm);
@@ -799,6 +782,7 @@ void stage2_unmap_vm(struct kvm *kvm)
 		stage2_unmap_memslot(kvm, memslot);
 
 	spin_unlock(&kvm->mmu_lock);
+	up_read(&current->mm->mmap_sem);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
@@ -818,11 +802,12 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	if (kvm->arch.pgd == NULL)
 		return;
 
+	spin_lock(&kvm->mmu_lock);
 	unmap_stage2_range(kvm, 0, KVM_PHYS_SIZE);
-	kvm_free_hwpgd(kvm_get_hwpgd(kvm));
-	if (KVM_PREALLOC_LEVEL > 0)
-		kfree(kvm->arch.pgd);
+	spin_unlock(&kvm->mmu_lock);
 
+	kvm_free_hwpgd(kvm_get_hwpgd(kvm));
+	kvm_free_fake_pgd(kvm->arch.pgd);
 	kvm->arch.pgd = NULL;
 }
 
@@ -851,6 +836,9 @@ static pmd_t *stage2_get_pmd(struct kvm *kvm, struct kvm_mmu_memory_cache *cache
 	pmd_t *pmd;
 
 	pud = stage2_get_pud(kvm, cache, addr);
+	if (!pud)
+		return NULL;
+
 	if (pud_none(*pud)) {
 		if (!cache)
 			return NULL;
@@ -882,11 +870,14 @@ static int stage2_set_pmd_huge(struct kvm *kvm, struct kvm_mmu_memory_cache
 	VM_BUG_ON(pmd_present(*pmd) && pmd_pfn(*pmd) != pmd_pfn(*new_pmd));
 
 	old_pmd = *pmd;
-	kvm_set_pmd(pmd, *new_pmd);
-	if (pmd_present(old_pmd))
+	if (pmd_present(old_pmd)) {
+		pmd_clear(pmd);
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
-	else
+	} else {
 		get_page(virt_to_page(pmd));
+	}
+
+	kvm_set_pmd(pmd, *new_pmd);
 	return 0;
 }
 
@@ -935,12 +926,14 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
-	kvm_set_pte(pte, *new_pte);
-	if (pte_present(old_pte))
+	if (pte_present(old_pte)) {
+		kvm_set_pte(pte, __pte(0));
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
-	else
+	} else {
 		get_page(virt_to_page(pte));
+	}
 
+	kvm_set_pte(pte, *new_pte);
 	return 0;
 }
 
@@ -1035,11 +1028,6 @@ static bool kvm_is_write_fault(struct kvm_vcpu *vcpu)
 		return false;
 
 	return kvm_vcpu_dabt_iswrite(vcpu);
-}
-
-static bool kvm_is_device_pfn(unsigned long pfn)
-{
-	return !pfn_valid(pfn);
 }
 
 /**
@@ -1431,6 +1419,22 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		}
 
 		/*
+		 * Check for a cache maintenance operation. Since we
+		 * ended-up here, we know it is outside of any memory
+		 * slot. But we can't find out if that is for a device,
+		 * or if the guest is just being stupid. The only thing
+		 * we know for sure is that this range cannot be cached.
+		 *
+		 * So let's assume that the guest is just being
+		 * cautious, and skip the instruction.
+		 */
+		if (kvm_vcpu_dabt_is_cm(vcpu)) {
+			kvm_skip_instr(vcpu, kvm_vcpu_trap_il_is32bit(vcpu));
+			ret = 1;
+			goto out_unlock;
+		}
+
+		/*
 		 * The IPA is reported as [MAX:12], so we need to
 		 * complement it with the bottom 12 bits from the
 		 * faulting VA. This is always 12 bits, irrespective
@@ -1607,12 +1611,16 @@ static int kvm_test_age_hva_handler(struct kvm *kvm, gpa_t gpa, void *data)
 
 int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
 {
+	if (!kvm->arch.pgd)
+		return 0;
 	trace_kvm_age_hva(start, end);
 	return handle_hva_to_gpa(kvm, start, end, kvm_age_hva_handler, NULL);
 }
 
 int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
 {
+	if (!kvm->arch.pgd)
+		return 0;
 	trace_kvm_test_age_hva(hva);
 	return handle_hva_to_gpa(kvm, hva, hva, kvm_test_age_hva_handler, NULL);
 }
@@ -1753,6 +1761,7 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	    (KVM_PHYS_SIZE >> PAGE_SHIFT))
 		return -EFAULT;
 
+	down_read(&current->mm->mmap_sem);
 	/*
 	 * A memory region could potentially cover multiple VMAs, and any holes
 	 * between them, so iterate over all of them to find out if we can map
@@ -1790,12 +1799,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		if (vma->vm_flags & VM_PFNMAP) {
 			gpa_t gpa = mem->guest_phys_addr +
 				    (vm_start - mem->userspace_addr);
-			phys_addr_t pa = (vma->vm_pgoff << PAGE_SHIFT) +
-					 vm_start - vma->vm_start;
+			phys_addr_t pa;
+
+			pa = (phys_addr_t)vma->vm_pgoff << PAGE_SHIFT;
+			pa += vm_start - vma->vm_start;
 
 			/* IO region dirty page logging not allowed */
-			if (memslot->flags & KVM_MEM_LOG_DIRTY_PAGES)
-				return -EINVAL;
+			if (memslot->flags & KVM_MEM_LOG_DIRTY_PAGES) {
+				ret = -EINVAL;
+				goto out;
+			}
 
 			ret = kvm_phys_addr_ioremap(kvm, gpa, pa,
 						    vm_end - vm_start,
@@ -1807,7 +1820,7 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	} while (hva < reg_end);
 
 	if (change == KVM_MR_FLAGS_ONLY)
-		return ret;
+		goto out;
 
 	spin_lock(&kvm->mmu_lock);
 	if (ret)
@@ -1815,6 +1828,8 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	else
 		stage2_flush_memslot(kvm, memslot);
 	spin_unlock(&kvm->mmu_lock);
+out:
+	up_read(&current->mm->mmap_sem);
 	return ret;
 }
 
@@ -1844,6 +1859,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm)
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)
 {
+	kvm_free_stage2_pgd(kvm);
 }
 
 void kvm_arch_flush_shadow_memslot(struct kvm *kvm,

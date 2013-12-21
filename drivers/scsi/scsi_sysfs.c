@@ -859,7 +859,7 @@ sdev_store_queue_depth(struct device *dev, struct device_attribute *attr,
 
 	depth = simple_strtoul(buf, NULL, 0);
 
-	if (depth < 1 || depth > sht->can_queue)
+	if (depth < 1 || depth > sdev->host->can_queue)
 		return -EINVAL;
 
 	retval = sht->change_queue_depth(sdev, depth);
@@ -1004,10 +1004,6 @@ int scsi_sysfs_add_sdev(struct scsi_device *sdev)
 	int error, i;
 	struct request_queue *rq = sdev->request_queue;
 	struct scsi_target *starget = sdev->sdev_target;
-
-	error = scsi_device_set_state(sdev, SDEV_RUNNING);
-	if (error)
-		return error;
 
 	error = scsi_target_add(starget);
 	if (error)

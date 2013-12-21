@@ -149,8 +149,6 @@
 #define ST_ACCEL_4_BDU_MASK			0x40
 #define ST_ACCEL_4_DRDY_IRQ_ADDR		0x21
 #define ST_ACCEL_4_DRDY_IRQ_INT1_MASK		0x04
-#define ST_ACCEL_4_IG1_EN_ADDR			0x21
-#define ST_ACCEL_4_IG1_EN_MASK			0x08
 #define ST_ACCEL_4_MULTIREAD_BIT		true
 
 static const struct iio_chan_spec st_accel_12bit_channels[] = {
@@ -446,10 +444,6 @@ static const struct st_sensor_settings st_accel_sensors_settings[] = {
 		.drdy_irq = {
 			.addr = ST_ACCEL_4_DRDY_IRQ_ADDR,
 			.mask_int1 = ST_ACCEL_4_DRDY_IRQ_INT1_MASK,
-			.ig1 = {
-				.en_addr = ST_ACCEL_4_IG1_EN_ADDR,
-				.en_mask = ST_ACCEL_4_IG1_EN_MASK,
-			},
 		},
 		.multi_read_bit = ST_ACCEL_4_MULTIREAD_BIT,
 		.bootime = 2, /* guess */
@@ -541,6 +535,8 @@ static const struct iio_trigger_ops st_accel_trigger_ops = {
 int st_accel_common_probe(struct iio_dev *indio_dev)
 {
 	struct st_sensor_data *adata = iio_priv(indio_dev);
+	struct st_sensors_platform_data *pdata =
+		(struct st_sensors_platform_data *)adata->dev->platform_data;
 	int irq = adata->get_irq_data_ready(indio_dev);
 	int err;
 
@@ -565,11 +561,10 @@ int st_accel_common_probe(struct iio_dev *indio_dev)
 					&adata->sensor_settings->fs.fs_avl[0];
 	adata->odr = adata->sensor_settings->odr.odr_avl[0].hz;
 
-	if (!adata->dev->platform_data)
-		adata->dev->platform_data =
-			(struct st_sensors_platform_data *)&default_accel_pdata;
+	if (!pdata)
+		pdata = (struct st_sensors_platform_data *)&default_accel_pdata;
 
-	err = st_sensors_init_sensor(indio_dev, adata->dev->platform_data);
+	err = st_sensors_init_sensor(indio_dev, pdata);
 	if (err < 0)
 		return err;
 

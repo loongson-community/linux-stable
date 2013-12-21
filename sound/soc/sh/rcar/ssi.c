@@ -39,6 +39,7 @@
 #define	SCKP		(1 << 13)	/* Serial Bit Clock Polarity */
 #define	SWSP		(1 << 12)	/* Serial WS Polarity */
 #define	SDTA		(1 << 10)	/* Serial Data Alignment */
+#define	PDTA		(1 <<  9)	/* Parallel Data Alignment */
 #define	DEL		(1 <<  8)	/* Serial Data Delay */
 #define	CKDV(v)		(v <<  4)	/* Serial Clock Division Ratio */
 #define	TRMD		(1 <<  1)	/* Transmit/Receive Mode Select */
@@ -278,7 +279,7 @@ static int rsnd_ssi_init(struct rsnd_mod *mod,
 	struct snd_pcm_runtime *runtime = rsnd_io_to_runtime(io);
 	u32 cr;
 
-	cr = FORCE;
+	cr = FORCE | PDTA;
 
 	/*
 	 * always use 32bit system word for easy clock calculation.
@@ -395,6 +396,13 @@ static irqreturn_t rsnd_ssi_interrupt(int irq, void *data)
 		struct snd_pcm_runtime *runtime = rsnd_io_to_runtime(io);
 		u32 *buf = (u32 *)(runtime->dma_area +
 				   rsnd_dai_pointer_offset(io, 0));
+		int shift = 0;
+
+		switch (runtime->sample_bits) {
+		case 32:
+			shift = 8;
+			break;
+		}
 
 		/*
 		 * 8/16/32 data can be assesse to TDR/RDR register
@@ -402,9 +410,9 @@ static irqreturn_t rsnd_ssi_interrupt(int irq, void *data)
 		 * see rsnd_ssi_init()
 		 */
 		if (rsnd_io_is_play(io))
-			rsnd_mod_write(mod, SSITDR, *buf);
+			rsnd_mod_write(mod, SSITDR, (*buf) << shift);
 		else
-			*buf = rsnd_mod_read(mod, SSIRDR);
+			*buf = (rsnd_mod_read(mod, SSIRDR) >> shift);
 
 		rsnd_dai_pointer_update(io, sizeof(*buf));
 	}

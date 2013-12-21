@@ -57,6 +57,9 @@ static DEFINE_MUTEX(mce_chrdev_read_mutex);
 			      rcu_read_lock_sched_held() || \
 			      lockdep_is_held(&mce_chrdev_read_mutex))
 
+/* sysfs synchronization */
+static DEFINE_MUTEX(mce_sysfs_mutex);
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/mce.h>
 
@@ -107,7 +110,8 @@ DEFINE_PER_CPU(mce_banks_t, mce_poll_banks) = {
  */
 mce_banks_t mce_banks_ce_disabled;
 
-static DEFINE_PER_CPU(struct work_struct, mce_work);
+static struct work_struct mce_work;
+static struct irq_work mce_irq_work;
 
 static void (*quirk_no_way_out)(int bank, struct mce *m, struct pt_regs *regs);
 
@@ -523,10 +527,8 @@ int mce_available(struct cpuinfo_x86 *c)
 static void mce_schedule_work(void)
 {
 	if (!mce_ring_empty())
-		schedule_work(this_cpu_ptr(&mce_work));
+		schedule_work(&mce_work);
 }
-
-static DEFINE_PER_CPU(struct irq_work, mce_irq_work);
 
 static void mce_irq_work_cb(struct irq_work *entry)
 {
@@ -548,7 +550,7 @@ static void mce_report_event(struct pt_regs *regs)
 		return;
 	}
 
-	irq_work_queue(this_cpu_ptr(&mce_irq_work));
+	irq_work_queue(&mce_irq_work);
 }
 
 /*
@@ -1707,8 +1709,6 @@ void mcheck_cpu_init(struct cpuinfo_x86 *c)
 	__mcheck_cpu_init_generic();
 	__mcheck_cpu_init_vendor(c);
 	__mcheck_cpu_init_timer();
-	INIT_WORK(this_cpu_ptr(&mce_work), mce_process_work);
-	init_irq_work(this_cpu_ptr(&mce_irq_work), &mce_irq_work_cb);
 }
 
 /*
@@ -2029,6 +2029,9 @@ int __init mcheck_init(void)
 	mcheck_intel_therm_init();
 	mcheck_vendor_init_severity();
 
+	INIT_WORK(&mce_work, mce_process_work);
+	init_irq_work(&mce_irq_work, mce_irq_work_cb);
+
 	return 0;
 }
 
@@ -2183,6 +2186,7 @@ static ssize_t set_ignore_ce(struct device *s,
 	if (kstrtou64(buf, 0, &new) < 0)
 		return -EINVAL;
 
+	mutex_lock(&mce_sysfs_mutex);
 	if (mca_cfg.ignore_ce ^ !!new) {
 		if (new) {
 			/* disable ce features */
@@ -2195,6 +2199,8 @@ static ssize_t set_ignore_ce(struct device *s,
 			on_each_cpu(mce_enable_ce, (void *)1, 1);
 		}
 	}
+	mutex_unlock(&mce_sysfs_mutex);
+
 	return size;
 }
 
@@ -2207,6 +2213,7 @@ static ssize_t set_cmci_disabled(struct device *s,
 	if (kstrtou64(buf, 0, &new) < 0)
 		return -EINVAL;
 
+	mutex_lock(&mce_sysfs_mutex);
 	if (mca_cfg.cmci_disabled ^ !!new) {
 		if (new) {
 			/* disable cmci */
@@ -2218,6 +2225,8 @@ static ssize_t set_cmci_disabled(struct device *s,
 			on_each_cpu(mce_enable_ce, NULL, 1);
 		}
 	}
+	mutex_unlock(&mce_sysfs_mutex);
+
 	return size;
 }
 
@@ -2225,8 +2234,19 @@ static ssize_t store_int_with_restart(struct device *s,
 				      struct device_attribute *attr,
 				      const char *buf, size_t size)
 {
-	ssize_t ret = device_store_int(s, attr, buf, size);
+	unsigned long old_check_interval = check_interval;
+	ssize_t ret = device_store_ulong(s, attr, buf, size);
+
+	if (check_interval == old_check_interval)
+		return ret;
+
+	if (check_interval < 1)
+		check_interval = 1;
+
+	mutex_lock(&mce_sysfs_mutex);
 	mce_restart();
+	mutex_unlock(&mce_sysfs_mutex);
+
 	return ret;
 }
 

@@ -20,6 +20,7 @@
 #include <linux/uio.h>
 #include <linux/audit.h>
 #include <linux/pid_namespace.h>
+#include <linux/user_namespace.h>
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 #include <linux/regset.h>
@@ -28,17 +29,26 @@
 #include <linux/compat.h>
 
 
+void __ptrace_link(struct task_struct *child, struct task_struct *new_parent,
+		   const struct cred *ptracer_cred)
+{
+	BUG_ON(!list_empty(&child->ptrace_entry));
+	list_add(&child->ptrace_entry, &new_parent->ptraced);
+	child->parent = new_parent;
+	child->ptracer_cred = get_cred(ptracer_cred);
+}
+
 /*
  * ptrace a task: make the debugger its new parent and
  * move it to the ptrace list.
  *
  * Must be called with the tasklist lock write-held.
  */
-void __ptrace_link(struct task_struct *child, struct task_struct *new_parent)
+static void ptrace_link(struct task_struct *child, struct task_struct *new_parent)
 {
-	BUG_ON(!list_empty(&child->ptrace_entry));
-	list_add(&child->ptrace_entry, &new_parent->ptraced);
-	child->parent = new_parent;
+	rcu_read_lock();
+	__ptrace_link(child, new_parent, __task_cred(new_parent));
+	rcu_read_unlock();
 }
 
 /**
@@ -71,11 +81,15 @@ void __ptrace_link(struct task_struct *child, struct task_struct *new_parent)
  */
 void __ptrace_unlink(struct task_struct *child)
 {
+	const struct cred *old_cred;
 	BUG_ON(!child->ptrace);
 
 	child->ptrace = 0;
 	child->parent = child->real_parent;
 	list_del_init(&child->ptrace_entry);
+	old_cred = child->ptracer_cred;
+	child->ptracer_cred = NULL;
+	put_cred(old_cred);
 
 	spin_lock(&child->sighand->siglock);
 
@@ -144,11 +158,17 @@ static void ptrace_unfreeze_traced(struct task_struct *task)
 
 	WARN_ON(!task->ptrace || task->parent != current);
 
+	/*
+	 * PTRACE_LISTEN can allow ptrace_trap_notify to wake us up remotely.
+	 * Recheck state under the lock to close this race.
+	 */
 	spin_lock_irq(&task->sighand->siglock);
-	if (__fatal_signal_pending(task))
-		wake_up_state(task, __TASK_TRACED);
-	else
-		task->state = TASK_TRACED;
+	if (task->state == __TASK_TRACED) {
+		if (__fatal_signal_pending(task))
+			wake_up_state(task, __TASK_TRACED);
+		else
+			task->state = TASK_TRACED;
+	}
 	spin_unlock_irq(&task->sighand->siglock);
 }
 
@@ -207,18 +227,48 @@ static int ptrace_check_attach(struct task_struct *child, bool ignore_state)
 	return ret;
 }
 
-static int ptrace_has_cap(struct user_namespace *ns, unsigned int mode)
+static bool ptrace_has_cap(const struct cred *tcred, unsigned int mode)
 {
+	struct user_namespace *tns = tcred->user_ns;
+
+	/* When a root-owned process enters a user namespace created by a
+	 * malicious user, the user shouldn't be able to execute code under
+	 * uid 0 by attaching to the root-owned process via ptrace.
+	 * Therefore, similar to the capable_wrt_inode_uidgid() check,
+	 * verify that all the uids and gids of the target process are
+	 * mapped into a namespace below the current one in which the caller
+	 * is capable.
+	 * No fsuid/fsgid check because __ptrace_may_access doesn't do it
+	 * either.
+	 */
+	while (
+	    !kuid_has_mapping(tns, tcred->euid) ||
+	    !kuid_has_mapping(tns, tcred->suid) ||
+	    !kuid_has_mapping(tns, tcred->uid)  ||
+	    !kgid_has_mapping(tns, tcred->egid) ||
+	    !kgid_has_mapping(tns, tcred->sgid) ||
+	    !kgid_has_mapping(tns, tcred->gid)) {
+		tns = tns->parent;
+	}
+
 	if (mode & PTRACE_MODE_NOAUDIT)
-		return has_ns_capability_noaudit(current, ns, CAP_SYS_PTRACE);
+		return has_ns_capability_noaudit(current, tns, CAP_SYS_PTRACE);
 	else
-		return has_ns_capability(current, ns, CAP_SYS_PTRACE);
+		return has_ns_capability(current, tns, CAP_SYS_PTRACE);
 }
 
 /* Returns 0 on success, -errno on denial. */
 static int __ptrace_may_access(struct task_struct *task, unsigned int mode)
 {
 	const struct cred *cred = current_cred(), *tcred;
+	int dumpable = 0;
+	kuid_t caller_uid;
+	kgid_t caller_gid;
+
+	if (!(mode & PTRACE_MODE_FSCREDS) == !(mode & PTRACE_MODE_REALCREDS)) {
+		WARN(1, "denying ptrace access check without PTRACE_MODE_*CREDS\n");
+		return -EPERM;
+	}
 
 	/* May we inspect the given task?
 	 * This check is used both for attaching with ptrace
@@ -228,20 +278,35 @@ static int __ptrace_may_access(struct task_struct *task, unsigned int mode)
 	 * because setting up the necessary parent/child relationship
 	 * or halting the specified task is impossible.
 	 */
-	int dumpable = 0;
+
 	/* Don't let security modules deny introspection */
 	if (same_thread_group(task, current))
 		return 0;
 	rcu_read_lock();
+	if (mode & PTRACE_MODE_FSCREDS) {
+		caller_uid = cred->fsuid;
+		caller_gid = cred->fsgid;
+	} else {
+		/*
+		 * Using the euid would make more sense here, but something
+		 * in userland might rely on the old behavior, and this
+		 * shouldn't be a security problem since
+		 * PTRACE_MODE_REALCREDS implies that the caller explicitly
+		 * used a syscall that requests access to another process
+		 * (and not a filesystem syscall to procfs).
+		 */
+		caller_uid = cred->uid;
+		caller_gid = cred->gid;
+	}
 	tcred = __task_cred(task);
-	if (uid_eq(cred->uid, tcred->euid) &&
-	    uid_eq(cred->uid, tcred->suid) &&
-	    uid_eq(cred->uid, tcred->uid)  &&
-	    gid_eq(cred->gid, tcred->egid) &&
-	    gid_eq(cred->gid, tcred->sgid) &&
-	    gid_eq(cred->gid, tcred->gid))
+	if (uid_eq(caller_uid, tcred->euid) &&
+	    uid_eq(caller_uid, tcred->suid) &&
+	    uid_eq(caller_uid, tcred->uid)  &&
+	    gid_eq(caller_gid, tcred->egid) &&
+	    gid_eq(caller_gid, tcred->sgid) &&
+	    gid_eq(caller_gid, tcred->gid))
 		goto ok;
-	if (ptrace_has_cap(tcred->user_ns, mode))
+	if (ptrace_has_cap(tcred, mode))
 		goto ok;
 	rcu_read_unlock();
 	return -EPERM;
@@ -252,7 +317,7 @@ ok:
 		dumpable = get_dumpable(task->mm);
 	rcu_read_lock();
 	if (dumpable != SUID_DUMP_USER &&
-	    !ptrace_has_cap(__task_cred(task)->user_ns, mode)) {
+	    !ptrace_has_cap(__task_cred(task), mode)) {
 		rcu_read_unlock();
 		return -EPERM;
 	}
@@ -306,7 +371,7 @@ static int ptrace_attach(struct task_struct *task, long request,
 		goto out;
 
 	task_lock(task);
-	retval = __ptrace_may_access(task, PTRACE_MODE_ATTACH);
+	retval = __ptrace_may_access(task, PTRACE_MODE_ATTACH_REALCREDS);
 	task_unlock(task);
 	if (retval)
 		goto unlock_creds;
@@ -320,13 +385,9 @@ static int ptrace_attach(struct task_struct *task, long request,
 
 	if (seize)
 		flags |= PT_SEIZED;
-	rcu_read_lock();
-	if (ns_capable(__task_cred(task)->user_ns, CAP_SYS_PTRACE))
-		flags |= PT_PTRACE_CAP;
-	rcu_read_unlock();
 	task->ptrace = flags;
 
-	__ptrace_link(task, current);
+	ptrace_link(task, current);
 
 	/* SEIZE doesn't trap tracee on attach */
 	if (!seize)
@@ -393,7 +454,7 @@ static int ptrace_traceme(void)
 		 */
 		if (!ret && !(current->real_parent->flags & PF_EXITING)) {
 			current->ptrace = PT_PTRACED;
-			__ptrace_link(current, current->real_parent);
+			ptrace_link(current, current->real_parent);
 		}
 	}
 	write_unlock_irq(&tasklist_lock);

@@ -250,8 +250,27 @@ static void cppi41_dma_callback(void *private_data)
 			transferred < cppi41_channel->packet_sz)
 		cppi41_channel->prog_len = 0;
 
-	if (cppi41_channel->is_tx)
-		empty = musb_is_tx_fifo_empty(hw_ep);
+	if (cppi41_channel->is_tx) {
+		u8 type;
+
+		if (is_host_active(musb))
+			type = hw_ep->out_qh->type;
+		else
+			type = hw_ep->ep_in.type;
+
+		if (type == USB_ENDPOINT_XFER_ISOC)
+			/*
+			 * Don't use the early-TX-interrupt workaround below
+			 * for Isoch transfter. Since Isoch are periodic
+			 * transfer, by the time the next transfer is
+			 * scheduled, the current one should be done already.
+			 *
+			 * This avoids audio playback underrun issue.
+			 */
+			empty = true;
+		else
+			empty = musb_is_tx_fifo_empty(hw_ep);
+	}
 
 	if (!cppi41_channel->is_tx || empty) {
 		cppi41_trans_done(cppi41_channel);
@@ -614,7 +633,7 @@ static int cppi41_dma_controller_start(struct cppi41_dma_controller *controller)
 {
 	struct musb *musb = controller->musb;
 	struct device *dev = musb->controller;
-	struct device_node *np = dev->of_node;
+	struct device_node *np = dev->parent->of_node;
 	struct cppi41_dma_channel *cppi41_channel;
 	int count;
 	int i;
@@ -664,7 +683,7 @@ static int cppi41_dma_controller_start(struct cppi41_dma_controller *controller)
 		musb_dma->status = MUSB_DMA_STATUS_FREE;
 		musb_dma->max_len = SZ_4M;
 
-		dc = dma_request_slave_channel(dev, str);
+		dc = dma_request_slave_channel(dev->parent, str);
 		if (!dc) {
 			dev_err(dev, "Failed to request %s.\n", str);
 			ret = -EPROBE_DEFER;
@@ -694,7 +713,7 @@ struct dma_controller *dma_controller_create(struct musb *musb,
 	struct cppi41_dma_controller *controller;
 	int ret = 0;
 
-	if (!musb->controller->of_node) {
+	if (!musb->controller->parent->of_node) {
 		dev_err(musb->controller, "Need DT for the DMA engine.\n");
 		return NULL;
 	}

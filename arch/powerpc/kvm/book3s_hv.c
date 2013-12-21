@@ -210,6 +210,12 @@ static void kvmppc_core_vcpu_put_hv(struct kvm_vcpu *vcpu)
 
 static void kvmppc_set_msr_hv(struct kvm_vcpu *vcpu, u64 msr)
 {
+	/*
+	 * Check for illegal transactional state bit combination
+	 * and if we find it, force the TS field to a safe state.
+	 */
+	if ((msr & MSR_TS_MASK) == MSR_TS_MASK)
+		msr &= ~MSR_TS_MASK;
 	vcpu->arch.shregs.msr = msr;
 	kvmppc_end_cede(vcpu);
 }
@@ -1165,6 +1171,9 @@ static int kvmppc_get_one_reg_hv(struct kvm_vcpu *vcpu, u64 id,
 	case KVM_REG_PPC_TM_CR:
 		*val = get_reg_val(id, vcpu->arch.cr_tm);
 		break;
+	case KVM_REG_PPC_TM_XER:
+		*val = get_reg_val(id, vcpu->arch.xer_tm);
+		break;
 	case KVM_REG_PPC_TM_LR:
 		*val = get_reg_val(id, vcpu->arch.lr_tm);
 		break;
@@ -1371,6 +1380,9 @@ static int kvmppc_set_one_reg_hv(struct kvm_vcpu *vcpu, u64 id,
 	}
 	case KVM_REG_PPC_TM_CR:
 		vcpu->arch.cr_tm = set_reg_val(id, *val);
+		break;
+	case KVM_REG_PPC_TM_XER:
+		vcpu->arch.xer_tm = set_reg_val(id, *val);
 		break;
 	case KVM_REG_PPC_TM_LR:
 		vcpu->arch.lr_tm = set_reg_val(id, *val);
@@ -2178,7 +2190,7 @@ static int kvmppc_run_vcpu(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 		vc->runner = vcpu;
 		if (n_ceded == vc->n_runnable) {
 			kvmppc_vcore_blocked(vc);
-		} else if (should_resched()) {
+		} else if (need_resched()) {
 			vc->vcore_state = VCORE_PREEMPT;
 			/* Let something else run */
 			cond_resched_lock(&vc->lock);
@@ -2220,11 +2232,36 @@ static int kvmppc_vcpu_run_hv(struct kvm_run *run, struct kvm_vcpu *vcpu)
 {
 	int r;
 	int srcu_idx;
+	unsigned long ebb_regs[3] = {};	/* shut up GCC */
+	unsigned long user_tar = 0;
+	unsigned long proc_fscr = 0;
+	unsigned int user_vrsave;
 
 	if (!vcpu->arch.sane) {
 		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		return -EINVAL;
 	}
+
+	/*
+	 * Don't allow entry with a suspended transaction, because
+	 * the guest entry/exit code will lose it.
+	 * If the guest has TM enabled, save away their TM-related SPRs
+	 * (they will get restored by the TM unavailable interrupt).
+	 */
+#ifdef CONFIG_PPC_TRANSACTIONAL_MEM
+	if (cpu_has_feature(CPU_FTR_TM) && current->thread.regs &&
+	    (current->thread.regs->msr & MSR_TM)) {
+		if (MSR_TM_ACTIVE(current->thread.regs->msr)) {
+			run->exit_reason = KVM_EXIT_FAIL_ENTRY;
+			run->fail_entry.hardware_entry_failure_reason = 0;
+			return -EINVAL;
+		}
+		current->thread.tm_tfhar = mfspr(SPRN_TFHAR);
+		current->thread.tm_tfiar = mfspr(SPRN_TFIAR);
+		current->thread.tm_texasr = mfspr(SPRN_TEXASR);
+		current->thread.regs->msr &= ~MSR_TM;
+	}
+#endif
 
 	kvmppc_core_prepare_to_enter(vcpu);
 
@@ -2248,6 +2285,17 @@ static int kvmppc_vcpu_run_hv(struct kvm_run *run, struct kvm_vcpu *vcpu)
 	flush_fp_to_thread(current);
 	flush_altivec_to_thread(current);
 	flush_vsx_to_thread(current);
+
+	/* Save userspace EBB and other register values */
+	if (cpu_has_feature(CPU_FTR_ARCH_207S)) {
+		ebb_regs[0] = mfspr(SPRN_EBBHR);
+		ebb_regs[1] = mfspr(SPRN_EBBRR);
+		ebb_regs[2] = mfspr(SPRN_BESCR);
+		user_tar = mfspr(SPRN_TAR);
+		proc_fscr = mfspr(SPRN_FSCR);
+	}
+	user_vrsave = mfspr(SPRN_VRSAVE);
+
 	vcpu->arch.wqp = &vcpu->arch.vcore->wq;
 	vcpu->arch.pgdir = current->mm->pgd;
 	vcpu->arch.state = KVMPPC_VCPU_BUSY_IN_HOST;
@@ -2268,6 +2316,16 @@ static int kvmppc_vcpu_run_hv(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			srcu_read_unlock(&vcpu->kvm->srcu, srcu_idx);
 		}
 	} while (is_kvmppc_resume_guest(r));
+
+	/* Restore userspace EBB and other register values */
+	if (cpu_has_feature(CPU_FTR_ARCH_207S)) {
+		mtspr(SPRN_EBBHR, ebb_regs[0]);
+		mtspr(SPRN_EBBRR, ebb_regs[1]);
+		mtspr(SPRN_BESCR, ebb_regs[2]);
+		mtspr(SPRN_TAR, user_tar);
+		mtspr(SPRN_FSCR, proc_fscr);
+	}
+	mtspr(SPRN_VRSAVE, user_vrsave);
 
  out:
 	vcpu->arch.state = KVMPPC_VCPU_NOTREADY;

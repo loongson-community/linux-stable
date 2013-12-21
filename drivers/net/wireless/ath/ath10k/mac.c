@@ -3118,7 +3118,8 @@ static int ath10k_mac_txpower_recalc(struct ath10k *ar)
 	lockdep_assert_held(&ar->conf_mutex);
 
 	list_for_each_entry(arvif, &ar->arvifs, list) {
-		WARN_ON(arvif->txpower < 0);
+		if (arvif->txpower <= 0)
+			continue;
 
 		if (txpower == -1)
 			txpower = arvif->txpower;
@@ -3126,8 +3127,8 @@ static int ath10k_mac_txpower_recalc(struct ath10k *ar)
 			txpower = min(txpower, arvif->txpower);
 	}
 
-	if (WARN_ON(txpower == -1))
-		return -EINVAL;
+	if (txpower == -1)
+		return 0;
 
 	ret = ath10k_mac_txpower_setup(ar, txpower);
 	if (ret) {
@@ -3183,7 +3184,7 @@ static int ath10k_config(struct ieee80211_hw *hw, u32 changed)
 
 static u32 get_nss_from_chainmask(u16 chain_mask)
 {
-	if ((chain_mask & 0x15) == 0x15)
+	if ((chain_mask & 0xf) == 0xf)
 		return 4;
 	else if ((chain_mask & 0x7) == 0x7)
 		return 3;
@@ -3329,7 +3330,10 @@ static int ath10k_add_interface(struct ieee80211_hw *hw,
 		goto err_vdev_delete;
 	}
 
-	if (ar->cfg_tx_chainmask) {
+	/* Configuring number of spatial stream for monitor interface is causing
+	 * target assert in qca9888 and qca6174.
+	 */
+	if (ar->cfg_tx_chainmask && (vif->type != NL80211_IFTYPE_MONITOR)) {
 		u16 nss = get_nss_from_chainmask(ar->cfg_tx_chainmask);
 
 		vdev_param = ar->wmi.vdev_param->nss;
@@ -3997,9 +4001,8 @@ static void ath10k_sta_rc_update_wk(struct work_struct *wk)
 				    sta->addr, smps, err);
 	}
 
-	if (changed & IEEE80211_RC_SUPP_RATES_CHANGED ||
-	    changed & IEEE80211_RC_NSS_CHANGED) {
-		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac update sta %pM supp rates/nss\n",
+	if (changed & IEEE80211_RC_SUPP_RATES_CHANGED) {
+		ath10k_dbg(ar, ATH10K_DBG_MAC, "mac update sta %pM supp rates\n",
 			   sta->addr);
 
 		err = ath10k_station_assoc(ar, arvif->vif, sta, true);
@@ -4462,6 +4465,21 @@ static int ath10k_set_rts_threshold(struct ieee80211_hw *hw, u32 value)
 	mutex_unlock(&ar->conf_mutex);
 
 	return ret;
+}
+
+static int ath10k_mac_op_set_frag_threshold(struct ieee80211_hw *hw, u32 value)
+{
+	/* Even though there's a WMI enum for fragmentation threshold no known
+	 * firmware actually implements it. Moreover it is not possible to rely
+	 * frame fragmentation to mac80211 because firmware clears the "more
+	 * fragments" bit in frame control making it impossible for remote
+	 * devices to reassemble frames.
+	 *
+	 * Hence implement a dummy callback just to say fragmentation isn't
+	 * supported. This effectively prevents mac80211 from doing frame
+	 * fragmentation in software.
+	 */
+	return -EOPNOTSUPP;
 }
 
 static void ath10k_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
@@ -5108,6 +5126,7 @@ static const struct ieee80211_ops ath10k_ops = {
 	.remain_on_channel		= ath10k_remain_on_channel,
 	.cancel_remain_on_channel	= ath10k_cancel_remain_on_channel,
 	.set_rts_threshold		= ath10k_set_rts_threshold,
+	.set_frag_threshold		= ath10k_mac_op_set_frag_threshold,
 	.flush				= ath10k_flush,
 	.tx_last_beacon			= ath10k_tx_last_beacon,
 	.set_antenna			= ath10k_set_antenna,

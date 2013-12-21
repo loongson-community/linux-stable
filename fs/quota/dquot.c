@@ -1393,7 +1393,7 @@ static int dquot_active(const struct inode *inode)
 static void __dquot_initialize(struct inode *inode, int type)
 {
 	int cnt, init_needed = 0;
-	struct dquot **dquots, *got[MAXQUOTAS];
+	struct dquot **dquots, *got[MAXQUOTAS] = {};
 	struct super_block *sb = inode->i_sb;
 	qsize_t rsv;
 
@@ -1408,7 +1408,6 @@ static void __dquot_initialize(struct inode *inode, int type)
 		kprojid_t projid;
 		int rc;
 
-		got[cnt] = NULL;
 		if (type != -1 && cnt != type)
 			continue;
 		/*
@@ -2882,7 +2881,8 @@ static int __init dquot_init(void)
 	pr_info("VFS: Dquot-cache hash table entries: %ld (order %ld,"
 		" %ld bytes)\n", nr_hash, order, (PAGE_SIZE << order));
 
-	register_shrinker(&dqcache_shrinker);
+	if (register_shrinker(&dqcache_shrinker))
+		panic("Cannot register dquot shrinker");
 
 	return 0;
 }

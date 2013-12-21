@@ -273,12 +273,13 @@ static int parse_reply_info_extra(void **p, void *end,
 				  struct ceph_mds_reply_info_parsed *info,
 				  u64 features)
 {
-	if (info->head->op == CEPH_MDS_OP_GETFILELOCK)
+	u32 op = le32_to_cpu(info->head->op);
+
+	if (op == CEPH_MDS_OP_GETFILELOCK)
 		return parse_reply_info_filelock(p, end, info, features);
-	else if (info->head->op == CEPH_MDS_OP_READDIR ||
-		 info->head->op == CEPH_MDS_OP_LSSNAP)
+	else if (op == CEPH_MDS_OP_READDIR || op == CEPH_MDS_OP_LSSNAP)
 		return parse_reply_info_dir(p, end, info, features);
-	else if (info->head->op == CEPH_MDS_OP_CREATE)
+	else if (op == CEPH_MDS_OP_CREATE)
 		return parse_reply_info_create(p, end, info, features);
 	else
 		return -EIO;
@@ -1802,13 +1803,18 @@ static int build_dentry_path(struct dentry *dentry,
 			     int *pfreepath)
 {
 	char *path;
+	struct inode *dir;
 
-	if (ceph_snap(d_inode(dentry->d_parent)) == CEPH_NOSNAP) {
-		*pino = ceph_ino(d_inode(dentry->d_parent));
+	rcu_read_lock();
+	dir = d_inode_rcu(dentry->d_parent);
+	if (dir && ceph_snap(dir) == CEPH_NOSNAP) {
+		*pino = ceph_ino(dir);
+		rcu_read_unlock();
 		*ppath = dentry->d_name.name;
 		*ppathlen = dentry->d_name.len;
 		return 0;
 	}
+	rcu_read_unlock();
 	path = ceph_mdsc_build_path(dentry, ppathlen, pino, 1);
 	if (IS_ERR(path))
 		return PTR_ERR(path);
@@ -1905,7 +1911,7 @@ static struct ceph_msg *create_request_message(struct ceph_mds_client *mdsc,
 
 	len = sizeof(*head) +
 		pathlen1 + pathlen2 + 2*(1 + sizeof(u32) + sizeof(u64)) +
-		sizeof(struct timespec);
+		sizeof(struct ceph_timespec);
 
 	/* calculate (max) length for cap releases */
 	len += sizeof(struct ceph_mds_request_release) *

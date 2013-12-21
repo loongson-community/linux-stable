@@ -198,6 +198,49 @@ static inline unsigned int kvm_get_hwpgd_size(void)
 	return PTRS_PER_S2_PGD * sizeof(pgd_t);
 }
 
+/*
+ * Allocate fake pgd for the host kernel page table macros to work.
+ * This is not used by the hardware and we have no alignment
+ * requirement for this allocation.
+ */
+static inline pgd_t *kvm_setup_fake_pgd(pgd_t *hwpgd)
+{
+	int i;
+	pgd_t *pgd;
+
+	if (!KVM_PREALLOC_LEVEL)
+		return hwpgd;
+
+	/*
+	 * When KVM_PREALLOC_LEVEL==2, we allocate a single page for
+	 * the PMD and the kernel will use folded pud.
+	 * When KVM_PREALLOC_LEVEL==1, we allocate 2 consecutive PUD
+	 * pages.
+	 */
+
+	pgd = kmalloc(PTRS_PER_S2_PGD * sizeof(pgd_t),
+			GFP_KERNEL | __GFP_ZERO);
+	if (!pgd)
+		return ERR_PTR(-ENOMEM);
+
+	/* Plug the HW PGD into the fake one. */
+	for (i = 0; i < PTRS_PER_S2_PGD; i++) {
+		if (KVM_PREALLOC_LEVEL == 1)
+			pgd_populate(NULL, pgd + i,
+				     (pud_t *)hwpgd + i * PTRS_PER_PUD);
+		else if (KVM_PREALLOC_LEVEL == 2)
+			pud_populate(NULL, pud_offset(pgd, 0) + i,
+				     (pmd_t *)hwpgd + i * PTRS_PER_PMD);
+	}
+
+	return pgd;
+}
+
+static inline void kvm_free_fake_pgd(pgd_t *pgd)
+{
+	if (KVM_PREALLOC_LEVEL > 0)
+		kfree(pgd);
+}
 static inline bool kvm_page_empty(void *ptr)
 {
 	struct page *ptr_page = virt_to_page(ptr);
@@ -236,8 +279,7 @@ static inline void __coherent_cache_guest_page(struct kvm_vcpu *vcpu, pfn_t pfn,
 {
 	void *va = page_address(pfn_to_page(pfn));
 
-	if (!vcpu_has_cache_enabled(vcpu) || ipa_uncached)
-		kvm_flush_dcache_to_poc(va, size);
+	kvm_flush_dcache_to_poc(va, size);
 
 	if (!icache_is_aliasing()) {		/* PIPT */
 		flush_icache_range((unsigned long)va,

@@ -27,7 +27,7 @@ TARGETS_HOTPLUG += memory-hotplug
 # Makefile to avoid test build failures when test
 # Makefile doesn't have explicit build rules.
 ifeq (1,$(MAKELEVEL))
-undefine LDFLAGS
+override LDFLAGS =
 override MAKEFLAGS =
 endif
 
@@ -70,7 +70,7 @@ ifdef INSTALL_PATH
 	done;
 
 	@# Ask all targets to emit their test scripts
-	echo "#!/bin/bash" > $(ALL_SCRIPT)
+	echo "#!/bin/sh" > $(ALL_SCRIPT)
 	echo "cd \$$(dirname \$$0)" >> $(ALL_SCRIPT)
 	echo "ROOT=\$$PWD" >> $(ALL_SCRIPT)
 

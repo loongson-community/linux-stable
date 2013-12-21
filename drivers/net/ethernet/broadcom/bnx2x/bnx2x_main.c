@@ -9323,7 +9323,8 @@ unload_error:
 	 * function stop ramrod is sent, since as part of this ramrod FW access
 	 * PTP registers.
 	 */
-	bnx2x_stop_ptp(bp);
+	if (bp->flags & PTP_SUPPORTED)
+		bnx2x_stop_ptp(bp);
 
 	/* Disable HW interrupts, NAPI */
 	bnx2x_netif_stop(bp, 1);
@@ -9487,6 +9488,15 @@ static int bnx2x_init_shmem(struct bnx2x *bp)
 
 	do {
 		bp->common.shmem_base = REG_RD(bp, MISC_REG_SHARED_MEM_ADDR);
+
+		/* If we read all 0xFFs, means we are in PCI error state and
+		 * should bail out to avoid crashes on adapter's FW reads.
+		 */
+		if (bp->common.shmem_base == 0xFFFFFFFF) {
+			bp->flags |= NO_MCP_FLAG;
+			return -ENODEV;
+		}
+
 		if (bp->common.shmem_base) {
 			val = SHMEM_RD(bp, validity_map[BP_PORT(bp)]);
 			if (val & SHR_MEM_VALIDITY_MB)
@@ -13226,7 +13236,7 @@ static int bnx2x_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 	if (!netif_running(bp->dev)) {
 		DP(BNX2X_MSG_PTP,
 		   "PTP adjfreq called while the interface is down\n");
-		return -EFAULT;
+		return -ENETDOWN;
 	}
 
 	if (ppb < 0) {
@@ -13285,6 +13295,12 @@ static int bnx2x_ptp_adjtime(struct ptp_clock_info *ptp, s64 delta)
 {
 	struct bnx2x *bp = container_of(ptp, struct bnx2x, ptp_clock_info);
 
+	if (!netif_running(bp->dev)) {
+		DP(BNX2X_MSG_PTP,
+		   "PTP adjtime called while the interface is down\n");
+		return -ENETDOWN;
+	}
+
 	DP(BNX2X_MSG_PTP, "PTP adjtime called, delta = %llx\n", delta);
 
 	timecounter_adjtime(&bp->timecounter, delta);
@@ -13296,6 +13312,12 @@ static int bnx2x_ptp_gettime(struct ptp_clock_info *ptp, struct timespec64 *ts)
 {
 	struct bnx2x *bp = container_of(ptp, struct bnx2x, ptp_clock_info);
 	u64 ns;
+
+	if (!netif_running(bp->dev)) {
+		DP(BNX2X_MSG_PTP,
+		   "PTP gettime called while the interface is down\n");
+		return -ENETDOWN;
+	}
 
 	ns = timecounter_read(&bp->timecounter);
 
@@ -13311,6 +13333,12 @@ static int bnx2x_ptp_settime(struct ptp_clock_info *ptp,
 {
 	struct bnx2x *bp = container_of(ptp, struct bnx2x, ptp_clock_info);
 	u64 ns;
+
+	if (!netif_running(bp->dev)) {
+		DP(BNX2X_MSG_PTP,
+		   "PTP settime called while the interface is down\n");
+		return -ENETDOWN;
+	}
 
 	ns = timespec64_to_ns(ts);
 
@@ -13772,7 +13800,10 @@ static pci_ers_result_t bnx2x_io_slot_reset(struct pci_dev *pdev)
 		BNX2X_ERR("IO slot reset --> driver unload\n");
 
 		/* MCP should have been reset; Need to wait for validity */
-		bnx2x_init_shmem(bp);
+		if (bnx2x_init_shmem(bp)) {
+			rtnl_unlock();
+			return PCI_ERS_RESULT_DISCONNECT;
+		}
 
 		if (IS_PF(bp) && SHMEM2_HAS(bp, drv_capabilities_flag)) {
 			u32 v;

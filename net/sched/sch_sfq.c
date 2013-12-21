@@ -369,7 +369,7 @@ static int
 sfq_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
 	struct sfq_sched_data *q = qdisc_priv(sch);
-	unsigned int hash;
+	unsigned int hash, dropped;
 	sfq_index x, qlen;
 	struct sfq_slot *slot;
 	int uninitialized_var(ret);
@@ -457,6 +457,7 @@ congestion_drop:
 		qdisc_drop(head, sch);
 
 		slot_queue_add(slot, skb);
+		qdisc_tree_reduce_backlog(sch, 0, delta);
 		return NET_XMIT_CN;
 	}
 
@@ -484,15 +485,17 @@ enqueue:
 		return NET_XMIT_SUCCESS;
 
 	qlen = slot->qlen;
-	sfq_drop(sch);
+	dropped = sfq_drop(sch);
 	/* Return Congestion Notification only if we dropped a packet
 	 * from this flow.
 	 */
-	if (qlen != slot->qlen)
+	if (qlen != slot->qlen) {
+		qdisc_tree_reduce_backlog(sch, 0, dropped - qdisc_pkt_len(skb));
 		return NET_XMIT_CN;
+	}
 
 	/* As we dropped a packet, better let upper stack know this */
-	qdisc_tree_decrease_qlen(sch, 1);
+	qdisc_tree_reduce_backlog(sch, 1, dropped);
 	return NET_XMIT_SUCCESS;
 }
 
@@ -560,6 +563,7 @@ static void sfq_rehash(struct Qdisc *sch)
 	struct sfq_slot *slot;
 	struct sk_buff_head list;
 	int dropped = 0;
+	unsigned int drop_len = 0;
 
 	__skb_queue_head_init(&list);
 
@@ -588,6 +592,7 @@ static void sfq_rehash(struct Qdisc *sch)
 			if (x >= SFQ_MAX_FLOWS) {
 drop:
 				qdisc_qstats_backlog_dec(sch, skb);
+				drop_len += qdisc_pkt_len(skb);
 				kfree_skb(skb);
 				dropped++;
 				continue;
@@ -617,7 +622,7 @@ drop:
 		}
 	}
 	sch->q.qlen -= dropped;
-	qdisc_tree_decrease_qlen(sch, dropped);
+	qdisc_tree_reduce_backlog(sch, dropped, drop_len);
 }
 
 static void sfq_perturbation(unsigned long arg)
@@ -641,7 +646,7 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 	struct sfq_sched_data *q = qdisc_priv(sch);
 	struct tc_sfq_qopt *ctl = nla_data(opt);
 	struct tc_sfq_qopt_v1 *ctl_v1 = NULL;
-	unsigned int qlen;
+	unsigned int qlen, dropped = 0;
 	struct red_parms *p = NULL;
 
 	if (opt->nla_len < nla_attr_size(sizeof(*ctl)))
@@ -650,6 +655,9 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 		ctl_v1 = nla_data(opt);
 	if (ctl->divisor &&
 	    (!is_power_of_2(ctl->divisor) || ctl->divisor > 65536))
+		return -EINVAL;
+	if (ctl_v1 && !red_check_params(ctl_v1->qth_min, ctl_v1->qth_max,
+					ctl_v1->Wlog))
 		return -EINVAL;
 	if (ctl_v1 && ctl_v1->qth_min) {
 		p = kmalloc(sizeof(*p), GFP_KERNEL);
@@ -690,8 +698,8 @@ static int sfq_change(struct Qdisc *sch, struct nlattr *opt)
 
 	qlen = sch->q.qlen;
 	while (sch->q.qlen > q->limit)
-		sfq_drop(sch);
-	qdisc_tree_decrease_qlen(sch, qlen - sch->q.qlen);
+		dropped += sfq_drop(sch);
+	qdisc_tree_reduce_backlog(sch, qlen - sch->q.qlen, dropped);
 
 	del_timer(&q->perturb_timer);
 	if (q->perturb_period) {
@@ -763,9 +771,10 @@ static int sfq_init(struct Qdisc *sch, struct nlattr *opt)
 	q->ht = sfq_alloc(sizeof(q->ht[0]) * q->divisor);
 	q->slots = sfq_alloc(sizeof(q->slots[0]) * q->maxflows);
 	if (!q->ht || !q->slots) {
-		sfq_destroy(sch);
+		/* Note: sfq_destroy() will be called by our caller */
 		return -ENOMEM;
 	}
+
 	for (i = 0; i < q->divisor; i++)
 		q->ht[i] = SFQ_EMPTY_SLOT;
 

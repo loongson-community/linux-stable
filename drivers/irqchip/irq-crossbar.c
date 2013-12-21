@@ -68,7 +68,9 @@ static struct irq_chip crossbar_chip = {
 	.irq_mask		= irq_chip_mask_parent,
 	.irq_unmask		= irq_chip_unmask_parent,
 	.irq_retrigger		= irq_chip_retrigger_hierarchy,
-	.irq_set_wake		= irq_chip_set_wake_parent,
+	.irq_set_type		= irq_chip_set_type_parent,
+	.flags			= IRQCHIP_MASK_ON_SUSPEND |
+				  IRQCHIP_SKIP_SET_WAKE,
 #ifdef CONFIG_SMP
 	.irq_set_affinity	= irq_chip_set_affinity_parent,
 #endif
@@ -191,7 +193,8 @@ static const struct irq_domain_ops crossbar_domain_ops = {
 
 static int __init crossbar_of_init(struct device_node *node)
 {
-	int i, size, max = 0, reserved = 0, entry;
+	int i, size, reserved = 0;
+	u32 max = 0, entry, reg_size;
 	const __be32 *irqsr;
 	int ret = -ENOMEM;
 
@@ -268,9 +271,9 @@ static int __init crossbar_of_init(struct device_node *node)
 	if (!cb->register_offsets)
 		goto err_irq_map;
 
-	of_property_read_u32(node, "ti,reg-size", &size);
+	of_property_read_u32(node, "ti,reg-size", &reg_size);
 
-	switch (size) {
+	switch (reg_size) {
 	case 1:
 		cb->write = crossbar_writeb;
 		break;
@@ -296,7 +299,7 @@ static int __init crossbar_of_init(struct device_node *node)
 			continue;
 
 		cb->register_offsets[i] = reserved;
-		reserved += size;
+		reserved += reg_size;
 	}
 
 	of_property_read_u32(node, "ti,irqs-safe-map", &cb->safe_map);

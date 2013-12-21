@@ -683,7 +683,7 @@ static void __init setup_memory(void)
 /*
  * Setup hardware capabilities.
  */
-static void __init setup_hwcaps(void)
+static int __init setup_hwcaps(void)
 {
 	static const int stfl_bits[6] = { 0, 2, 7, 17, 19, 21 };
 	struct cpuid cpu_id;
@@ -749,9 +749,11 @@ static void __init setup_hwcaps(void)
 		elf_hwcap |= HWCAP_S390_TE;
 
 	/*
-	 * Vector extension HWCAP_S390_VXRS is bit 11.
+	 * Vector extension HWCAP_S390_VXRS is bit 11. The Vector extension
+	 * can be disabled with the "novx" parameter. Use MACHINE_HAS_VX
+	 * instead of facility bit 129.
 	 */
-	if (test_facility(129))
+	if (MACHINE_HAS_VX)
 		elf_hwcap |= HWCAP_S390_VXRS;
 	get_cpu_id(&cpu_id);
 	add_device_randomness(&cpu_id, sizeof(cpu_id));
@@ -788,7 +790,9 @@ static void __init setup_hwcaps(void)
 		strcpy(elf_platform, "z13");
 		break;
 	}
+	return 0;
 }
+arch_initcall(setup_hwcaps);
 
 /*
  * Add system information as device randomness
@@ -797,10 +801,10 @@ static void __init setup_randomness(void)
 {
 	struct sysinfo_3_2_2 *vmms;
 
-	vmms = (struct sysinfo_3_2_2 *) alloc_page(GFP_KERNEL);
-	if (vmms && stsi(vmms, 3, 2, 2) == 0 && vmms->count)
-		add_device_randomness(&vmms, vmms->count);
-	free_page((unsigned long) vmms);
+	vmms = (struct sysinfo_3_2_2 *) memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+	if (stsi(vmms, 3, 2, 2) == 0 && vmms->count)
+		add_device_randomness(&vmms->vm, sizeof(vmms->vm[0]) * vmms->count);
+	memblock_free((unsigned long) vmms, PAGE_SIZE);
 }
 
 /*
@@ -869,11 +873,6 @@ void __init setup_arch(char **cmdline_p)
 	setup_lowcore();
 	smp_fill_possible_mask();
         cpu_init();
-
-	/*
-	 * Setup capabilities (ELF_HWCAP & ELF_PLATFORM).
-	 */
-	setup_hwcaps();
 
 	/*
 	 * Create kernel page tables and switch to virtual addressing.

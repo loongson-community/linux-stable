@@ -255,7 +255,7 @@ int dm_btree_del(struct dm_btree_info *info, dm_block_t root)
 	int r;
 	struct del_stack *s;
 
-	s = kmalloc(sizeof(*s), GFP_KERNEL);
+	s = kmalloc(sizeof(*s), GFP_NOIO);
 	if (!s)
 		return -ENOMEM;
 	s->info = info;
@@ -523,7 +523,7 @@ static int btree_split_beneath(struct shadow_spine *s, uint64_t key)
 
 	r = new_block(s->info, &right);
 	if (r < 0) {
-		/* FIXME: put left */
+		unlock_block(s->info, left);
 		return r;
 	}
 
@@ -572,23 +572,8 @@ static int btree_split_beneath(struct shadow_spine *s, uint64_t key)
 	pn->keys[1] = rn->keys[0];
 	memcpy_disk(value_ptr(pn, 1), &val, sizeof(__le64));
 
-	/*
-	 * rejig the spine.  This is ugly, since it knows too
-	 * much about the spine
-	 */
-	if (s->nodes[0] != new_parent) {
-		unlock_block(s->info, s->nodes[0]);
-		s->nodes[0] = new_parent;
-	}
-	if (key < le64_to_cpu(rn->keys[0])) {
-		unlock_block(s->info, right);
-		s->nodes[1] = left;
-	} else {
-		unlock_block(s->info, left);
-		s->nodes[1] = right;
-	}
-	s->count = 2;
-
+	unlock_block(s->info, left);
+	unlock_block(s->info, right);
 	return 0;
 }
 
@@ -667,12 +652,7 @@ static int insert(struct dm_btree_info *info, dm_block_t root,
 	struct btree_node *n;
 	struct dm_btree_value_type le64_type;
 
-	le64_type.context = NULL;
-	le64_type.size = sizeof(__le64);
-	le64_type.inc = NULL;
-	le64_type.dec = NULL;
-	le64_type.equal = NULL;
-
+	init_le64_type(info->tm, &le64_type);
 	init_shadow_spine(&spine, info);
 
 	for (level = 0; level < (info->levels - 1); level++) {
@@ -793,8 +773,12 @@ static int find_key(struct ro_spine *s, dm_block_t block, bool find_highest,
 		else
 			*result_key = le64_to_cpu(ro_node(s)->keys[0]);
 
-		if (next_block || flags & INTERNAL_NODE)
-			block = value64(ro_node(s), i);
+		if (next_block || flags & INTERNAL_NODE) {
+			if (find_highest)
+				block = value64(ro_node(s), i);
+			else
+				block = value64(ro_node(s), 0);
+		}
 
 	} while (flags & INTERNAL_NODE);
 

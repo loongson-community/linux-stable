@@ -7,13 +7,10 @@
 #include <linux/mutex.h>
 #include <linux/cpumask.h>
 #include <linux/nodemask.h>
+#include <linux/fs.h>
+#include <linux/cred.h>
 
 struct seq_operations;
-struct file;
-struct path;
-struct inode;
-struct dentry;
-struct user_namespace;
 
 struct seq_file {
 	char *buf;
@@ -27,9 +24,7 @@ struct seq_file {
 	struct mutex lock;
 	const struct seq_operations *op;
 	int poll_event;
-#ifdef CONFIG_USER_NS
-	struct user_namespace *user_ns;
-#endif
+	const struct file *file;
 	void *private;
 };
 
@@ -141,11 +136,46 @@ int seq_put_decimal_ll(struct seq_file *m, char delimiter,
 static inline struct user_namespace *seq_user_ns(struct seq_file *seq)
 {
 #ifdef CONFIG_USER_NS
-	return seq->user_ns;
+	return seq->file->f_cred->user_ns;
 #else
 	extern struct user_namespace init_user_ns;
 	return &init_user_ns;
 #endif
+}
+
+/**
+ * seq_show_options - display mount options with appropriate escapes.
+ * @m: the seq_file handle
+ * @name: the mount option name
+ * @value: the mount option name's value, can be NULL
+ */
+static inline void seq_show_option(struct seq_file *m, const char *name,
+				   const char *value)
+{
+	seq_putc(m, ',');
+	seq_escape(m, name, ",= \t\n\\");
+	if (value) {
+		seq_putc(m, '=');
+		seq_escape(m, value, ", \t\n\\");
+	}
+}
+
+/**
+ * seq_show_option_n - display mount options with appropriate escapes
+ *		       where @value must be a specific length.
+ * @m: the seq_file handle
+ * @name: the mount option name
+ * @value: the mount option name's value, cannot be NULL
+ * @length: the length of @value to display
+ *
+ * This is a macro since this uses "length" to define the size of the
+ * stack buffer.
+ */
+#define seq_show_option_n(m, name, value, length) {	\
+	char val_buf[length + 1];			\
+	strncpy(val_buf, value, length);		\
+	val_buf[length] = '\0';				\
+	seq_show_option(m, name, val_buf);		\
 }
 
 #define SEQ_START_TOKEN ((void *)1)

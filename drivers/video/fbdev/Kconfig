@@ -298,7 +298,7 @@ config FB_ARMCLCD
 
 # Helper logic selected only by the ARM Versatile platform family.
 config PLAT_VERSATILE_CLCD
-	def_bool ARCH_VERSATILE || ARCH_REALVIEW || ARCH_VEXPRESS
+	def_bool ARCH_VERSATILE || ARCH_REALVIEW || ARCH_VEXPRESS || ARCH_INTEGRATOR
 	depends on ARM
 	depends on FB_ARMCLCD && FB=y
 
@@ -1506,6 +1506,7 @@ config FB_SIS
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
 	select FB_BOOT_VESA_SUPPORT if FB_SIS = y
+	select FB_SIS_300 if !FB_SIS_315
 	help
 	  This is the frame buffer device driver for the SiS 300, 315, 330
 	  and 340 series as well as XGI V3XT, V5, V8, Z7 graphics chipsets.
@@ -2246,7 +2247,6 @@ config XEN_FBDEV_FRONTEND
 	select FB_SYS_IMAGEBLIT
 	select FB_SYS_FOPS
 	select FB_DEFERRED_IO
-	select INPUT_XEN_KBDDEV_FRONTEND if INPUT_MISC
 	select XEN_XENBUS_FRONTEND
 	default y
 	help

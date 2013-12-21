@@ -12,6 +12,7 @@
 #include <asm/memory.h>
 
 	.arch	armv7-a
+	.arm
 
 ENTRY(secondary_trampoline)
 	/* CPU1 will always fetch from 0x0 when it is brought out of reset.
@@ -30,8 +31,3 @@ ENTRY(secondary_trampoline)
 1:	.long	.
 	.long	socfpga_cpu1start_addr
 ENTRY(secondary_trampoline_end)
-
-ENTRY(socfpga_secondary_startup)
-       bl      v7_invalidate_l1
-       b       secondary_startup
-ENDPROC(socfpga_secondary_startup)

@@ -1154,11 +1154,13 @@ static int nfs_lookup_revalidate(struct dentry *dentry, unsigned int flags)
 	/* Force a full look up iff the parent directory has changed */
 	if (!nfs_is_exclusive_create(dir, flags) &&
 	    nfs_check_verifier(dir, dentry, flags & LOOKUP_RCU)) {
-
-		if (nfs_lookup_verify_inode(inode, flags)) {
+		error = nfs_lookup_verify_inode(inode, flags);
+		if (error) {
 			if (flags & LOOKUP_RCU)
 				return -ECHILD;
-			goto out_zap_parent;
+			if (error == -ESTALE)
+				goto out_zap_parent;
+			goto out_error;
 		}
 		goto out_valid;
 	}
@@ -1182,8 +1184,10 @@ static int nfs_lookup_revalidate(struct dentry *dentry, unsigned int flags)
 	trace_nfs_lookup_revalidate_enter(dir, dentry, flags);
 	error = NFS_PROTO(dir)->lookup(dir, &dentry->d_name, fhandle, fattr, label);
 	trace_nfs_lookup_revalidate_exit(dir, dentry, flags, error);
-	if (error)
+	if (error == -ESTALE || error == -ENOENT)
 		goto out_bad;
+	if (error)
+		goto out_error;
 	if (nfs_compare_fh(NFS_FH(inode), fhandle))
 		goto out_bad;
 	if ((error = nfs_refresh_inode(inode, fattr)) != 0)
@@ -1275,7 +1279,7 @@ static int nfs_weak_revalidate(struct dentry *dentry, unsigned int flags)
 		return 0;
 	}
 
-	error = nfs_revalidate_inode(NFS_SERVER(inode), inode);
+	error = nfs_lookup_verify_inode(inode, flags);
 	dfprintk(LOOKUPCACHE, "NFS: %s: inode %lu is %s\n",
 			__func__, inode->i_ino, error ? "invalid" : "valid");
 	return !error;
@@ -1435,6 +1439,7 @@ static int nfs4_lookup_revalidate(struct dentry *, unsigned int);
 
 const struct dentry_operations nfs4_dentry_operations = {
 	.d_revalidate	= nfs4_lookup_revalidate,
+	.d_weak_revalidate	= nfs_weak_revalidate,
 	.d_delete	= nfs_dentry_delete,
 	.d_iput		= nfs_dentry_iput,
 	.d_automount	= nfs_d_automount,
@@ -1542,9 +1547,9 @@ int nfs_atomic_open(struct inode *dir, struct dentry *dentry,
 		err = PTR_ERR(inode);
 		trace_nfs_atomic_open_exit(dir, ctx, open_flags, err);
 		put_nfs_open_context(ctx);
+		d_drop(dentry);
 		switch (err) {
 		case -ENOENT:
-			d_drop(dentry);
 			d_add(dentry, NULL);
 			nfs_set_verifier(dentry, nfs_save_change_attribute(dir));
 			break;
@@ -2071,7 +2076,7 @@ out:
 		if (new_inode != NULL)
 			nfs_drop_nlink(new_inode);
 		d_move(old_dentry, new_dentry);
-		nfs_set_verifier(new_dentry,
+		nfs_set_verifier(old_dentry,
 					nfs_save_change_attribute(new_dir));
 	} else if (error == -ENOENT)
 		nfs_dentry_handle_enoent(old_dentry);
@@ -2446,6 +2451,20 @@ int nfs_may_open(struct inode *inode, struct rpc_cred *cred, int openflags)
 }
 EXPORT_SYMBOL_GPL(nfs_may_open);
 
+static int nfs_execute_ok(struct inode *inode, int mask)
+{
+	struct nfs_server *server = NFS_SERVER(inode);
+	int ret;
+
+	if (mask & MAY_NOT_BLOCK)
+		ret = nfs_revalidate_inode_rcu(server, inode);
+	else
+		ret = nfs_revalidate_inode(server, inode);
+	if (ret == 0 && !execute_ok(inode))
+		ret = -EACCES;
+	return ret;
+}
+
 int nfs_permission(struct inode *inode, int mask)
 {
 	struct rpc_cred *cred;
@@ -2463,6 +2482,9 @@ int nfs_permission(struct inode *inode, int mask)
 		case S_IFLNK:
 			goto out;
 		case S_IFREG:
+			if ((mask & MAY_OPEN) &&
+			   nfs_server_capable(inode, NFS_CAP_ATOMIC_OPEN))
+				return 0;
 			break;
 		case S_IFDIR:
 			/*
@@ -2495,8 +2517,8 @@ force_lookup:
 			res = PTR_ERR(cred);
 	}
 out:
-	if (!res && (mask & MAY_EXEC) && !execute_ok(inode))
-		res = -EACCES;
+	if (!res && (mask & MAY_EXEC))
+		res = nfs_execute_ok(inode, mask);
 
 	dfprintk(VFS, "NFS: permission(%s/%lu), mask=0x%x, res=%d\n",
 		inode->i_sb->s_id, inode->i_ino, mask, res);

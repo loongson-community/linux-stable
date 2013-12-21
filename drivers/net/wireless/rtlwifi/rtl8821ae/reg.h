@@ -429,6 +429,7 @@
 #define	MSR_ADHOC				0x01
 #define	MSR_INFRA				0x02
 #define	MSR_AP					0x03
+#define MSR_MASK				0x03
 
 #define	RRSR_RSC_OFFSET				21
 #define	RRSR_SHORT_OFFSET			23
@@ -2423,6 +2424,7 @@
 #define	BMASKH4BITS			0xf0000000
 #define BMASKOFDM_D			0xffc00000
 #define	BMASKCCK			0x3f3f3f3f
+#define BMASKRFEINV			0x3ff00000
 
 #define BRFREGOFFSETMASK		0xfffff
 

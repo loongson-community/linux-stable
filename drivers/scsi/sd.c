@@ -1260,18 +1260,19 @@ static int sd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	struct scsi_disk *sdkp = scsi_disk(bdev->bd_disk);
 	struct scsi_device *sdp = sdkp->device;
 	struct Scsi_Host *host = sdp->host;
+	sector_t capacity = logical_to_sectors(sdp, sdkp->capacity);
 	int diskinfo[4];
 
 	/* default to most commonly used values */
-        diskinfo[0] = 0x40;	/* 1 << 6 */
-       	diskinfo[1] = 0x20;	/* 1 << 5 */
-       	diskinfo[2] = sdkp->capacity >> 11;
-	
+	diskinfo[0] = 0x40;	/* 1 << 6 */
+	diskinfo[1] = 0x20;	/* 1 << 5 */
+	diskinfo[2] = capacity >> 11;
+
 	/* override with calculated, extended default, or driver values */
 	if (host->hostt->bios_param)
-		host->hostt->bios_param(sdp, bdev, sdkp->capacity, diskinfo);
+		host->hostt->bios_param(sdp, bdev, capacity, diskinfo);
 	else
-		scsicam_bios_param(bdev, sdkp->capacity, diskinfo);
+		scsicam_bios_param(bdev, capacity, diskinfo);
 
 	geo->heads = diskinfo[0];
 	geo->sectors = diskinfo[1];
@@ -1382,11 +1383,15 @@ static int media_not_present(struct scsi_disk *sdkp,
  **/
 static unsigned int sd_check_events(struct gendisk *disk, unsigned int clearing)
 {
-	struct scsi_disk *sdkp = scsi_disk(disk);
-	struct scsi_device *sdp = sdkp->device;
+	struct scsi_disk *sdkp = scsi_disk_get(disk);
+	struct scsi_device *sdp;
 	struct scsi_sense_hdr *sshdr = NULL;
 	int retval;
 
+	if (!sdkp)
+		return 0;
+
+	sdp = sdkp->device;
 	SCSI_LOG_HLQUEUE(3, sd_printk(KERN_INFO, sdkp, "sd_check_events\n"));
 
 	/*
@@ -1443,6 +1448,7 @@ out:
 	kfree(sshdr);
 	retval = sdp->changed ? DISK_EVENT_MEDIA_CHANGE : 0;
 	sdp->changed = 0;
+	scsi_disk_put(sdkp);
 	return retval;
 }
 
@@ -1805,6 +1811,8 @@ sd_spinup_disk(struct scsi_disk *sdkp)
 				break;	/* standby */
 			if (sshdr.asc == 4 && sshdr.ascq == 0xc)
 				break;	/* unavailable */
+			if (sshdr.asc == 4 && sshdr.ascq == 0x1b)
+				break;	/* sanitize in progress */
 			/*
 			 * Issue command to spin up drive when not ready
 			 */
@@ -1935,6 +1943,22 @@ static void read_capacity_error(struct scsi_disk *sdkp, struct scsi_device *sdp,
 
 #define READ_CAPACITY_RETRIES_ON_RESET	10
 
+/*
+ * Ensure that we don't overflow sector_t when CONFIG_LBDAF is not set
+ * and the reported logical block size is bigger than 512 bytes. Note
+ * that last_sector is a u64 and therefore logical_to_sectors() is not
+ * applicable.
+ */
+static bool sd_addressable_capacity(u64 lba, unsigned int sector_size)
+{
+	u64 last_sector = (lba + 1ULL) << (ilog2(sector_size) - 9);
+
+	if (sizeof(sector_t) == 4 && last_sector > U32_MAX)
+		return false;
+
+	return true;
+}
+
 static int read_capacity_16(struct scsi_disk *sdkp, struct scsi_device *sdp,
 						unsigned char *buffer)
 {
@@ -2000,7 +2024,7 @@ static int read_capacity_16(struct scsi_disk *sdkp, struct scsi_device *sdp,
 		return -ENODEV;
 	}
 
-	if ((sizeof(sdkp->capacity) == 4) && (lba >= 0xffffffffULL)) {
+	if (!sd_addressable_capacity(lba, sector_size)) {
 		sd_printk(KERN_ERR, sdkp, "Too big for this kernel. Use a "
 			"kernel compiled with support for large block "
 			"devices.\n");
@@ -2086,7 +2110,7 @@ static int read_capacity_10(struct scsi_disk *sdkp, struct scsi_device *sdp,
 		return sector_size;
 	}
 
-	if ((sizeof(sdkp->capacity) == 4) && (lba == 0xffffffff)) {
+	if (!sd_addressable_capacity(lba, sector_size)) {
 		sd_printk(KERN_ERR, sdkp, "Too big for this kernel. Use a "
 			"kernel compiled with support for large block "
 			"devices.\n");
@@ -2229,14 +2253,6 @@ got_data:
 		sdkp->max_xfer_blocks = SD_MAX_XFER_BLOCKS;
 	} else
 		sdkp->max_xfer_blocks = SD_DEF_XFER_BLOCKS;
-
-	/* Rescale capacity to 512-byte units */
-	if (sector_size == 4096)
-		sdkp->capacity <<= 3;
-	else if (sector_size == 2048)
-		sdkp->capacity <<= 2;
-	else if (sector_size == 1024)
-		sdkp->capacity <<= 1;
 
 	blk_queue_physical_block_size(sdp->request_queue,
 				      sdkp->physical_block_size);
@@ -2445,7 +2461,8 @@ sd_read_cache_type(struct scsi_disk *sdkp, unsigned char *buffer)
 		if (sdp->broken_fua) {
 			sd_first_printk(KERN_NOTICE, sdkp, "Disabling FUA\n");
 			sdkp->DPOFUA = 0;
-		} else if (sdkp->DPOFUA && !sdkp->device->use_10_for_rw) {
+		} else if (sdkp->DPOFUA && !sdkp->device->use_10_for_rw &&
+			   !sdkp->device->use_16_for_rw) {
 			sd_first_printk(KERN_NOTICE, sdkp,
 				  "Uses READ/WRITE(6), disabling FUA\n");
 			sdkp->DPOFUA = 0;
@@ -2770,10 +2787,10 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	max_xfer = sdkp->max_xfer_blocks;
 	max_xfer <<= ilog2(sdp->sector_size) - 9;
 
-	max_xfer = min_not_zero(queue_max_hw_sectors(sdkp->disk->queue),
-				max_xfer);
-	blk_queue_max_hw_sectors(sdkp->disk->queue, max_xfer);
-	set_capacity(disk, sdkp->capacity);
+	sdkp->disk->queue->limits.max_sectors =
+		min_not_zero(queue_max_hw_sectors(sdkp->disk->queue), max_xfer);
+
+	set_capacity(disk, logical_to_sectors(sdp, sdkp->capacity));
 	sd_config_write_same(sdkp);
 	kfree(buffer);
 
@@ -3141,8 +3158,8 @@ static int sd_suspend_common(struct device *dev, bool ignore_stop_errors)
 	struct scsi_disk *sdkp = dev_get_drvdata(dev);
 	int ret = 0;
 
-	if (!sdkp)
-		return 0;	/* this can happen */
+	if (!sdkp)	/* E.g.: runtime suspend following sd_remove() */
+		return 0;
 
 	if (sdkp->WCE && sdkp->media_present) {
 		sd_printk(KERN_NOTICE, sdkp, "Synchronizing SCSI cache\n");
@@ -3180,6 +3197,9 @@ static int sd_suspend_runtime(struct device *dev)
 static int sd_resume(struct device *dev)
 {
 	struct scsi_disk *sdkp = dev_get_drvdata(dev);
+
+	if (!sdkp)	/* E.g.: runtime resume at the start of sd_probe() */
+		return 0;
 
 	if (!sdkp->device->manage_start_stop)
 		return 0;

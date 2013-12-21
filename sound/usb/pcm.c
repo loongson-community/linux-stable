@@ -80,7 +80,7 @@ static snd_pcm_uframes_t snd_usb_pcm_pointer(struct snd_pcm_substream *substream
 	unsigned int hwptr_done;
 
 	subs = (struct snd_usb_substream *)substream->runtime->private_data;
-	if (subs->stream->chip->shutdown)
+	if (atomic_read(&subs->stream->chip->shutdown))
 		return SNDRV_PCM_POS_XRUN;
 	spin_lock(&subs->lock);
 	hwptr_done = subs->hwptr_done;
@@ -159,6 +159,8 @@ static int init_pitch_v1(struct snd_usb_audio *chip, int iface,
 	unsigned char data[1];
 	int err;
 
+	if (get_iface_desc(alts)->bNumEndpoints < 1)
+		return -EINVAL;
 	ep = get_endpoint(alts, 0)->bEndpointAddress;
 
 	data[0] = 1;
@@ -340,6 +342,15 @@ static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 	case USB_ID(0x0763, 0x2081):
 		ep = 0x81;
 		iface = usb_ifnum_to_if(dev, 2);
+
+		if (!iface || iface->num_altsetting == 0)
+			return -EINVAL;
+
+		alts = &iface->altsetting[1];
+		goto add_sync_ep;
+	case USB_ID(0x1397, 0x0002):
+		ep = 0x81;
+		iface = usb_ifnum_to_if(dev, 1);
 
 		if (!iface || iface->num_altsetting == 0)
 			return -EINVAL;
@@ -707,12 +718,11 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	down_read(&subs->stream->chip->shutdown_rwsem);
-	if (subs->stream->chip->shutdown)
-		ret = -ENODEV;
-	else
-		ret = set_format(subs, fmt);
-	up_read(&subs->stream->chip->shutdown_rwsem);
+	ret = snd_usb_lock_shutdown(subs->stream->chip);
+	if (ret < 0)
+		return ret;
+	ret = set_format(subs, fmt);
+	snd_usb_unlock_shutdown(subs->stream->chip);
 	if (ret < 0)
 		return ret;
 
@@ -735,13 +745,12 @@ static int snd_usb_hw_free(struct snd_pcm_substream *substream)
 	subs->cur_audiofmt = NULL;
 	subs->cur_rate = 0;
 	subs->period_bytes = 0;
-	down_read(&subs->stream->chip->shutdown_rwsem);
-	if (!subs->stream->chip->shutdown) {
+	if (!snd_usb_lock_shutdown(subs->stream->chip)) {
 		stop_endpoints(subs, true);
 		snd_usb_endpoint_deactivate(subs->sync_endpoint);
 		snd_usb_endpoint_deactivate(subs->data_endpoint);
+		snd_usb_unlock_shutdown(subs->stream->chip);
 	}
-	up_read(&subs->stream->chip->shutdown_rwsem);
 	return snd_pcm_lib_free_vmalloc_buffer(substream);
 }
 
@@ -763,11 +772,9 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 		return -ENXIO;
 	}
 
-	down_read(&subs->stream->chip->shutdown_rwsem);
-	if (subs->stream->chip->shutdown) {
-		ret = -ENODEV;
-		goto unlock;
-	}
+	ret = snd_usb_lock_shutdown(subs->stream->chip);
+	if (ret < 0)
+		return ret;
 	if (snd_BUG_ON(!subs->data_endpoint)) {
 		ret = -EIO;
 		goto unlock;
@@ -816,7 +823,7 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 		ret = start_endpoints(subs, true);
 
  unlock:
-	up_read(&subs->stream->chip->shutdown_rwsem);
+	snd_usb_unlock_shutdown(subs->stream->chip);
 	return ret;
 }
 
@@ -1218,9 +1225,11 @@ static int snd_usb_pcm_close(struct snd_pcm_substream *substream, int direction)
 
 	stop_endpoints(subs, true);
 
-	if (!as->chip->shutdown && subs->interface >= 0) {
+	if (subs->interface >= 0 &&
+	    !snd_usb_lock_shutdown(subs->stream->chip)) {
 		usb_set_interface(subs->dev, subs->interface, 0);
 		subs->interface = -1;
+		snd_usb_unlock_shutdown(subs->stream->chip);
 	}
 
 	subs->pcm_substream = NULL;

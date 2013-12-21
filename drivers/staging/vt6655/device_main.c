@@ -807,6 +807,10 @@ static int device_rx_srv(struct vnt_private *pDevice, unsigned int uIdx)
 	     pRD = pRD->next) {
 		if (works++ > 15)
 			break;
+
+		if (!pRD->pRDInfo->skb)
+			break;
+
 		if (vnt_receive_frame(pDevice, pRD)) {
 			if (!device_alloc_rx_buf(pDevice, pRD)) {
 				dev_err(&pDevice->pcid->dev,
@@ -1417,7 +1421,7 @@ static void vnt_bss_info_changed(struct ieee80211_hw *hw,
 
 	priv->current_aid = conf->aid;
 
-	if (changed & BSS_CHANGED_BSSID) {
+	if (changed & BSS_CHANGED_BSSID && conf->bssid) {
 		unsigned long flags;
 
 		spin_lock_irqsave(&priv->lock, flags);
@@ -1482,8 +1486,9 @@ static void vnt_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	if (changed & BSS_CHANGED_ASSOC && priv->op_mode != NL80211_IFTYPE_AP) {
-		if (conf->assoc) {
+	if (changed & (BSS_CHANGED_ASSOC | BSS_CHANGED_BEACON_INFO) &&
+	    priv->op_mode != NL80211_IFTYPE_AP) {
+		if (conf->assoc && conf->beacon_rate) {
 			CARDbUpdateTSF(priv, conf->beacon_rate->hw_value,
 				       conf->sync_tsf);
 
@@ -1833,9 +1838,10 @@ static int vt6655_suspend(struct pci_dev *pcid, pm_message_t state)
 	MACbShutdown(priv->PortOffset);
 
 	pci_disable_device(pcid);
-	pci_set_power_state(pcid, pci_choose_state(pcid, state));
 
 	spin_unlock_irqrestore(&priv->lock, flags);
+
+	pci_set_power_state(pcid, pci_choose_state(pcid, state));
 
 	return 0;
 }

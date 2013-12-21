@@ -306,15 +306,38 @@ void eeh_slot_error_detail(struct eeh_pe *pe, int severity)
 	 *
 	 * For pHyp, we have to enable IO for log retrieval. Otherwise,
 	 * 0xFF's is always returned from PCI config space.
+	 *
+	 * When the @severity is EEH_LOG_PERM, the PE is going to be
+	 * removed. Prior to that, the drivers for devices included in
+	 * the PE will be closed. The drivers rely on working IO path
+	 * to bring the devices to quiet state. Otherwise, PCI traffic
+	 * from those devices after they are removed is like to cause
+	 * another unexpected EEH error.
 	 */
 	if (!(pe->type & EEH_PE_PHB)) {
-		if (eeh_has_flag(EEH_ENABLE_IO_FOR_LOG))
+		if (eeh_has_flag(EEH_ENABLE_IO_FOR_LOG) ||
+		    severity == EEH_LOG_PERM)
 			eeh_pci_enable(pe, EEH_OPT_THAW_MMIO);
-		eeh_ops->configure_bridge(pe);
-		eeh_pe_restore_bars(pe);
 
-		pci_regs_buf[0] = 0;
-		eeh_pe_traverse(pe, eeh_dump_pe_log, &loglen);
+		/*
+		 * The config space of some PCI devices can't be accessed
+		 * when their PEs are in frozen state. Otherwise, fenced
+		 * PHB might be seen. Those PEs are identified with flag
+		 * EEH_PE_CFG_RESTRICTED, indicating EEH_PE_CFG_BLOCKED
+		 * is set automatically when the PE is put to EEH_PE_ISOLATED.
+		 *
+		 * Restoring BARs possibly triggers PCI config access in
+		 * (OPAL) firmware and then causes fenced PHB. If the
+		 * PCI config is blocked with flag EEH_PE_CFG_BLOCKED, it's
+		 * pointless to restore BARs and dump config space.
+		 */
+		eeh_ops->configure_bridge(pe);
+		if (!(pe->state & EEH_PE_CFG_BLOCKED)) {
+			eeh_pe_restore_bars(pe);
+
+			pci_regs_buf[0] = 0;
+			eeh_pe_traverse(pe, eeh_dump_pe_log, &loglen);
+		}
 	}
 
 	eeh_ops->get_log(pe, severity, pci_regs_buf, loglen);
@@ -663,7 +686,7 @@ int eeh_pci_enable(struct eeh_pe *pe, int function)
 	/* Check if the request is finished successfully */
 	if (active_flag) {
 		rc = eeh_ops->wait_state(pe, PCI_BUS_RESET_WAIT_MSEC);
-		if (rc <= 0)
+		if (rc < 0)
 			return rc;
 
 		if (rc & active_flag)
@@ -1058,7 +1081,7 @@ void eeh_add_device_early(struct pci_dn *pdn)
 	struct pci_controller *phb;
 	struct eeh_dev *edev = pdn_to_eeh_dev(pdn);
 
-	if (!edev || !eeh_enabled())
+	if (!edev)
 		return;
 
 	if (!eeh_has_flag(EEH_PROBE_MODE_DEVTREE))
@@ -1118,9 +1141,6 @@ void eeh_add_device_late(struct pci_dev *dev)
 		return;
 	}
 
-	if (eeh_has_flag(EEH_PROBE_MODE_DEV))
-		eeh_ops->probe(pdn, NULL);
-
 	/*
 	 * The EEH cache might not be removed correctly because of
 	 * unbalanced kref to the device during unplug time, which
@@ -1143,6 +1163,9 @@ void eeh_add_device_late(struct pci_dev *dev)
 		edev->pdev = NULL;
 		dev->dev.archdata.edev = NULL;
 	}
+
+	if (eeh_has_flag(EEH_PROBE_MODE_DEV))
+		eeh_ops->probe(pdn, NULL);
 
 	edev->pdev = dev;
 	dev->dev.archdata.edev = edev;

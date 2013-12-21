@@ -635,7 +635,7 @@ static struct sk_buff **vxlan_gro_receive(struct sk_buff **head,
 		}
 	}
 
-	pp = eth_gro_receive(head, skb);
+	pp = call_gro_receive(eth_gro_receive, head, skb);
 
 out:
 	skb_gro_remcsum_cleanup(skb, &grc);
@@ -1001,7 +1001,7 @@ static bool vxlan_snoop(struct net_device *dev,
 			return false;
 
 		/* Don't migrate static entries, drop packets */
-		if (f->state & NUD_NOARP)
+		if (f->state & (NUD_PERMANENT | NUD_NOARP))
 			return true;
 
 		if (net_ratelimit())
@@ -2136,7 +2136,7 @@ static void vxlan_cleanup(unsigned long arg)
 				= container_of(p, struct vxlan_fdb, hlist);
 			unsigned long timeout;
 
-			if (f->state & NUD_PERMANENT)
+			if (f->state & (NUD_PERMANENT | NUD_NOARP))
 				continue;
 
 			timeout = f->used + vxlan->age_interval * HZ;
@@ -2212,6 +2212,8 @@ static int vxlan_open(struct net_device *dev)
 
 	if (vxlan_addr_multicast(&vxlan->default_dst.remote_ip)) {
 		ret = vxlan_igmp_join(vxlan);
+		if (ret == -EADDRINUSE)
+			ret = 0;
 		if (ret) {
 			vxlan_sock_release(vs);
 			return ret;
@@ -2430,7 +2432,7 @@ static int vxlan_validate(struct nlattr *tb[], struct nlattr *data[])
 
 	if (data[IFLA_VXLAN_ID]) {
 		__u32 id = nla_get_u32(data[IFLA_VXLAN_ID]);
-		if (id >= VXLAN_VID_MASK)
+		if (id >= VXLAN_N_VID)
 			return -ERANGE;
 	}
 
@@ -2579,7 +2581,7 @@ static int vxlan_newlink(struct net *src_net, struct net_device *dev,
 			 struct nlattr *tb[], struct nlattr *data[])
 {
 	struct vxlan_net *vn = net_generic(src_net, vxlan_net_id);
-	struct vxlan_dev *vxlan = netdev_priv(dev);
+	struct vxlan_dev *vxlan = netdev_priv(dev), *tmp;
 	struct vxlan_rdst *dst = &vxlan->default_dst;
 	__u32 vni;
 	int err;
@@ -2712,9 +2714,13 @@ static int vxlan_newlink(struct net *src_net, struct net_device *dev,
 	if (data[IFLA_VXLAN_REMCSUM_NOPARTIAL])
 		vxlan->flags |= VXLAN_F_REMCSUM_NOPARTIAL;
 
-	if (vxlan_find_vni(src_net, vni, use_ipv6 ? AF_INET6 : AF_INET,
-			   vxlan->dst_port, vxlan->flags)) {
-		pr_info("duplicate VNI %u\n", vni);
+	list_for_each_entry(tmp, &vn->vxlan_list, next) {
+		if (tmp->default_dst.remote_vni == vni &&
+		    (tmp->default_dst.remote_ip.sa.sa_family == AF_INET6 ||
+		     tmp->saddr.sa.sa_family == AF_INET6) == use_ipv6 &&
+		    tmp->dst_port == vxlan->dst_port &&
+		    (tmp->flags & VXLAN_F_RCV_FLAGS) ==
+		    (vxlan->flags & VXLAN_F_RCV_FLAGS))
 		return -EEXIST;
 	}
 

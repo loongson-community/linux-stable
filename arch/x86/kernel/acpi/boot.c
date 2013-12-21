@@ -329,6 +329,14 @@ static void __init mp_override_legacy_irq(u8 bus_irq, u8 polarity, u8 trigger,
 	struct mpc_intsrc mp_irq;
 
 	/*
+	 * Check bus_irq boundary.
+	 */
+	if (bus_irq >= NR_IRQS_LEGACY) {
+		pr_warn("Invalid bus_irq %u for legacy override\n", bus_irq);
+		return;
+	}
+
+	/*
 	 * Convert 'gsi' to 'ioapic.pin'.
 	 */
 	ioapic = mp_find_ioapic(gsi);
@@ -489,6 +497,7 @@ static void __init acpi_sci_ioapic_setup(u8 bus_irq, u16 polarity, u16 trigger, 
 		polarity = acpi_sci_flags & ACPI_MADT_POLARITY_MASK;
 
 	mp_override_legacy_irq(bus_irq, polarity, trigger, gsi);
+	acpi_penalize_sci_irq(bus_irq, trigger, polarity);
 
 	/*
 	 * stash over-ride to indicate we've been here

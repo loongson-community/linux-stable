@@ -1409,7 +1409,7 @@ static void uart_close(struct tty_struct *tty, struct file *filp)
 	mutex_lock(&port->mutex);
 	uart_shutdown(tty, state);
 	tty_port_tty_set(port, NULL);
-	tty->closing = 0;
+
 	spin_lock_irqsave(&port->lock, flags);
 
 	if (port->blocked_open) {
@@ -1435,6 +1435,7 @@ static void uart_close(struct tty_struct *tty, struct file *filp)
 	mutex_unlock(&port->mutex);
 
 	tty_ldisc_flush(tty);
+	tty->closing = 0;
 }
 
 static void uart_wait_until_sent(struct tty_struct *tty, int timeout)
@@ -2025,7 +2026,7 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
 	mutex_lock(&port->mutex);
 
 	tty_dev = device_find_child(uport->dev, &match, serial_match_port);
-	if (device_may_wakeup(tty_dev)) {
+	if (tty_dev && device_may_wakeup(tty_dev)) {
 		if (!enable_irq_wake(uport->irq))
 			uport->irq_wake = 1;
 		put_device(tty_dev);

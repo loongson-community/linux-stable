@@ -214,6 +214,8 @@ static void bond_uninit(struct net_device *bond_dev);
 static struct rtnl_link_stats64 *bond_get_stats(struct net_device *bond_dev,
 						struct rtnl_link_stats64 *stats);
 static void bond_slave_arr_handler(struct work_struct *work);
+static bool bond_time_in_interval(struct bonding *bond, unsigned long last_act,
+				  int mod);
 
 /*---------------------------- General routines -----------------------------*/
 
@@ -625,6 +627,23 @@ static void bond_set_dev_addr(struct net_device *bond_dev,
 	call_netdevice_notifiers(NETDEV_CHANGEADDR, bond_dev);
 }
 
+static struct slave *bond_get_old_active(struct bonding *bond,
+					 struct slave *new_active)
+{
+	struct slave *slave;
+	struct list_head *iter;
+
+	bond_for_each_slave(bond, slave, iter) {
+		if (slave == new_active)
+			continue;
+
+		if (ether_addr_equal(bond->dev->dev_addr, slave->dev->dev_addr))
+			return slave;
+	}
+
+	return NULL;
+}
+
 /* bond_do_fail_over_mac
  *
  * Perform special MAC address swapping for fail_over_mac settings
@@ -651,6 +670,9 @@ static void bond_do_fail_over_mac(struct bonding *bond,
 		 */
 		if (!new_active)
 			return;
+
+		if (!old_active)
+			old_active = bond_get_old_active(bond, new_active);
 
 		if (old_active) {
 			ether_addr_copy(tmp_mac, new_active->dev->dev_addr);
@@ -1174,7 +1196,6 @@ static int bond_master_upper_dev_link(struct net_device *bond_dev,
 	err = netdev_master_upper_dev_link_private(slave_dev, bond_dev, slave);
 	if (err)
 		return err;
-	slave_dev->flags |= IFF_SLAVE;
 	rtmsg_ifinfo(RTM_NEWLINK, slave_dev, IFF_SLAVE, GFP_KERNEL);
 	return 0;
 }
@@ -1432,6 +1453,9 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 		}
 	}
 
+	/* set slave flag before open to prevent IPv6 addrconf */
+	slave_dev->flags |= IFF_SLAVE;
+
 	/* open the slave since the application closed it */
 	res = dev_open(slave_dev);
 	if (res) {
@@ -1450,39 +1474,6 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 		res = bond_alb_init_slave(bond, new_slave);
 		if (res)
 			goto err_close;
-	}
-
-	/* If the mode uses primary, then the following is handled by
-	 * bond_change_active_slave().
-	 */
-	if (!bond_uses_primary(bond)) {
-		/* set promiscuity level to new slave */
-		if (bond_dev->flags & IFF_PROMISC) {
-			res = dev_set_promiscuity(slave_dev, 1);
-			if (res)
-				goto err_close;
-		}
-
-		/* set allmulti level to new slave */
-		if (bond_dev->flags & IFF_ALLMULTI) {
-			res = dev_set_allmulti(slave_dev, 1);
-			if (res)
-				goto err_close;
-		}
-
-		netif_addr_lock_bh(bond_dev);
-
-		dev_mc_sync_multiple(slave_dev, bond_dev);
-		dev_uc_sync_multiple(slave_dev, bond_dev);
-
-		netif_addr_unlock_bh(bond_dev);
-	}
-
-	if (BOND_MODE(bond) == BOND_MODE_8023AD) {
-		/* add lacpdu mc addr to mc list */
-		u8 lacpdu_multicast[ETH_ALEN] = MULTICAST_LACPDU_ADDR;
-
-		dev_mc_add(slave_dev, lacpdu_multicast);
 	}
 
 	res = vlan_vids_add_by_dev(slave_dev, bond_dev);
@@ -1609,8 +1600,7 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 	} /* switch(bond_mode) */
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
-	slave_dev->npinfo = bond->dev->npinfo;
-	if (slave_dev->npinfo) {
+	if (bond->dev->npinfo) {
 		if (slave_enable_netpoll(new_slave)) {
 			netdev_info(bond_dev, "master_dev is using netpoll, but new slave device does not support netpoll\n");
 			res = -EBUSY;
@@ -1641,6 +1631,40 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 		goto err_upper_unlink;
 	}
 
+	/* If the mode uses primary, then the following is handled by
+	 * bond_change_active_slave().
+	 */
+	if (!bond_uses_primary(bond)) {
+		/* set promiscuity level to new slave */
+		if (bond_dev->flags & IFF_PROMISC) {
+			res = dev_set_promiscuity(slave_dev, 1);
+			if (res)
+				goto err_sysfs_del;
+		}
+
+		/* set allmulti level to new slave */
+		if (bond_dev->flags & IFF_ALLMULTI) {
+			res = dev_set_allmulti(slave_dev, 1);
+			if (res) {
+				if (bond_dev->flags & IFF_PROMISC)
+					dev_set_promiscuity(slave_dev, -1);
+				goto err_sysfs_del;
+			}
+		}
+
+		netif_addr_lock_bh(bond_dev);
+		dev_mc_sync_multiple(slave_dev, bond_dev);
+		dev_uc_sync_multiple(slave_dev, bond_dev);
+		netif_addr_unlock_bh(bond_dev);
+
+		if (BOND_MODE(bond) == BOND_MODE_8023AD) {
+			/* add lacpdu mc addr to mc list */
+			u8 lacpdu_multicast[ETH_ALEN] = MULTICAST_LACPDU_ADDR;
+
+			dev_mc_add(slave_dev, lacpdu_multicast);
+		}
+	}
+
 	bond->slave_cnt++;
 	bond_compute_features(bond);
 	bond_set_carrier(bond);
@@ -1664,6 +1688,9 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
 	return 0;
 
 /* Undo stages on error */
+err_sysfs_del:
+	bond_sysfs_slave_del(new_slave);
+
 err_upper_unlink:
 	bond_upper_dev_unlink(bond_dev, slave_dev);
 
@@ -1671,9 +1698,6 @@ err_unregister:
 	netdev_rx_handler_unregister(slave_dev);
 
 err_detach:
-	if (!bond_uses_primary(bond))
-		bond_hw_addr_flush(bond_dev, slave_dev);
-
 	vlan_vids_del_by_dev(slave_dev, bond_dev);
 	if (rcu_access_pointer(bond->primary_slave) == new_slave)
 		RCU_INIT_POINTER(bond->primary_slave, NULL);
@@ -1692,6 +1716,7 @@ err_close:
 	dev_close(slave_dev);
 
 err_restore_mac:
+	slave_dev->flags &= ~IFF_SLAVE;
 	if (!bond->params.fail_over_mac ||
 	    BOND_MODE(bond) != BOND_MODE_ACTIVEBACKUP) {
 		/* XXX TODO - fom follow mode needs to change master's
@@ -1902,6 +1927,7 @@ static int  bond_release_and_destroy(struct net_device *bond_dev,
 		bond_dev->priv_flags |= IFF_DISABLE_NETPOLL;
 		netdev_info(bond_dev, "Destroying bond %s\n",
 			    bond_dev->name);
+		bond_remove_proc_entry(bond);
 		unregister_netdevice(bond_dev);
 	}
 	return ret;
@@ -2373,7 +2399,7 @@ int bond_arp_rcv(const struct sk_buff *skb, struct bonding *bond,
 		 struct slave *slave)
 {
 	struct arphdr *arp = (struct arphdr *)skb->data;
-	struct slave *curr_active_slave;
+	struct slave *curr_active_slave, *curr_arp_slave;
 	unsigned char *arp_ptr;
 	__be32 sip, tip;
 	int alen, is_arp = skb->protocol == __cpu_to_be16(ETH_P_ARP);
@@ -2420,26 +2446,41 @@ int bond_arp_rcv(const struct sk_buff *skb, struct bonding *bond,
 		     &sip, &tip);
 
 	curr_active_slave = rcu_dereference(bond->curr_active_slave);
+	curr_arp_slave = rcu_dereference(bond->current_arp_slave);
 
-	/* Backup slaves won't see the ARP reply, but do come through
-	 * here for each ARP probe (so we swap the sip/tip to validate
-	 * the probe).  In a "redundant switch, common router" type of
-	 * configuration, the ARP probe will (hopefully) travel from
-	 * the active, through one switch, the router, then the other
-	 * switch before reaching the backup.
+	/* We 'trust' the received ARP enough to validate it if:
 	 *
-	 * We 'trust' the arp requests if there is an active slave and
-	 * it received valid arp reply(s) after it became active. This
-	 * is done to avoid endless looping when we can't reach the
+	 * (a) the slave receiving the ARP is active (which includes the
+	 * current ARP slave, if any), or
+	 *
+	 * (b) the receiving slave isn't active, but there is a currently
+	 * active slave and it received valid arp reply(s) after it became
+	 * the currently active slave, or
+	 *
+	 * (c) there is an ARP slave that sent an ARP during the prior ARP
+	 * interval, and we receive an ARP reply on any slave.  We accept
+	 * these because switch FDB update delays may deliver the ARP
+	 * reply to a slave other than the sender of the ARP request.
+	 *
+	 * Note: for (b), backup slaves are receiving the broadcast ARP
+	 * request, not a reply.  This request passes from the sending
+	 * slave through the L2 switch(es) to the receiving slave.  Since
+	 * this is checking the request, sip/tip are swapped for
+	 * validation.
+	 *
+	 * This is done to avoid endless looping when we can't reach the
 	 * arp_ip_target and fool ourselves with our own arp requests.
 	 */
-
 	if (bond_is_active_slave(slave))
 		bond_validate_arp(bond, slave, sip, tip);
 	else if (curr_active_slave &&
 		 time_after(slave_last_rx(bond, curr_active_slave),
 			    curr_active_slave->last_link_up))
 		bond_validate_arp(bond, slave, tip, sip);
+	else if (curr_arp_slave && (arp->ar_op == htons(ARPOP_REPLY)) &&
+		 bond_time_in_interval(bond,
+				       dev_trans_start(curr_arp_slave->dev), 1))
+		bond_validate_arp(bond, slave, sip, tip);
 
 out_unlock:
 	if (arp != (struct arphdr *)skb->data)
@@ -2492,11 +2533,13 @@ static void bond_loadbalance_arp_mon(struct work_struct *work)
 	bond_for_each_slave_rcu(bond, slave, iter) {
 		unsigned long trans_start = dev_trans_start(slave->dev);
 
+		slave->new_link = BOND_LINK_NOCHANGE;
+
 		if (slave->link != BOND_LINK_UP) {
 			if (bond_time_in_interval(bond, trans_start, 1) &&
 			    bond_time_in_interval(bond, slave->last_rx, 1)) {
 
-				slave->link  = BOND_LINK_UP;
+				slave->new_link = BOND_LINK_UP;
 				slave_state_changed = 1;
 
 				/* primary_slave has no meaning in round-robin
@@ -2523,7 +2566,7 @@ static void bond_loadbalance_arp_mon(struct work_struct *work)
 			if (!bond_time_in_interval(bond, trans_start, 2) ||
 			    !bond_time_in_interval(bond, slave->last_rx, 2)) {
 
-				slave->link  = BOND_LINK_DOWN;
+				slave->new_link = BOND_LINK_DOWN;
 				slave_state_changed = 1;
 
 				if (slave->link_failure_count < UINT_MAX)
@@ -2553,6 +2596,11 @@ static void bond_loadbalance_arp_mon(struct work_struct *work)
 	if (do_failover || slave_state_changed) {
 		if (!rtnl_trylock())
 			goto re_arm;
+
+		bond_for_each_slave(bond, slave, iter) {
+			if (slave->new_link != BOND_LINK_NOCHANGE)
+				slave->link = slave->new_link;
+		}
 
 		if (slave_state_changed) {
 			bond_slave_state_change(bond);
@@ -3110,7 +3158,7 @@ u32 bond_xmit_hash(struct bonding *bond, struct sk_buff *skb)
 	hash ^= (hash >> 16);
 	hash ^= (hash >> 8);
 
-	return hash;
+	return hash >> 1;
 }
 
 /*-------------------------- Device entry points ----------------------------*/
@@ -3205,6 +3253,35 @@ static int bond_close(struct net_device *bond_dev)
 	return 0;
 }
 
+/* fold stats, assuming all rtnl_link_stats64 fields are u64, but
+ * that some drivers can provide 32bit values only.
+ */
+static void bond_fold_stats(struct rtnl_link_stats64 *_res,
+			    const struct rtnl_link_stats64 *_new,
+			    const struct rtnl_link_stats64 *_old)
+{
+	const u64 *new = (const u64 *)_new;
+	const u64 *old = (const u64 *)_old;
+	u64 *res = (u64 *)_res;
+	int i;
+
+	for (i = 0; i < sizeof(*_res) / sizeof(u64); i++) {
+		u64 nv = new[i];
+		u64 ov = old[i];
+		s64 delta = nv - ov;
+
+		/* detects if this particular field is 32bit only */
+		if (((nv | ov) >> 32) == 0)
+			delta = (s64)(s32)((u32)nv - (u32)ov);
+
+		/* filter anomalies, some drivers reset their stats
+		 * at down/up events.
+		 */
+		if (delta > 0)
+			res[i] += delta;
+	}
+}
+
 static struct rtnl_link_stats64 *bond_get_stats(struct net_device *bond_dev,
 						struct rtnl_link_stats64 *stats)
 {
@@ -3213,43 +3290,23 @@ static struct rtnl_link_stats64 *bond_get_stats(struct net_device *bond_dev,
 	struct list_head *iter;
 	struct slave *slave;
 
+	spin_lock(&bond->stats_lock);
 	memcpy(stats, &bond->bond_stats, sizeof(*stats));
 
-	bond_for_each_slave(bond, slave, iter) {
-		const struct rtnl_link_stats64 *sstats =
+	rcu_read_lock();
+	bond_for_each_slave_rcu(bond, slave, iter) {
+		const struct rtnl_link_stats64 *new =
 			dev_get_stats(slave->dev, &temp);
-		struct rtnl_link_stats64 *pstats = &slave->slave_stats;
 
-		stats->rx_packets +=  sstats->rx_packets - pstats->rx_packets;
-		stats->rx_bytes += sstats->rx_bytes - pstats->rx_bytes;
-		stats->rx_errors += sstats->rx_errors - pstats->rx_errors;
-		stats->rx_dropped += sstats->rx_dropped - pstats->rx_dropped;
-
-		stats->tx_packets += sstats->tx_packets - pstats->tx_packets;;
-		stats->tx_bytes += sstats->tx_bytes - pstats->tx_bytes;
-		stats->tx_errors += sstats->tx_errors - pstats->tx_errors;
-		stats->tx_dropped += sstats->tx_dropped - pstats->tx_dropped;
-
-		stats->multicast += sstats->multicast - pstats->multicast;
-		stats->collisions += sstats->collisions - pstats->collisions;
-
-		stats->rx_length_errors += sstats->rx_length_errors - pstats->rx_length_errors;
-		stats->rx_over_errors += sstats->rx_over_errors - pstats->rx_over_errors;
-		stats->rx_crc_errors += sstats->rx_crc_errors - pstats->rx_crc_errors;
-		stats->rx_frame_errors += sstats->rx_frame_errors - pstats->rx_frame_errors;
-		stats->rx_fifo_errors += sstats->rx_fifo_errors - pstats->rx_fifo_errors;
-		stats->rx_missed_errors += sstats->rx_missed_errors - pstats->rx_missed_errors;
-
-		stats->tx_aborted_errors += sstats->tx_aborted_errors - pstats->tx_aborted_errors;
-		stats->tx_carrier_errors += sstats->tx_carrier_errors - pstats->tx_carrier_errors;
-		stats->tx_fifo_errors += sstats->tx_fifo_errors - pstats->tx_fifo_errors;
-		stats->tx_heartbeat_errors += sstats->tx_heartbeat_errors - pstats->tx_heartbeat_errors;
-		stats->tx_window_errors += sstats->tx_window_errors - pstats->tx_window_errors;
+		bond_fold_stats(stats, new, &slave->slave_stats);
 
 		/* save off the slave stats for the next run */
-		memcpy(pstats, sstats, sizeof(*sstats));
+		memcpy(&slave->slave_stats, new, sizeof(*new));
 	}
+	rcu_read_unlock();
+
 	memcpy(&bond->bond_stats, stats, sizeof(*stats));
+	spin_unlock(&bond->stats_lock);
 
 	return stats;
 }
@@ -4061,6 +4118,7 @@ void bond_setup(struct net_device *bond_dev)
 	struct bonding *bond = netdev_priv(bond_dev);
 
 	spin_lock_init(&bond->mode_lock);
+	spin_lock_init(&bond->stats_lock);
 	bond->params = bonding_defaults;
 
 	/* Initialize pointers */

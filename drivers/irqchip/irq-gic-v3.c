@@ -180,7 +180,7 @@ static void gic_enable_redist(bool enable)
 			return;	/* No PM support in this redistributor */
 	}
 
-	while (count--) {
+	while (--count) {
 		val = readl_relaxed(rbase + GICR_WAKER);
 		if (enable ^ (val & GICR_WAKER_ChildrenAsleep))
 			break;
@@ -353,6 +353,13 @@ static asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs
 		if (irqnr < 16) {
 			gic_write_eoir(irqnr);
 #ifdef CONFIG_SMP
+			/*
+			 * Unlike GICv2, we don't need an smp_rmb() here.
+			 * The control dependency from gic_read_iar to
+			 * the ISB in gic_write_eoir is enough to ensure
+			 * that any shared data read by handle_IPI will
+			 * be read after the ACK.
+			 */
 			handle_IPI(irqnr, regs);
 #else
 			WARN_ONCE(true, "Unexpected SGI received!\n");
@@ -371,6 +378,15 @@ static void __init gic_dist_init(void)
 	/* Disable the distributor */
 	writel_relaxed(0, base + GICD_CTLR);
 	gic_dist_wait_for_rwp();
+
+	/*
+	 * Configure SPIs as non-secure Group-1. This will only matter
+	 * if the GIC only has a single security state. This will not
+	 * do the right thing if the kernel is running in secure mode,
+	 * but that's not the intended use case anyway.
+	 */
+	for (i = 32; i < gic_data.irq_nr; i += 32)
+		writel_relaxed(~0, base + GICD_IGROUPR + i / 8);
 
 	gic_dist_config(base, gic_data.irq_nr, gic_dist_wait_for_rwp);
 
@@ -475,6 +491,9 @@ static void gic_cpu_init(void)
 
 	rbase = gic_data_rdist_sgi_base();
 
+	/* Configure SGIs/PPIs as non-secure Group-1 */
+	writel_relaxed(~0, rbase + GICR_IGROUPR0);
+
 	gic_cpu_config(rbase, gic_redist_wait_for_rwp);
 
 	/* Give LPIs a spin */
@@ -565,7 +584,7 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 	 * Ensure that stores to Normal memory are visible to the
 	 * other CPUs before issuing the IPI.
 	 */
-	smp_wmb();
+	wmb();
 
 	for_each_cpu(cpu, mask) {
 		u64 cluster_id = cpu_logical_map(cpu) & ~0xffUL;
@@ -592,6 +611,9 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	void __iomem *reg;
 	int enabled;
 	u64 val;
+
+	if (cpu >= nr_cpu_ids)
+		return -EINVAL;
 
 	if (gic_irq_in_rdist(d))
 		return -EINVAL;

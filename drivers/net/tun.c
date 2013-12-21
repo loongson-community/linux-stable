@@ -516,11 +516,13 @@ static void tun_detach_all(struct net_device *dev)
 	for (i = 0; i < n; i++) {
 		tfile = rtnl_dereference(tun->tfiles[i]);
 		BUG_ON(!tfile);
+		tfile->socket.sk->sk_shutdown = RCV_SHUTDOWN;
 		tfile->socket.sk->sk_data_ready(tfile->socket.sk);
 		RCU_INIT_POINTER(tfile->tun, NULL);
 		--tun->numqueues;
 	}
 	list_for_each_entry(tfile, &tun->disabled, next) {
+		tfile->socket.sk->sk_shutdown = RCV_SHUTDOWN;
 		tfile->socket.sk->sk_data_ready(tfile->socket.sk);
 		RCU_INIT_POINTER(tfile->tun, NULL);
 	}
@@ -575,6 +577,7 @@ static int tun_attach(struct tun_struct *tun, struct file *file, bool skip_filte
 			goto out;
 	}
 	tfile->queue_index = tun->numqueues;
+	tfile->socket.sk->sk_shutdown &= ~RCV_SHUTDOWN;
 	rcu_assign_pointer(tfile->tun, tun);
 	rcu_assign_pointer(tun->tfiles[tun->numqueues], tfile);
 	tun->numqueues++;
@@ -1139,11 +1142,13 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 	switch (tun->flags & TUN_TYPE_MASK) {
 	case IFF_TUN:
 		if (tun->flags & IFF_NO_PI) {
-			switch (skb->data[0] & 0xf0) {
-			case 0x40:
+			u8 ip_version = skb->len ? (skb->data[0] >> 4) : 0;
+
+			switch (ip_version) {
+			case 4:
 				pi.proto = htons(ETH_P_IP);
 				break;
-			case 0x60:
+			case 6:
 				pi.proto = htons(ETH_P_IPV6);
 				break;
 			default:
@@ -1356,9 +1361,6 @@ static ssize_t tun_do_read(struct tun_struct *tun, struct tun_file *tfile,
 
 	if (!iov_iter_count(to))
 		return 0;
-
-	if (tun->dev->reg_state != NETREG_REGISTERED)
-		return -EIO;
 
 	/* Read frames from queue */
 	skb = __skb_recv_datagram(tfile->socket.sk, noblock ? MSG_DONTWAIT : 0,
@@ -1635,6 +1637,9 @@ static int tun_set_iff(struct net *net, struct file *file, struct ifreq *ifr)
 
 		if (!dev)
 			return -ENOMEM;
+		err = dev_get_valid_name(net, dev, name);
+		if (err < 0)
+			goto err_free_dev;
 
 		dev_net_set(dev, net);
 		dev->rtnl_link_ops = &tun_link_ops;
@@ -2013,6 +2018,10 @@ static long __tun_chr_ioctl(struct file *file, unsigned int cmd,
 	case TUNSETSNDBUF:
 		if (copy_from_user(&sndbuf, argp, sizeof(sndbuf))) {
 			ret = -EFAULT;
+			break;
+		}
+		if (sndbuf <= 0) {
+			ret = -EINVAL;
 			break;
 		}
 

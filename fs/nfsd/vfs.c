@@ -92,6 +92,12 @@ nfsd_cross_mnt(struct svc_rqst *rqstp, struct dentry **dpp,
 	err = follow_down(&path);
 	if (err < 0)
 		goto out;
+	if (path.mnt == exp->ex_path.mnt && path.dentry == dentry &&
+	    nfsd_mountpoint(dentry, exp) == 2) {
+		/* This is only a mountpoint in some other namespace */
+		path_put(&path);
+		goto out;
+	}
 
 	exp2 = rqst_exp_get_by_name(rqstp, &path);
 	if (IS_ERR(exp2)) {
@@ -165,16 +171,26 @@ static int nfsd_lookup_parent(struct svc_rqst *rqstp, struct dentry *dparent, st
 /*
  * For nfsd purposes, we treat V4ROOT exports as though there was an
  * export at *every* directory.
+ * We return:
+ * '1' if this dentry *must* be an export point,
+ * '2' if it might be, if there is really a mount here, and
+ * '0' if there is no chance of an export point here.
  */
 int nfsd_mountpoint(struct dentry *dentry, struct svc_export *exp)
 {
-	if (d_mountpoint(dentry))
+	if (!d_inode(dentry))
+		return 0;
+	if (exp->ex_flags & NFSEXP_V4ROOT)
 		return 1;
 	if (nfsd4_is_junction(dentry))
 		return 1;
-	if (!(exp->ex_flags & NFSEXP_V4ROOT))
-		return 0;
-	return d_inode(dentry) != NULL;
+	if (d_mountpoint(dentry))
+		/*
+		 * Might only be a mountpoint in a different namespace,
+		 * but we need to check.
+		 */
+		return 2;
+	return 0;
 }
 
 __be32
@@ -302,42 +318,6 @@ commit_metadata(struct svc_fh *fhp)
 static void
 nfsd_sanitize_attrs(struct inode *inode, struct iattr *iap)
 {
-	/*
-	 * NFSv2 does not differentiate between "set-[ac]time-to-now"
-	 * which only requires access, and "set-[ac]time-to-X" which
-	 * requires ownership.
-	 * So if it looks like it might be "set both to the same time which
-	 * is close to now", and if inode_change_ok fails, then we
-	 * convert to "set to now" instead of "set to explicit time"
-	 *
-	 * We only call inode_change_ok as the last test as technically
-	 * it is not an interface that we should be using.
-	 */
-#define BOTH_TIME_SET (ATTR_ATIME_SET | ATTR_MTIME_SET)
-#define	MAX_TOUCH_TIME_ERROR (30*60)
-	if ((iap->ia_valid & BOTH_TIME_SET) == BOTH_TIME_SET &&
-	    iap->ia_mtime.tv_sec == iap->ia_atime.tv_sec) {
-		/*
-		 * Looks probable.
-		 *
-		 * Now just make sure time is in the right ballpark.
-		 * Solaris, at least, doesn't seem to care what the time
-		 * request is.  We require it be within 30 minutes of now.
-		 */
-		time_t delta = iap->ia_atime.tv_sec - get_seconds();
-		if (delta < 0)
-			delta = -delta;
-		if (delta < MAX_TOUCH_TIME_ERROR &&
-		    inode_change_ok(inode, iap) != 0) {
-			/*
-			 * Turn off ATTR_[AM]TIME_SET but leave ATTR_[AM]TIME.
-			 * This will cause notify_change to set these times
-			 * to "now"
-			 */
-			iap->ia_valid &= ~BOTH_TIME_SET;
-		}
-	}
-
 	/* sanitize the mode change */
 	if (iap->ia_valid & ATTR_MODE) {
 		iap->ia_mode &= S_IALLUGO;
@@ -405,7 +385,7 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	__be32		err;
 	int		host_err;
 	bool		get_write_count;
-	int		size_change = 0;
+	bool		size_change = (iap->ia_valid & ATTR_SIZE);
 
 	if (iap->ia_valid & (ATTR_ATIME | ATTR_MTIME | ATTR_SIZE))
 		accmode |= NFSD_MAY_WRITE|NFSD_MAY_OWNER_OVERRIDE;
@@ -418,11 +398,11 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	/* Get inode */
 	err = fh_verify(rqstp, fhp, ftype, accmode);
 	if (err)
-		goto out;
+		return err;
 	if (get_write_count) {
 		host_err = fh_want_write(fhp);
 		if (host_err)
-			return nfserrno(host_err);
+			goto out;
 	}
 
 	dentry = fhp->fh_dentry;
@@ -433,20 +413,28 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 		iap->ia_valid &= ~ATTR_MODE;
 
 	if (!iap->ia_valid)
-		goto out;
+		return 0;
 
 	nfsd_sanitize_attrs(inode, iap);
 
+	if (check_guard && guardtime != inode->i_ctime.tv_sec)
+		return nfserr_notsync;
+
 	/*
 	 * The size case is special, it changes the file in addition to the
-	 * attributes.
+	 * attributes, and file systems don't expect it to be mixed with
+	 * "random" attribute changes.  We thus split out the size change
+	 * into a separate call to ->setattr, and do the rest as a separate
+	 * setattr call.
 	 */
-	if (iap->ia_valid & ATTR_SIZE) {
+	if (size_change) {
 		err = nfsd_get_write_access(rqstp, fhp, iap);
 		if (err)
-			goto out;
-		size_change = 1;
+			return err;
+	}
 
+	fh_lock(fhp);
+	if (size_change) {
 		/*
 		 * RFC5661, Section 18.30.4:
 		 *   Changing the size of a file with SETATTR indirectly
@@ -454,29 +442,36 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 		 *
 		 * (and similar for the older RFCs)
 		 */
-		if (iap->ia_size != i_size_read(inode))
-			iap->ia_valid |= ATTR_MTIME;
+		struct iattr size_attr = {
+			.ia_valid	= ATTR_SIZE | ATTR_CTIME | ATTR_MTIME,
+			.ia_size	= iap->ia_size,
+		};
+
+		host_err = notify_change(dentry, &size_attr, NULL);
+		if (host_err)
+			goto out_unlock;
+		iap->ia_valid &= ~ATTR_SIZE;
+
+		/*
+		 * Avoid the additional setattr call below if the only other
+		 * attribute that the client sends is the mtime, as we update
+		 * it as part of the size change above.
+		 */
+		if ((iap->ia_valid & ~ATTR_MTIME) == 0)
+			goto out_unlock;
 	}
 
 	iap->ia_valid |= ATTR_CTIME;
-
-	if (check_guard && guardtime != inode->i_ctime.tv_sec) {
-		err = nfserr_notsync;
-		goto out_put_write_access;
-	}
-
-	fh_lock(fhp);
 	host_err = notify_change(dentry, iap, NULL);
-	fh_unlock(fhp);
-	err = nfserrno(host_err);
 
-out_put_write_access:
+out_unlock:
+	fh_unlock(fhp);
 	if (size_change)
 		put_write_access(inode);
-	if (!err)
-		err = nfserrno(commit_metadata(fhp));
 out:
-	return err;
+	if (!host_err)
+		host_err = commit_metadata(fhp);
+	return nfserrno(host_err);
 }
 
 #if defined(CONFIG_NFSD_V4)

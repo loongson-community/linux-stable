@@ -1694,6 +1694,7 @@ int dlm_master_requery_handler(struct o2net_msg *msg, u32 len, void *data,
 	unsigned int hash;
 	int master = DLM_LOCK_RES_OWNER_UNKNOWN;
 	u32 flags = DLM_ASSERT_MASTER_REQUERY;
+	int dispatched = 0;
 
 	if (!dlm_grab(dlm)) {
 		/* since the domain has gone away on this
@@ -1719,8 +1720,10 @@ int dlm_master_requery_handler(struct o2net_msg *msg, u32 len, void *data,
 				dlm_put(dlm);
 				/* sender will take care of this and retry */
 				return ret;
-			} else
+			} else {
+				dispatched = 1;
 				__dlm_lockres_grab_inflight_worker(dlm, res);
+			}
 			spin_unlock(&res->spinlock);
 		} else {
 			/* put.. incase we are not the master */
@@ -1730,7 +1733,8 @@ int dlm_master_requery_handler(struct o2net_msg *msg, u32 len, void *data,
 	}
 	spin_unlock(&dlm->spinlock);
 
-	dlm_put(dlm);
+	if (!dispatched)
+		dlm_put(dlm);
 	return master;
 }
 
@@ -2060,7 +2064,6 @@ void dlm_move_lockres_to_recovery_list(struct dlm_ctxt *dlm,
 			dlm_lock_get(lock);
 			if (lock->convert_pending) {
 				/* move converting lock back to granted */
-				BUG_ON(i != DLM_CONVERTING_LIST);
 				mlog(0, "node died with convert pending "
 				     "on %.*s. move back to granted list.\n",
 				     res->lockname.len, res->lockname.name);
@@ -2356,6 +2359,8 @@ static void dlm_do_local_recovery_cleanup(struct dlm_ctxt *dlm, u8 dead_node)
 						break;
 					}
 				}
+				dlm_lockres_clear_refmap_bit(dlm, res,
+						dead_node);
 				spin_unlock(&res->spinlock);
 				continue;
 			}

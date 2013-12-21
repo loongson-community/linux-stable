@@ -48,8 +48,6 @@ void dccp_time_wait(struct sock *sk, int state, int timeo)
 			tw->tw_ipv6only = sk->sk_ipv6only;
 		}
 #endif
-		/* Linkage updates. */
-		__inet_twsk_hashdance(tw, sk, &dccp_hashinfo);
 
 		/* Get the TIME_WAIT timeout firing. */
 		if (timeo < rto)
@@ -60,6 +58,8 @@ void dccp_time_wait(struct sock *sk, int state, int timeo)
 			timeo = DCCP_TIMEWAIT_LEN;
 
 		inet_twsk_schedule(tw, timeo);
+		/* Linkage updates. */
+		__inet_twsk_hashdance(tw, sk, &dccp_hashinfo);
 		inet_twsk_put(tw);
 	} else {
 		/* Sorry, if we're out of memory, just CLOSE this
@@ -122,6 +122,7 @@ struct sock *dccp_create_openreq_child(struct sock *sk,
 			/* It is still raw copy of parent, so invalidate
 			 * destructor and make plain sk_free() */
 			newsk->sk_destruct = NULL;
+			bh_unlock_sock(newsk);
 			sk_free(newsk);
 			return NULL;
 		}

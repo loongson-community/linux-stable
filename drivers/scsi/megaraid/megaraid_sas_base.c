@@ -1622,16 +1622,13 @@ megasas_queue_command(struct Scsi_Host *shost, struct scsi_cmnd *scmd)
 		goto out_done;
 	}
 
-	switch (scmd->cmnd[0]) {
-	case SYNCHRONIZE_CACHE:
-		/*
-		 * FW takes care of flush cache on its own
-		 * No need to send it down
-		 */
+	/*
+	 * FW takes care of flush cache on its own for Virtual Disk.
+	 * No need to send it down for VD. For JBOD send SYNCHRONIZE_CACHE to FW.
+	 */
+	if ((scmd->cmnd[0] == SYNCHRONIZE_CACHE) && MEGASAS_IS_LOGICAL(scmd)) {
 		scmd->result = DID_OK << 16;
 		goto out_done;
-	default:
-		break;
 	}
 
 	if (instance->instancet->build_and_issue_cmd(instance, scmd)) {
@@ -1712,9 +1709,12 @@ void megasas_complete_outstanding_ioctls(struct megasas_instance *instance)
 			if (cmd_fusion->sync_cmd_idx != (u32)ULONG_MAX) {
 				cmd_mfi = instance->cmd_list[cmd_fusion->sync_cmd_idx];
 				if (cmd_mfi->sync_cmd &&
-					cmd_mfi->frame->hdr.cmd != MFI_CMD_ABORT)
+				    (cmd_mfi->frame->hdr.cmd != MFI_CMD_ABORT)) {
+					cmd_mfi->frame->hdr.cmd_status =
+							MFI_STAT_WRONG_STATE;
 					megasas_complete_cmd(instance,
 							     cmd_mfi, DID_OK);
+				}
 			}
 		}
 	} else {
@@ -6203,12 +6203,13 @@ megasas_mgmt_fw_ioctl(struct megasas_instance *instance,
 	}
 
 	for (i = 0; i < ioc->sge_count; i++) {
-		if (kbuff_arr[i])
+		if (kbuff_arr[i]) {
 			dma_free_coherent(&instance->pdev->dev,
 					  le32_to_cpu(kern_sge32[i].length),
 					  kbuff_arr[i],
 					  le32_to_cpu(kern_sge32[i].phys_addr));
 			kbuff_arr[i] = NULL;
+		}
 	}
 
 	if (instance->ctrl_context && cmd->mpt_pthr_cmd_blocked)

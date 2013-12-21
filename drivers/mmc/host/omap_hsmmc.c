@@ -1062,6 +1062,10 @@ static void omap_hsmmc_do_irq(struct omap_hsmmc_host *host, int status)
 
 		if (status & (CTO_EN | CCRC_EN))
 			end_cmd = 1;
+		if (host->data || host->response_busy) {
+			end_trans = !end_cmd;
+			host->response_busy = 0;
+		}
 		if (status & (CTO_EN | DTO_EN))
 			hsmmc_command_incomplete(host, -ETIMEDOUT, end_cmd);
 		else if (status & (CCRC_EN | DCRC_EN))
@@ -1080,10 +1084,6 @@ static void omap_hsmmc_do_irq(struct omap_hsmmc_host *host, int status)
 				hsmmc_command_incomplete(host, error, end_cmd);
 			}
 			dev_dbg(mmc_dev(host->mmc), "AC12 err: 0x%x\n", ac12);
-		}
-		if (host->data || host->response_busy) {
-			end_trans = !end_cmd;
-			host->response_busy = 0;
 		}
 	}
 
@@ -1693,8 +1693,8 @@ static int omap_hsmmc_configure_wake_irq(struct omap_hsmmc_host *host)
 	 */
 	if (host->pdata->controller_flags & OMAP_HSMMC_SWAKEUP_MISSING) {
 		struct pinctrl *p = devm_pinctrl_get(host->dev);
-		if (!p) {
-			ret = -ENODEV;
+		if (IS_ERR(p)) {
+			ret = PTR_ERR(p);
 			goto err_free_irq;
 		}
 		if (IS_ERR(pinctrl_lookup_state(p, PINCTRL_STATE_DEFAULT))) {
