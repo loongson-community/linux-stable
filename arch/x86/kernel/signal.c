@@ -364,7 +364,7 @@ static int __setup_rt_frame(int sig, struct ksignal *ksig,
 		else
 			put_user_ex(0, &frame->uc.uc_flags);
 		put_user_ex(0, &frame->uc.uc_link);
-		err |= __save_altstack(&frame->uc.uc_stack, regs->sp);
+		save_altstack_ex(&frame->uc.uc_stack, regs->sp);
 
 		/* Set up to return from userspace.  */
 		restorer = VDSO32_SYMBOL(current->mm->context.vdso, rt_sigreturn);
@@ -429,7 +429,7 @@ static int __setup_rt_frame(int sig, struct ksignal *ksig,
 		else
 			put_user_ex(0, &frame->uc.uc_flags);
 		put_user_ex(0, &frame->uc.uc_link);
-		err |= __save_altstack(&frame->uc.uc_stack, regs->sp);
+		save_altstack_ex(&frame->uc.uc_stack, regs->sp);
 
 		/* Set up to return from userspace.  If provided, use a stub
 		   already in userspace.  */
@@ -496,7 +496,7 @@ static int x32_setup_rt_frame(struct ksignal *ksig,
 		else
 			put_user_ex(0, &frame->uc.uc_flags);
 		put_user_ex(0, &frame->uc.uc_link);
-		err |= __compat_save_altstack(&frame->uc.uc_stack, regs->sp);
+		compat_save_altstack_ex(&frame->uc.uc_stack, regs->sp);
 		put_user_ex(0, &frame->uc.uc__pad0);
 
 		if (ksig->ka.sa.sa_flags & SA_RESTORER) {
@@ -677,16 +677,24 @@ handle_signal(struct ksignal *ksig, struct pt_regs *regs)
 		 * handler too.
 		 */
 		regs->flags &= ~X86_EFLAGS_TF;
+		/*
+		 * Ensure the signal handler starts with the new fpu state.
+		 */
+		if (used_math())
+			drop_init_fpu(current);
 	}
 	signal_setup_done(failed, ksig, test_thread_flag(TIF_SINGLESTEP));
 }
 
-#ifdef CONFIG_X86_32
-#define NR_restart_syscall	__NR_restart_syscall
-#else /* !CONFIG_X86_32 */
-#define NR_restart_syscall	\
-	test_thread_flag(TIF_IA32) ? __NR_ia32_restart_syscall : __NR_restart_syscall
-#endif /* CONFIG_X86_32 */
+static inline unsigned long get_nr_restart_syscall(const struct pt_regs *regs)
+{
+#if defined(CONFIG_X86_32) || !defined(CONFIG_X86_64)
+	return __NR_restart_syscall;
+#else /* !CONFIG_X86_32 && CONFIG_X86_64 */
+	return test_thread_flag(TIF_IA32) ? __NR_ia32_restart_syscall :
+		__NR_restart_syscall | (regs->orig_ax & __X32_SYSCALL_BIT);
+#endif /* CONFIG_X86_32 || !CONFIG_X86_64 */
+}
 
 /*
  * Note that 'init' is a special process: it doesn't get signals it doesn't
@@ -715,7 +723,7 @@ static void do_signal(struct pt_regs *regs)
 			break;
 
 		case -ERESTART_RESTARTBLOCK:
-			regs->ax = NR_restart_syscall;
+			regs->ax = get_nr_restart_syscall(regs);
 			regs->ip -= 2;
 			break;
 		}

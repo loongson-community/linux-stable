@@ -103,7 +103,7 @@ static int slice_area_is_free(struct mm_struct *mm, unsigned long addr,
 	if ((mm->task_size - len) < addr)
 		return 0;
 	vma = find_vma(mm, addr);
-	return (!vma || (addr + len) <= vma->vm_start);
+	return (!vma || (addr + len) <= vm_start_gap(vma));
 }
 
 static int slice_low_has_vma(struct mm_struct *mm, unsigned long slice)
@@ -258,7 +258,7 @@ static bool slice_scan_available(unsigned long addr,
 		slice = GET_HIGH_SLICE_INDEX(addr);
 		*boundary_addr = (slice + end) ?
 			((slice + end) << SLICE_HIGH_SHIFT) : SLICE_LOW_TOP;
-		return !!(available.high_slices & (1u << slice));
+		return !!(available.high_slices & (1ul << slice));
 	}
 }
 

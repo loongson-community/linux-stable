@@ -1955,8 +1955,11 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
 
-	/* For some reason crtc x/y offsets are signed internally. */
-	if (crtc_req->x > INT_MAX || crtc_req->y > INT_MAX)
+	/*
+	 * Universal plane src offsets are only 16.16, prevent havoc for
+	 * drivers using universal plane code internally.
+	 */
+	if (crtc_req->x & 0xffff0000 || crtc_req->y & 0xffff0000)
 		return -ERANGE;
 
 	drm_modeset_lock_all(dev);
@@ -2501,10 +2504,22 @@ int drm_mode_getfb(struct drm_device *dev,
 	r->depth = fb->depth;
 	r->bpp = fb->bits_per_pixel;
 	r->pitch = fb->pitches[0];
-	if (fb->funcs->create_handle)
-		ret = fb->funcs->create_handle(fb, file_priv, &r->handle);
-	else
+	if (fb->funcs->create_handle) {
+		if (file_priv->is_master || capable(CAP_SYS_ADMIN)) {
+			ret = fb->funcs->create_handle(fb, file_priv,
+						       &r->handle);
+		} else {
+			/* GET_FB() is an unprivileged ioctl so we must not
+			 * return a buffer-handle to non-master processes! For
+			 * backwards-compatibility reasons, we cannot make
+			 * GET_FB() privileged, so just return an invalid handle
+			 * for non-masters. */
+			r->handle = 0;
+			ret = 0;
+		}
+	} else {
 		ret = -ENODEV;
+	}
 
 	drm_framebuffer_unreference(fb);
 
@@ -3406,6 +3421,9 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 	unsigned long flags;
 	int hdisplay, vdisplay;
 	int ret = -EINVAL;
+
+	if (!drm_core_check_feature(dev, DRIVER_MODESET))
+		return -EINVAL;
 
 	if (page_flip->flags & ~DRM_MODE_PAGE_FLIP_FLAGS ||
 	    page_flip->reserved != 0)

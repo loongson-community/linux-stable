@@ -814,10 +814,8 @@ static int tca_action_flush(struct net *net, struct nlattr *nla,
 		goto out_module_put;
 
 	err = a->ops->walk(skb, &dcb, RTM_DELACTION, a);
-	if (err < 0)
+	if (err <= 0)
 		goto out_module_put;
-	if (err == 0)
-		goto noflush_out;
 
 	nla_nest_end(skb, nest);
 
@@ -835,7 +833,6 @@ static int tca_action_flush(struct net *net, struct nlattr *nla,
 out_module_put:
 	module_put(a->ops->owner);
 err_out:
-noflush_out:
 	kfree_skb(skb);
 	kfree(a);
 	return err;
@@ -989,7 +986,7 @@ static int tc_ctl_action(struct sk_buff *skb, struct nlmsghdr *n)
 	u32 portid = skb ? NETLINK_CB(skb).portid : 0;
 	int ret = 0, ovr = 0;
 
-	if ((n->nlmsg_type != RTM_GETACTION) && !capable(CAP_NET_ADMIN))
+	if ((n->nlmsg_type != RTM_GETACTION) && !netlink_capable(skb, CAP_NET_ADMIN))
 		return -EPERM;
 
 	ret = nlmsg_parse(n, sizeof(struct tcamsg), tca, TCA_ACT_MAX, NULL);

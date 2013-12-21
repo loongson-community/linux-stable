@@ -464,7 +464,7 @@ static int ca91cx42_slave_get(struct vme_slave_resource *image, int *enabled,
 	vme_bound = ioread32(bridge->base + CA91CX42_VSI_BD[i]);
 	pci_offset = ioread32(bridge->base + CA91CX42_VSI_TO[i]);
 
-	*pci_base = (dma_addr_t)vme_base + pci_offset;
+	*pci_base = (dma_addr_t)*vme_base + pci_offset;
 	*size = (unsigned long long)((vme_bound - *vme_base) + granularity);
 
 	*enabled = 0;
@@ -880,7 +880,7 @@ static ssize_t ca91cx42_master_read(struct vme_master_resource *image,
 		if (done == count)
 			goto out;
 	}
-	if ((uintptr_t)addr & 0x2) {
+	if ((uintptr_t)(addr + done) & 0x2) {
 		if ((count - done) < 2) {
 			*(u8 *)(buf + done) = ioread8(addr + done);
 			done += 1;
@@ -934,7 +934,7 @@ static ssize_t ca91cx42_master_write(struct vme_master_resource *image,
 		if (done == count)
 			goto out;
 	}
-	if ((uintptr_t)addr & 0x2) {
+	if ((uintptr_t)(addr + done) & 0x2) {
 		if ((count - done) < 2) {
 			iowrite8(*(u8 *)(buf + done), addr + done);
 			done += 1;

@@ -384,12 +384,16 @@ static int sm_metadata_new_block(struct dm_space_map *sm, dm_block_t *b)
 	struct sm_metadata *smm = container_of(sm, struct sm_metadata, sm);
 
 	int r = sm_metadata_new_block_(sm, b);
-	if (r)
+	if (r) {
 		DMERR("unable to allocate new metadata block");
+		return r;
+	}
 
 	r = sm_metadata_get_nr_free(sm, &count);
-	if (r)
+	if (r) {
 		DMERR("couldn't get free block count");
+		return r;
+	}
 
 	check_threshold(&smm->threshold, count);
 
@@ -489,7 +493,9 @@ static int sm_bootstrap_get_nr_blocks(struct dm_space_map *sm, dm_block_t *count
 {
 	struct sm_metadata *smm = container_of(sm, struct sm_metadata, sm);
 
-	return smm->ll.nr_blocks;
+	*count = smm->ll.nr_blocks;
+
+	return 0;
 }
 
 static int sm_bootstrap_get_nr_free(struct dm_space_map *sm, dm_block_t *count)
@@ -604,20 +610,38 @@ static int sm_metadata_extend(struct dm_space_map *sm, dm_block_t extra_blocks)
 	 * Flick into a mode where all blocks get allocated in the new area.
 	 */
 	smm->begin = old_len;
-	memcpy(&smm->sm, &bootstrap_ops, sizeof(smm->sm));
+	memcpy(sm, &bootstrap_ops, sizeof(*sm));
 
 	/*
 	 * Extend.
 	 */
 	r = sm_ll_extend(&smm->ll, extra_blocks);
+	if (r)
+		goto out;
 
+	/*
+	 * We repeatedly increment then commit until the commit doesn't
+	 * allocate any new blocks.
+	 */
+	do {
+		for (i = old_len; !r && i < smm->begin; i++) {
+			r = sm_ll_inc(&smm->ll, i, &ev);
+			if (r)
+				goto out;
+		}
+		old_len = smm->begin;
+
+		r = sm_ll_commit(&smm->ll);
+		if (r)
+			goto out;
+
+	} while (old_len != smm->begin);
+
+out:
 	/*
 	 * Switch back to normal behaviour.
 	 */
-	memcpy(&smm->sm, &ops, sizeof(smm->sm));
-	for (i = old_len; !r && i < smm->begin; i++)
-		r = sm_ll_inc(&smm->ll, i, &ev);
-
+	memcpy(sm, &ops, sizeof(*sm));
 	return r;
 }
 
@@ -655,14 +679,12 @@ int dm_sm_metadata_create(struct dm_space_map *sm,
 	memcpy(&smm->sm, &bootstrap_ops, sizeof(smm->sm));
 
 	r = sm_ll_new_metadata(&smm->ll, tm);
-	if (r)
-		return r;
-
-	r = sm_ll_extend(&smm->ll, nr_blocks);
-	if (r)
-		return r;
-
+	if (!r) {
+		r = sm_ll_extend(&smm->ll, nr_blocks);
+	}
 	memcpy(&smm->sm, &ops, sizeof(smm->sm));
+	if (r)
+		return r;
 
 	/*
 	 * Now we need to update the newly created data structures with the

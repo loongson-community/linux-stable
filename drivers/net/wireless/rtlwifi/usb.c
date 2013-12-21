@@ -119,7 +119,7 @@ static int _usbctrl_vendorreq_sync_read(struct usb_device *udev, u8 request,
 
 	do {
 		status = usb_control_msg(udev, pipe, request, reqtype, value,
-					 index, pdata, len, 0); /*max. timeout*/
+					 index, pdata, len, 1000);
 		if (status < 0) {
 			/* firmware download is checksumed, don't retry */
 			if ((value >= FW_8192C_START_ADDRESS &&
@@ -477,6 +477,8 @@ static void _rtl_usb_rx_process_agg(struct ieee80211_hw *hw,
 			if (unicast)
 				rtlpriv->link_info.num_rx_inperiod++;
 		}
+		/* static bcn for roaming */
+		rtl_beacon_statistic(hw, skb);
 	}
 }
 
@@ -548,7 +550,7 @@ static void _rtl_rx_pre_process(struct ieee80211_hw *hw, struct sk_buff *skb)
 	}
 }
 
-#define __RX_SKB_MAX_QUEUED	32
+#define __RX_SKB_MAX_QUEUED	64
 
 static void _rtl_rx_work(unsigned long param)
 {
@@ -821,6 +823,7 @@ static void rtl_usb_stop(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	struct rtl_usb *rtlusb = rtl_usbdev(rtl_usbpriv(hw));
+	struct urb *urb;
 
 	/* should after adapter start and interrupt enable. */
 	set_hal_stop(rtlhal);
@@ -828,6 +831,23 @@ static void rtl_usb_stop(struct ieee80211_hw *hw)
 	/* Enable software */
 	SET_USB_STOP(rtlusb);
 	rtl_usb_deinit(hw);
+
+	/* free pre-allocated URBs from rtl_usb_start() */
+	usb_kill_anchored_urbs(&rtlusb->rx_submitted);
+
+	tasklet_kill(&rtlusb->rx_work_tasklet);
+	cancel_work_sync(&rtlpriv->works.lps_change_work);
+
+	flush_workqueue(rtlpriv->works.rtl_wq);
+
+	skb_queue_purge(&rtlusb->rx_queue);
+
+	while ((urb = usb_get_from_anchor(&rtlusb->rx_cleanup_urbs))) {
+		usb_free_coherent(urb->dev, urb->transfer_buffer_length,
+				urb->transfer_buffer, urb->transfer_dma);
+		usb_free_urb(urb);
+	}
+
 	rtlpriv->cfg->ops->hw_disable(hw);
 }
 
@@ -1070,6 +1090,8 @@ int rtl_usb_probe(struct usb_interface *intf,
 	spin_lock_init(&rtlpriv->locks.usb_lock);
 	INIT_WORK(&rtlpriv->works.fill_h2c_cmd,
 		  rtl_fill_h2c_cmd_work_callback);
+	INIT_WORK(&rtlpriv->works.lps_change_work,
+		  rtl_lps_change_work_callback);
 
 	rtlpriv->usb_data_index = 0;
 	init_completion(&rtlpriv->firmware_loading_complete);

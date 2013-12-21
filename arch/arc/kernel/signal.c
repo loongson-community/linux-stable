@@ -80,13 +80,14 @@ static int restore_usr_regs(struct pt_regs *regs, struct rt_sigframe __user *sf)
 	int err;
 
 	err = __copy_from_user(&set, &sf->uc.uc_sigmask, sizeof(set));
-	if (!err)
-		set_current_blocked(&set);
-
-	err |= __copy_from_user(regs, &(sf->uc.uc_mcontext.regs),
+	err |= __copy_from_user(regs, &(sf->uc.uc_mcontext.regs.scratch),
 				sizeof(sf->uc.uc_mcontext.regs.scratch));
+	if (err)
+		return err;
 
-	return err;
+	set_current_blocked(&set);
+
+	return 0;
 }
 
 static inline int is_do_ss_needed(unsigned int magic)
@@ -101,7 +102,6 @@ SYSCALL_DEFINE0(rt_sigreturn)
 {
 	struct rt_sigframe __user *sf;
 	unsigned int magic;
-	int err;
 	struct pt_regs *regs = current_pt_regs();
 
 	/* Always make any pending restarted system calls return -EINTR */
@@ -119,17 +119,27 @@ SYSCALL_DEFINE0(rt_sigreturn)
 	if (!access_ok(VERIFY_READ, sf, sizeof(*sf)))
 		goto badframe;
 
-	err = restore_usr_regs(regs, sf);
-	err |= __get_user(magic, &sf->sigret_magic);
-	if (err)
+	if (__get_user(magic, &sf->sigret_magic))
 		goto badframe;
 
 	if (unlikely(is_do_ss_needed(magic)))
 		if (restore_altstack(&sf->uc.uc_stack))
 			goto badframe;
 
+	if (restore_usr_regs(regs, sf))
+		goto badframe;
+
 	/* Don't restart from sigreturn */
 	syscall_wont_restart(regs);
+
+	/*
+	 * Ensure that sigreturn always returns to user mode (in case the
+	 * regs saved on user stack got fudged between save and sigreturn)
+	 * Otherwise it is easy to panic the kernel with a custom
+	 * signal handler and/or restorer which clobberes the status32/ret
+	 * to return to a bogus location in kernel mode.
+	 */
+	regs->status32 |= STATUS_U_MASK;
 
 	return regs->r0;
 
@@ -191,6 +201,15 @@ setup_rt_frame(int signo, struct k_sigaction *ka, siginfo_t *info,
 		return 1;
 
 	/*
+	 * w/o SA_SIGINFO, struct ucontext is partially populated (only
+	 * uc_mcontext/uc_sigmask) for kernel's normal user state preservation
+	 * during signal handler execution. This works for SA_SIGINFO as well
+	 * although the semantics are now overloaded (the same reg state can be
+	 * inspected by userland: but are they allowed to fiddle with it ?
+	 */
+	err |= stash_usr_regs(sf, regs, set);
+
+	/*
 	 * SA_SIGINFO requires 3 args to signal handler:
 	 *  #1: sig-no (common to any handler)
 	 *  #2: struct siginfo
@@ -213,14 +232,6 @@ setup_rt_frame(int signo, struct k_sigaction *ka, siginfo_t *info,
 		magic = MAGIC_SIGALTSTK;
 	}
 
-	/*
-	 * w/o SA_SIGINFO, struct ucontext is partially populated (only
-	 * uc_mcontext/uc_sigmask) for kernel's normal user state preservation
-	 * during signal handler execution. This works for SA_SIGINFO as well
-	 * although the semantics are now overloaded (the same reg state can be
-	 * inspected by userland: but are they allowed to fiddle with it ?
-	 */
-	err |= stash_usr_regs(sf, regs, set);
 	err |= __put_user(magic, &sf->sigret_magic);
 	if (err)
 		return err;
@@ -233,8 +244,11 @@ setup_rt_frame(int signo, struct k_sigaction *ka, siginfo_t *info,
 
 	/*
 	 * handler returns using sigreturn stub provided already by userpsace
+	 * If not, nuke the process right away
 	 */
-	BUG_ON(!(ka->sa.sa_flags & SA_RESTORER));
+	if(!(ka->sa.sa_flags & SA_RESTORER))
+		return 1;
+
 	regs->blink = (unsigned long)ka->sa.sa_restorer;
 
 	/* User Stack for signal handler will be above the frame just carved */
@@ -301,12 +315,12 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 	      struct pt_regs *regs)
 {
 	sigset_t *oldset = sigmask_to_save();
-	int ret;
+	int failed;
 
 	/* Set up the stack frame */
-	ret = setup_rt_frame(sig, ka, info, oldset, regs);
+	failed = setup_rt_frame(sig, ka, info, oldset, regs);
 
-	if (ret)
+	if (failed)
 		force_sigsegv(sig, current);
 	else
 		signal_delivered(sig, info, ka, regs, 0);

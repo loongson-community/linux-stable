@@ -200,11 +200,9 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	raw_spin_unlock(&boot_lock);
 
 	/*
-	 * Enable local interrupts.
+	 * Log the CPU info before it is marked online and might get read.
 	 */
-	notify_cpu_starting(cpu);
-	local_irq_enable();
-	local_fiq_enable();
+	cpuinfo_store_cpu();
 
 	/*
 	 * OK, now it's safe to let the boot CPU continue.  Wait for
@@ -213,6 +211,14 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	 */
 	set_cpu_online(cpu, true);
 	complete(&cpu_running);
+
+	/*
+	 * Enable GIC and timers.
+	 */
+	notify_cpu_starting(cpu);
+
+	local_irq_enable();
+	local_fiq_enable();
 
 	/*
 	 * OK, it's off to the idle thread for us

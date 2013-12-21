@@ -1338,7 +1338,21 @@ static int read_symlink(struct send_ctx *sctx,
 	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 	if (ret < 0)
 		goto out;
-	BUG_ON(ret);
+	if (ret) {
+		/*
+		 * An empty symlink inode. Can happen in rare error paths when
+		 * creating a symlink (transaction committed before the inode
+		 * eviction handler removed the symlink inode items and a crash
+		 * happened in between or the subvol was snapshoted in between).
+		 * Print an informative message to dmesg/syslog so that the user
+		 * can delete the symlink.
+		 */
+		btrfs_err(root->fs_info,
+			  "Found empty symlink inode %llu at root %llu",
+			  ino, root->root_key.objectid);
+		ret = -EIO;
+		goto out;
+	}
 
 	ei = btrfs_item_ptr(path->nodes[0], path->slots[0],
 			struct btrfs_file_extent_item);
@@ -1550,6 +1564,10 @@ static int lookup_dir_item_inode(struct btrfs_root *root,
 		goto out;
 	}
 	btrfs_dir_item_key_to_cpu(path->nodes[0], di, &key);
+	if (key.type == BTRFS_ROOT_ITEM_KEY) {
+		ret = -ENOENT;
+		goto out;
+	}
 	*found_inode = key.objectid;
 	*found_type = btrfs_dir_type(path->nodes[0], di);
 
@@ -2524,7 +2542,8 @@ static int did_create_dir(struct send_ctx *sctx, u64 dir)
 		di = btrfs_item_ptr(eb, slot, struct btrfs_dir_item);
 		btrfs_dir_item_key_to_cpu(eb, di, &di_key);
 
-		if (di_key.objectid < sctx->send_progress) {
+		if (di_key.type != BTRFS_ROOT_ITEM_KEY &&
+		    di_key.objectid < sctx->send_progress) {
 			ret = 1;
 			goto out;
 		}
@@ -4579,6 +4598,41 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 	send_root = BTRFS_I(file_inode(mnt_file))->root;
 	fs_info = send_root->fs_info;
 
+	/*
+	 * This is done when we lookup the root, it should already be complete
+	 * by the time we get here.
+	 */
+	WARN_ON(send_root->orphan_cleanup_state != ORPHAN_CLEANUP_DONE);
+
+	/*
+	 * If we just created this root we need to make sure that the orphan
+	 * cleanup has been done and committed since we search the commit root,
+	 * so check its commit root transid with our otransid and if they match
+	 * commit the transaction to make sure everything is updated.
+	 */
+	down_read(&send_root->fs_info->extent_commit_sem);
+	if (btrfs_header_generation(send_root->commit_root) ==
+	    btrfs_root_otransid(&send_root->root_item)) {
+		struct btrfs_trans_handle *trans;
+
+		up_read(&send_root->fs_info->extent_commit_sem);
+
+		trans = btrfs_attach_transaction_barrier(send_root);
+		if (IS_ERR(trans)) {
+			if (PTR_ERR(trans) != -ENOENT) {
+				ret = PTR_ERR(trans);
+				goto out;
+			}
+			/* ENOENT means theres no transaction */
+		} else {
+			ret = btrfs_commit_transaction(trans, send_root);
+			if (ret)
+				goto out;
+		}
+	} else {
+		up_read(&send_root->fs_info->extent_commit_sem);
+	}
+
 	arg = memdup_user(arg_, sizeof(*arg));
 	if (IS_ERR(arg)) {
 		ret = PTR_ERR(arg);
@@ -4587,8 +4641,8 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 	}
 
 	if (!access_ok(VERIFY_READ, arg->clone_sources,
-			sizeof(*arg->clone_sources *
-			arg->clone_sources_count))) {
+			sizeof(*arg->clone_sources) *
+			arg->clone_sources_count)) {
 		ret = -EFAULT;
 		goto out;
 	}

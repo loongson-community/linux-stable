@@ -143,7 +143,7 @@ static int opticon_open(struct tty_struct *tty, struct usb_serial_port *port)
 	usb_clear_halt(port->serial->dev, port->read_urb->pipe);
 
 	res = usb_serial_generic_open(tty, port);
-	if (!res)
+	if (res)
 		return res;
 
 	/* Request CTS line state, sometimes during opening the current
@@ -219,7 +219,7 @@ static int opticon_write(struct tty_struct *tty, struct usb_serial_port *port,
 
 	/* The conncected devices do not have a bulk write endpoint,
 	 * to transmit data to de barcode device the control endpoint is used */
-	dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_NOIO);
+	dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_ATOMIC);
 	if (!dr) {
 		dev_err(&port->dev, "out of memory\n");
 		count = -ENOMEM;

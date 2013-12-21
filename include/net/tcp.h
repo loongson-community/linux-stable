@@ -287,6 +287,7 @@ extern int sysctl_tcp_thin_dupack;
 extern int sysctl_tcp_early_retrans;
 extern int sysctl_tcp_limit_output_bytes;
 extern int sysctl_tcp_challenge_ack_limit;
+extern int sysctl_tcp_min_tso_segs;
 
 extern atomic_long_t tcp_memory_allocated;
 extern struct percpu_counter tcp_sockets_allocated;
@@ -459,6 +460,7 @@ extern const u8 *tcp_parse_md5sig_option(const struct tcphdr *th);
  */
 
 extern void tcp_v4_send_check(struct sock *sk, struct sk_buff *skb);
+void tcp_v4_mtu_reduced(struct sock *sk);
 extern int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb);
 extern struct sock * tcp_create_openreq_child(struct sock *sk,
 					      struct request_sock *req,
@@ -1027,6 +1029,7 @@ static inline void tcp_prequeue_init(struct tcp_sock *tp)
 }
 
 extern bool tcp_prequeue(struct sock *sk, struct sk_buff *skb);
+int tcp_filter(struct sock *sk, struct sk_buff *skb);
 
 #undef STATE_TRACE
 
@@ -1307,7 +1310,8 @@ struct tcp_fastopen_request {
 	/* Fast Open cookie. Size 0 means a cookie request */
 	struct tcp_fastopen_cookie	cookie;
 	struct msghdr			*data;  /* data in MSG_FASTOPEN */
-	u16				copied;	/* queued in tcp_connect() */
+	size_t				size;
+	int				copied;	/* queued in tcp_connect() */
 };
 void tcp_free_fastopen_req(struct tcp_sock *tp);
 
@@ -1389,6 +1393,8 @@ static inline void tcp_check_send_head(struct sock *sk, struct sk_buff *skb_unli
 {
 	if (sk->sk_send_head == skb_unlinked)
 		sk->sk_send_head = NULL;
+	if (tcp_sk(sk)->highest_sack == skb_unlinked)
+		tcp_sk(sk)->highest_sack = NULL;
 }
 
 static inline void tcp_init_send_head(struct sock *sk)
@@ -1585,5 +1591,15 @@ struct tcp_request_sock_ops {
 
 extern void tcp_v4_init(void);
 extern void tcp_init(void);
+
+/* At how many jiffies into the future should the RTO fire? */
+static inline s32 tcp_rto_delta(const struct sock *sk)
+{
+	const struct sk_buff *skb = tcp_write_queue_head(sk);
+	const u32 rto = inet_csk(sk)->icsk_rto;
+	const u32 rto_time_stamp = TCP_SKB_CB(skb)->when + rto;
+
+	return (s32)(rto_time_stamp - tcp_time_stamp);
+}
 
 #endif	/* _TCP_H */

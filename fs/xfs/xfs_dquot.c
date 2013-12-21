@@ -309,8 +309,7 @@ xfs_dquot_buf_verify_crc(
 	if (mp->m_quotainfo)
 		ndquots = mp->m_quotainfo->qi_dqperchunk;
 	else
-		ndquots = xfs_qm_calc_dquots_per_chunk(mp,
-					XFS_BB_TO_FSB(mp, bp->b_length));
+		ndquots = xfs_qm_calc_dquots_per_chunk(mp, bp->b_length);
 
 	for (i = 0; i < ndquots; i++, d++) {
 		if (!xfs_verify_cksum((char *)d, sizeof(struct xfs_dqblk),
@@ -1104,7 +1103,8 @@ xfs_qm_dqflush(
 	 * Get the buffer containing the on-disk dquot
 	 */
 	error = xfs_trans_read_buf(mp, NULL, mp->m_ddev_targp, dqp->q_blkno,
-				   mp->m_quotainfo->qi_dqchunklen, 0, &bp, NULL);
+				   mp->m_quotainfo->qi_dqchunklen, 0, &bp,
+				   &xfs_dquot_buf_ops);
 	if (error)
 		goto out_unlock;
 

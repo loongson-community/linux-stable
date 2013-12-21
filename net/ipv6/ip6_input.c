@@ -49,7 +49,7 @@
 
 int ip6_rcv_finish(struct sk_buff *skb)
 {
-	if (sysctl_ip_early_demux && !skb_dst(skb)) {
+	if (sysctl_ip_early_demux && !skb_dst(skb) && skb->sk == NULL) {
 		const struct inet6_protocol *ipprot;
 
 		ipprot = rcu_dereference(inet6_protos[ipv6_hdr(skb)->nexthdr]);
@@ -325,10 +325,10 @@ int ip6_mc_input(struct sk_buff *skb)
 				if (offset < 0)
 					goto out;
 
-				if (!ipv6_is_mld(skb, nexthdr, offset))
-					goto out;
+				if (ipv6_is_mld(skb, nexthdr, offset))
+					deliver = true;
 
-				deliver = true;
+				goto out;
 			}
 			/* unknown RA - process it normally */
 		}

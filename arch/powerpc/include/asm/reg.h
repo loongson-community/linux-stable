@@ -108,6 +108,7 @@
 #define MSR_TS_T	__MASK(MSR_TS_T_LG)	/*  Transaction Transactional */
 #define MSR_TS_MASK	(MSR_TS_T | MSR_TS_S)   /* Transaction State bits */
 #define MSR_TM_ACTIVE(x) (((x) & MSR_TS_MASK) != 0) /* Transaction active? */
+#define MSR_TM_RESV(x) (((x) & MSR_TS_MASK) == MSR_TS_MASK) /* Reserved */
 #define MSR_TM_TRANSACTIONAL(x)	(((x) & MSR_TS_MASK) == MSR_TS_T)
 #define MSR_TM_SUSPENDED(x)	(((x) & MSR_TS_MASK) == MSR_TS_S)
 
@@ -208,6 +209,7 @@
 #define SPRN_ACOP	0x1F	/* Available Coprocessor Register */
 #define SPRN_TFIAR	0x81	/* Transaction Failure Inst Addr   */
 #define SPRN_TEXASR	0x82	/* Transaction EXception & Summary */
+#define   TEXASR_FS	__MASK(63-36)	/* Transaction Failure Summary */
 #define SPRN_TEXASRU	0x83	/* ''	   ''	   ''	 Upper 32  */
 #define SPRN_TFHAR	0x80	/* Transaction Failure Handler Addr */
 #define SPRN_CTRLF	0x088
@@ -254,19 +256,28 @@
 #define SPRN_HRMOR	0x139	/* Real mode offset register */
 #define SPRN_HSRR0	0x13A	/* Hypervisor Save/Restore 0 */
 #define SPRN_HSRR1	0x13B	/* Hypervisor Save/Restore 1 */
+/* HFSCR and FSCR bit numbers are the same */
+#define FSCR_TAR_LG	8	/* Enable Target Address Register */
+#define FSCR_EBB_LG	7	/* Enable Event Based Branching */
+#define FSCR_TM_LG	5	/* Enable Transactional Memory */
+#define FSCR_PM_LG	4	/* Enable prob/priv access to PMU SPRs */
+#define FSCR_BHRB_LG	3	/* Enable Branch History Rolling Buffer*/
+#define FSCR_DSCR_LG	2	/* Enable Data Stream Control Register */
+#define FSCR_VECVSX_LG	1	/* Enable VMX/VSX  */
+#define FSCR_FP_LG	0	/* Enable Floating Point */
 #define SPRN_FSCR	0x099	/* Facility Status & Control Register */
-#define   FSCR_TAR	(1 << (63-55)) /* Enable Target Address Register */
-#define   FSCR_EBB	(1 << (63-56)) /* Enable Event Based Branching */
-#define   FSCR_DSCR	(1 << (63-61)) /* Enable Data Stream Control Register */
+#define   FSCR_TAR	__MASK(FSCR_TAR_LG)
+#define   FSCR_EBB	__MASK(FSCR_EBB_LG)
+#define   FSCR_DSCR	__MASK(FSCR_DSCR_LG)
 #define SPRN_HFSCR	0xbe	/* HV=1 Facility Status & Control Register */
-#define   HFSCR_TAR	(1 << (63-55)) /* Enable Target Address Register */
-#define   HFSCR_EBB	(1 << (63-56)) /* Enable Event Based Branching */
-#define   HFSCR_TM	(1 << (63-58)) /* Enable Transactional Memory */
-#define   HFSCR_PM	(1 << (63-60)) /* Enable prob/priv access to PMU SPRs */
-#define   HFSCR_BHRB	(1 << (63-59)) /* Enable Branch History Rolling Buffer*/
-#define   HFSCR_DSCR	(1 << (63-61)) /* Enable Data Stream Control Register */
-#define   HFSCR_VECVSX	(1 << (63-62)) /* Enable VMX/VSX  */
-#define   HFSCR_FP	(1 << (63-63)) /* Enable Floating Point */
+#define   HFSCR_TAR	__MASK(FSCR_TAR_LG)
+#define   HFSCR_EBB	__MASK(FSCR_EBB_LG)
+#define   HFSCR_TM	__MASK(FSCR_TM_LG)
+#define   HFSCR_PM	__MASK(FSCR_PM_LG)
+#define   HFSCR_BHRB	__MASK(FSCR_BHRB_LG)
+#define   HFSCR_DSCR	__MASK(FSCR_DSCR_LG)
+#define   HFSCR_VECVSX	__MASK(FSCR_VECVSX_LG)
+#define   HFSCR_FP	__MASK(FSCR_FP_LG)
 #define SPRN_TAR	0x32f	/* Target Address Register */
 #define SPRN_LPCR	0x13E	/* LPAR Control Register */
 #define   LPCR_VPM0	(1ul << (63-0))
@@ -626,12 +637,13 @@
 #define   MMCR0_TRIGGER	0x00002000UL /* TRIGGER enable */
 #define   MMCR0_PMAO	0x00000080UL /* performance monitor alert has occurred, set to 0 after handling exception */
 #define   MMCR0_SHRFC	0x00000040UL /* SHRre freeze conditions between threads */
+#define   MMCR0_FC56	0x00000010UL /* freeze counters 5 and 6 */
 #define   MMCR0_FCTI	0x00000008UL /* freeze counters in tags inactive mode */
 #define   MMCR0_FCTA	0x00000004UL /* freeze counters in tags active mode */
 #define   MMCR0_FCWAIT	0x00000002UL /* freeze counter in WAIT state */
 #define   MMCR0_FCHV	0x00000001UL /* freeze conditions in hypervisor mode */
 #define SPRN_MMCR1	798
-#define SPRN_MMCR2	769
+#define SPRN_MMCR2	785
 #define SPRN_MMCRA	0x312
 #define   MMCRA_SDSYNC	0x80000000UL /* SDAR synced with SIAR */
 #define   MMCRA_SDAR_DCACHE_MISS 0x40000000UL
@@ -665,13 +677,13 @@
 #define SPRN_PMC6	792
 #define SPRN_PMC7	793
 #define SPRN_PMC8	794
-#define SPRN_SIAR	780
-#define SPRN_SDAR	781
 #define SPRN_SIER	784
 #define   SIER_SIPR		0x2000000	/* Sampled MSR_PR */
 #define   SIER_SIHV		0x1000000	/* Sampled MSR_HV */
 #define   SIER_SIAR_VALID	0x0400000	/* SIAR contents valid */
 #define   SIER_SDAR_VALID	0x0200000	/* SDAR contents valid */
+#define SPRN_SIAR	796
+#define SPRN_SDAR	797
 
 #define SPRN_PA6T_MMCR0 795
 #define   PA6T_MMCR0_EN0	0x0000000000000001UL
@@ -1124,7 +1136,7 @@
 				"	.llong 0\n"			\
 				"	.llong 0\n"			\
 				".previous"				\
-			: "=r" (rval) : "i" (CPU_FTR_CELL_TB_BUG)); rval;})
+			: "=r" (rval) : "i" (CPU_FTR_CELL_TB_BUG) : "cr0"); rval;})
 #else
 #define mftb()		({unsigned long rval;	\
 			asm volatile("mftb %0" : "=r" (rval)); rval;})

@@ -118,8 +118,12 @@ static int func_prolog_dec(struct trace_array *tr,
 		return 0;
 
 	local_save_flags(*flags);
-	/* slight chance to get a false positive on tracing_cpu */
-	if (!irqs_disabled_flags(*flags))
+	/*
+	 * Slight chance to get a false positive on tracing_cpu,
+	 * although I'm starting to think there isn't a chance.
+	 * Leave this for now just to be paranoid.
+	 */
+	if (!irqs_disabled_flags(*flags) && !preempt_count())
 		return 0;
 
 	*data = per_cpu_ptr(tr->trace_buffer.data, cpu);
@@ -373,7 +377,7 @@ start_critical_timing(unsigned long ip, unsigned long parent_ip)
 	struct trace_array_cpu *data;
 	unsigned long flags;
 
-	if (likely(!tracer_enabled))
+	if (!tracer_enabled || !tracing_is_enabled())
 		return;
 
 	cpu = raw_smp_processor_id();
@@ -416,7 +420,7 @@ stop_critical_timing(unsigned long ip, unsigned long parent_ip)
 	else
 		return;
 
-	if (!tracer_enabled)
+	if (!tracer_enabled || !tracing_is_enabled())
 		return;
 
 	data = per_cpu_ptr(tr->trace_buffer.data, cpu);

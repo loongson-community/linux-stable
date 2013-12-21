@@ -115,6 +115,7 @@ static const struct iio_chan_spec ad5933_channels[] = {
 		.channel = 0,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED),
 		.address = AD5933_REG_TEMP_DATA,
+		.scan_index = -1,
 		.scan_type = {
 			.sign = 's',
 			.realbits = 14,
@@ -124,9 +125,7 @@ static const struct iio_chan_spec ad5933_channels[] = {
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 0,
-		.extend_name = "real_raw",
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
-		BIT(IIO_CHAN_INFO_SCALE),
+		.extend_name = "real",
 		.address = AD5933_REG_REAL_DATA,
 		.scan_index = 0,
 		.scan_type = {
@@ -138,9 +137,7 @@ static const struct iio_chan_spec ad5933_channels[] = {
 		.type = IIO_VOLTAGE,
 		.indexed = 1,
 		.channel = 0,
-		.extend_name = "imag_raw",
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
-		BIT(IIO_CHAN_INFO_SCALE),
+		.extend_name = "imag",
 		.address = AD5933_REG_IMAG_DATA,
 		.scan_index = 1,
 		.scan_type = {
@@ -649,6 +646,7 @@ static void ad5933_work(struct work_struct *work)
 	struct iio_dev *indio_dev = i2c_get_clientdata(st->client);
 	signed short buf[2];
 	unsigned char status;
+	int ret;
 
 	mutex_lock(&indio_dev->mlock);
 	if (st->state == AD5933_CTRL_INIT_START_FREQ) {
@@ -656,19 +654,22 @@ static void ad5933_work(struct work_struct *work)
 		ad5933_cmd(st, AD5933_CTRL_START_SWEEP);
 		st->state = AD5933_CTRL_START_SWEEP;
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
-		mutex_unlock(&indio_dev->mlock);
-		return;
+		goto out;
 	}
 
-	ad5933_i2c_read(st->client, AD5933_REG_STATUS, 1, &status);
+	ret = ad5933_i2c_read(st->client, AD5933_REG_STATUS, 1, &status);
+	if (ret)
+		goto out;
 
 	if (status & AD5933_STAT_DATA_VALID) {
 		int scan_count = bitmap_weight(indio_dev->active_scan_mask,
 					       indio_dev->masklength);
-		ad5933_i2c_read(st->client,
+		ret = ad5933_i2c_read(st->client,
 				test_bit(1, indio_dev->active_scan_mask) ?
 				AD5933_REG_REAL_DATA : AD5933_REG_IMAG_DATA,
 				scan_count * 2, (u8 *)buf);
+		if (ret)
+			goto out;
 
 		if (scan_count == 2) {
 			buf[0] = be16_to_cpu(buf[0]);
@@ -680,8 +681,7 @@ static void ad5933_work(struct work_struct *work)
 	} else {
 		/* no data available - try again later */
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
-		mutex_unlock(&indio_dev->mlock);
-		return;
+		goto out;
 	}
 
 	if (status & AD5933_STAT_SWEEP_DONE) {
@@ -693,7 +693,7 @@ static void ad5933_work(struct work_struct *work)
 		ad5933_cmd(st, AD5933_CTRL_INC_FREQ);
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
 	}
-
+out:
 	mutex_unlock(&indio_dev->mlock);
 }
 
@@ -746,14 +746,14 @@ static int ad5933_probe(struct i2c_client *client,
 	indio_dev->name = id->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = ad5933_channels;
-	indio_dev->num_channels = 1; /* only register temp0_input */
+	indio_dev->num_channels = ARRAY_SIZE(ad5933_channels);
 
 	ret = ad5933_register_ring_funcs_and_init(indio_dev);
 	if (ret)
 		goto error_disable_reg;
 
-	/* skip temp0_input, register in0_(real|imag)_raw */
-	ret = iio_buffer_register(indio_dev, &ad5933_channels[1], 2);
+	ret = iio_buffer_register(indio_dev, ad5933_channels,
+		ARRAY_SIZE(ad5933_channels));
 	if (ret)
 		goto error_unreg_ring;
 

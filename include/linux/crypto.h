@@ -26,6 +26,19 @@
 #include <linux/uaccess.h>
 
 /*
+ * Autoloaded crypto modules should only use a prefixed name to avoid allowing
+ * arbitrary modules to be loaded. Loading from userspace may still need the
+ * unprefixed names, so retains those aliases as well.
+ * This uses __MODULE_INFO directly instead of MODULE_ALIAS because pre-4.3
+ * gcc (e.g. avr32 toolchain) uses __LINE__ for uniqueness, and this macro
+ * expands twice on the same line. Instead, use a separate base name for the
+ * alias.
+ */
+#define MODULE_ALIAS_CRYPTO(name)	\
+		__MODULE_INFO(alias, alias_userspace, name);	\
+		__MODULE_INFO(alias, alias_crypto, "crypto-" name)
+
+/*
  * Algorithm masks and types.
  */
 #define CRYPTO_ALG_TYPE_MASK		0x0000000f
@@ -341,6 +354,7 @@ struct ablkcipher_tfm {
 
 	unsigned int ivsize;
 	unsigned int reqsize;
+	bool has_setkey;
 };
 
 struct aead_tfm {
@@ -649,6 +663,13 @@ static inline int crypto_ablkcipher_setkey(struct crypto_ablkcipher *tfm,
 	struct ablkcipher_tfm *crt = crypto_ablkcipher_crt(tfm);
 
 	return crt->setkey(crt->base, key, keylen);
+}
+
+static inline bool crypto_ablkcipher_has_setkey(struct crypto_ablkcipher *tfm)
+{
+	struct ablkcipher_tfm *crt = crypto_ablkcipher_crt(tfm);
+
+	return crt->has_setkey;
 }
 
 static inline struct crypto_ablkcipher *crypto_ablkcipher_reqtfm(

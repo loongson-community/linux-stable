@@ -347,11 +347,54 @@ static bool start_new_rx_buffer(int offset, unsigned long size, int head)
 	 * into multiple copies tend to give large frags their
 	 * own buffers as before.
 	 */
-	if ((offset + size > MAX_BUFFER_OFFSET) &&
-	    (size <= MAX_BUFFER_OFFSET) && offset && !head)
+	BUG_ON(size > MAX_BUFFER_OFFSET);
+	if ((offset + size > MAX_BUFFER_OFFSET) && offset && !head)
 		return true;
 
 	return false;
+}
+
+struct xenvif_count_slot_state {
+	unsigned long copy_off;
+	bool head;
+};
+
+unsigned int xenvif_count_frag_slots(struct xenvif *vif,
+				     unsigned long offset, unsigned long size,
+				     struct xenvif_count_slot_state *state)
+{
+	unsigned count = 0;
+
+	offset &= ~PAGE_MASK;
+
+	while (size > 0) {
+		unsigned long bytes;
+
+		bytes = PAGE_SIZE - offset;
+
+		if (bytes > size)
+			bytes = size;
+
+		if (start_new_rx_buffer(state->copy_off, bytes, state->head)) {
+			count++;
+			state->copy_off = 0;
+		}
+
+		if (state->copy_off + bytes > MAX_BUFFER_OFFSET)
+			bytes = MAX_BUFFER_OFFSET - state->copy_off;
+
+		state->copy_off += bytes;
+
+		offset += bytes;
+		size -= bytes;
+
+		if (offset == PAGE_SIZE)
+			offset = 0;
+
+		state->head = false;
+	}
+
+	return count;
 }
 
 /*
@@ -361,48 +404,39 @@ static bool start_new_rx_buffer(int offset, unsigned long size, int head)
  */
 unsigned int xen_netbk_count_skb_slots(struct xenvif *vif, struct sk_buff *skb)
 {
+	struct xenvif_count_slot_state state;
 	unsigned int count;
-	int i, copy_off;
+	unsigned char *data;
+	unsigned i;
 
-	count = DIV_ROUND_UP(skb_headlen(skb), PAGE_SIZE);
+	state.head = true;
+	state.copy_off = 0;
 
-	copy_off = skb_headlen(skb) % PAGE_SIZE;
+	/* Slot for the first (partial) page of data. */
+	count = 1;
 
+	/* Need a slot for the GSO prefix for GSO extra data? */
 	if (skb_shinfo(skb)->gso_size)
 		count++;
+
+	data = skb->data;
+	while (data < skb_tail_pointer(skb)) {
+		unsigned long offset = offset_in_page(data);
+		unsigned long size = PAGE_SIZE - offset;
+
+		if (data + size > skb_tail_pointer(skb))
+			size = skb_tail_pointer(skb) - data;
+
+		count += xenvif_count_frag_slots(vif, offset, size, &state);
+
+		data += size;
+	}
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		unsigned long size = skb_frag_size(&skb_shinfo(skb)->frags[i]);
 		unsigned long offset = skb_shinfo(skb)->frags[i].page_offset;
-		unsigned long bytes;
 
-		offset &= ~PAGE_MASK;
-
-		while (size > 0) {
-			BUG_ON(offset >= PAGE_SIZE);
-			BUG_ON(copy_off > MAX_BUFFER_OFFSET);
-
-			bytes = PAGE_SIZE - offset;
-
-			if (bytes > size)
-				bytes = size;
-
-			if (start_new_rx_buffer(copy_off, bytes, 0)) {
-				count++;
-				copy_off = 0;
-			}
-
-			if (copy_off + bytes > MAX_BUFFER_OFFSET)
-				bytes = MAX_BUFFER_OFFSET - copy_off;
-
-			copy_off += bytes;
-
-			offset += bytes;
-			size -= bytes;
-
-			if (offset == PAGE_SIZE)
-				offset = 0;
-		}
+		count += xenvif_count_frag_slots(vif, offset, size, &state);
 	}
 	return count;
 }
@@ -420,17 +454,17 @@ static struct netbk_rx_meta *get_next_rx_buffer(struct xenvif *vif,
 						struct netrx_pending_operations *npo)
 {
 	struct netbk_rx_meta *meta;
-	struct xen_netif_rx_request *req;
+	struct xen_netif_rx_request req;
 
-	req = RING_GET_REQUEST(&vif->rx, vif->rx.req_cons++);
+	RING_COPY_REQUEST(&vif->rx, vif->rx.req_cons++, &req);
 
 	meta = npo->meta + npo->meta_prod++;
 	meta->gso_size = 0;
 	meta->size = 0;
-	meta->id = req->id;
+	meta->id = req.id;
 
 	npo->copy_off = 0;
-	npo->copy_gref = req->gref;
+	npo->copy_gref = req.gref;
 
 	return meta;
 }
@@ -548,7 +582,7 @@ static int netbk_gop_skb(struct sk_buff *skb,
 	struct xenvif *vif = netdev_priv(skb->dev);
 	int nr_frags = skb_shinfo(skb)->nr_frags;
 	int i;
-	struct xen_netif_rx_request *req;
+	struct xen_netif_rx_request req;
 	struct netbk_rx_meta *meta;
 	unsigned char *data;
 	int head = 1;
@@ -558,14 +592,14 @@ static int netbk_gop_skb(struct sk_buff *skb,
 
 	/* Set up a GSO prefix descriptor, if necessary */
 	if (skb_shinfo(skb)->gso_size && vif->gso_prefix) {
-		req = RING_GET_REQUEST(&vif->rx, vif->rx.req_cons++);
+		RING_COPY_REQUEST(&vif->rx, vif->rx.req_cons++, &req);
 		meta = npo->meta + npo->meta_prod++;
 		meta->gso_size = skb_shinfo(skb)->gso_size;
 		meta->size = 0;
-		meta->id = req->id;
+		meta->id = req.id;
 	}
 
-	req = RING_GET_REQUEST(&vif->rx, vif->rx.req_cons++);
+	RING_COPY_REQUEST(&vif->rx, vif->rx.req_cons++, &req);
 	meta = npo->meta + npo->meta_prod++;
 
 	if (!vif->gso_prefix)
@@ -574,9 +608,9 @@ static int netbk_gop_skb(struct sk_buff *skb,
 		meta->gso_size = 0;
 
 	meta->size = 0;
-	meta->id = req->id;
+	meta->id = req.id;
 	npo->copy_off = 0;
-	npo->copy_gref = req->gref;
+	npo->copy_gref = req.gref;
 
 	data = skb->data;
 	while (data < skb_tail_pointer(skb)) {
@@ -780,6 +814,7 @@ static void xen_netbk_rx_action(struct xen_netbk *netbk)
 			xenvif_put(vif);
 		npo.meta_cons += sco->meta_slots_used;
 		dev_kfree_skb(skb);
+		xenvif_put_rings(vif);
 	}
 
 	list_for_each_entry_safe(vif, tmp, &notify, notify_list) {
@@ -893,9 +928,7 @@ static void tx_add_credit(struct xenvif *vif)
 	 * Allow a burst big enough to transmit a jumbo packet of up to 128kB.
 	 * Otherwise the interface can seize up due to insufficient credit.
 	 */
-	max_burst = RING_GET_REQUEST(&vif->tx, vif->tx.req_cons)->size;
-	max_burst = min(max_burst, 131072UL);
-	max_burst = max(max_burst, vif->credit_bytes);
+	max_burst = max(131072UL, vif->credit_bytes);
 
 	/* Take care that adding a new chunk of credit doesn't wrap to zero. */
 	max_credit = vif->remaining_credit + vif->credit_bytes;
@@ -921,7 +954,7 @@ static void netbk_tx_err(struct xenvif *vif,
 		make_tx_response(vif, txp, XEN_NETIF_RSP_ERROR);
 		if (cons == end)
 			break;
-		txp = RING_GET_REQUEST(&vif->tx, cons++);
+		RING_COPY_REQUEST(&vif->tx, cons++, txp);
 	} while (1);
 	vif->tx.req_cons = cons;
 	xen_netbk_check_rx_xenvif(vif);
@@ -988,8 +1021,7 @@ static int netbk_count_requests(struct xenvif *vif,
 		if (drop_err)
 			txp = &dropped_tx;
 
-		memcpy(txp, RING_GET_REQUEST(&vif->tx, cons + slots),
-		       sizeof(*txp));
+		RING_COPY_REQUEST(&vif->tx, cons + slots, txp);
 
 		/* If the guest submitted a frame >= 64 KiB then
 		 * first->size overflowed and following slots will
@@ -1277,8 +1309,7 @@ static int xen_netbk_get_extras(struct xenvif *vif,
 			return -EBADR;
 		}
 
-		memcpy(&extra, RING_GET_REQUEST(&vif->tx, cons),
-		       sizeof(extra));
+		RING_COPY_REQUEST(&vif->tx, cons, &extra);
 		if (unlikely(!extra.type ||
 			     extra.type >= XEN_NETIF_EXTRA_TYPE_MAX)) {
 			vif->tx.req_cons = ++cons;
@@ -1389,9 +1420,8 @@ out:
 
 static bool tx_credit_exceeded(struct xenvif *vif, unsigned size)
 {
-	unsigned long now = jiffies;
-	unsigned long next_credit =
-		vif->credit_timeout.expires +
+	u64 now = get_jiffies_64();
+	u64 next_credit = vif->credit_window_start +
 		msecs_to_jiffies(vif->credit_usec / 1000);
 
 	/* Timer could already be pending in rare cases. */
@@ -1399,8 +1429,8 @@ static bool tx_credit_exceeded(struct xenvif *vif, unsigned size)
 		return true;
 
 	/* Passed the point where we can replenish credit? */
-	if (time_after_eq(now, next_credit)) {
-		vif->credit_timeout.expires = now;
+	if (time_after_eq64(now, next_credit)) {
+		vif->credit_window_start = now;
 		tx_add_credit(vif);
 	}
 
@@ -1412,6 +1442,7 @@ static bool tx_credit_exceeded(struct xenvif *vif, unsigned size)
 			tx_credit_callback;
 		mod_timer(&vif->credit_timeout,
 			  next_credit);
+		vif->credit_window_start = next_credit;
 
 		return true;
 	}
@@ -1468,7 +1499,7 @@ static unsigned xen_netbk_tx_build_gops(struct xen_netbk *netbk)
 
 		idx = vif->tx.req_cons;
 		rmb(); /* Ensure that we see the request before we copy it. */
-		memcpy(&txreq, RING_GET_REQUEST(&vif->tx, idx), sizeof(txreq));
+		RING_COPY_REQUEST(&vif->tx, idx, &txreq);
 
 		/* Credit-based scheduling. */
 		if (txreq.size > vif->remaining_credit &&
@@ -1830,6 +1861,9 @@ static int xen_netbk_kthread(void *data)
 
 void xen_netbk_unmap_frontend_rings(struct xenvif *vif)
 {
+	atomic_dec(&vif->ring_refcnt);
+	wait_event(vif->waiting_to_unmap, atomic_read(&vif->ring_refcnt) == 0);
+
 	if (vif->tx.sring)
 		xenbus_unmap_ring_vfree(xenvif_to_xenbus_device(vif),
 					vif->tx.sring);
@@ -1847,6 +1881,8 @@ int xen_netbk_map_frontend_rings(struct xenvif *vif,
 	struct xen_netif_rx_sring *rxs;
 
 	int err = -ENOMEM;
+
+	atomic_set(&vif->ring_refcnt, 1);
 
 	err = xenbus_map_ring_valloc(xenvif_to_xenbus_device(vif),
 				     tx_ring_ref, &addr);

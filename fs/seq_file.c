@@ -206,8 +206,10 @@ ssize_t seq_read(struct file *file, char __user *buf, size_t size, loff_t *ppos)
 		size -= n;
 		buf += n;
 		copied += n;
-		if (!m->count)
+		if (!m->count) {
+			m->from = 0;
 			m->index++;
+		}
 		if (!size)
 			goto Done;
 	}
@@ -328,6 +330,8 @@ loff_t seq_lseek(struct file *file, loff_t offset, int whence)
 				m->read_pos = offset;
 				retval = file->f_pos = offset;
 			}
+		} else {
+			file->f_pos = offset;
 		}
 	}
 	file->f_version = m->version;
