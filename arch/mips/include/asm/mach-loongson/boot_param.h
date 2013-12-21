@@ -10,7 +10,8 @@
 #define VIDEO_ROM		7
 #define ADAPTER_ROM		8
 #define ACPI_TABLE		9
-#define MAX_MEMORY_TYPE		10
+#define SMBIOS_TABLE		10
+#define MAX_MEMORY_TYPE		11
 
 #define LOONGSON3_BOOT_MEM_MAP_MAX 128
 struct efi_memory_map_loongson{
