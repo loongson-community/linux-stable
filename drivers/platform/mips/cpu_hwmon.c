@@ -1,5 +1,7 @@
 #include <linux/err.h>
 #include <linux/module.h>
+#include <linux/reboot.h>
+#include <linux/jiffies.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
@@ -138,6 +140,18 @@ static void remove_sysfs_cputemp_files(struct kobject *kobj)
 		sysfs_remove_files(&cpu_hwmon_dev->kobj, hwmon_cputemp2);
 }
 
+#define CPU_THERMAL_THRESHOLD 90000
+static struct delayed_work thermal_work;
+
+static void do_thermal_timer(struct work_struct *work)
+{
+	int value = loongson3_cpu_temp(0);
+	if (value <= CPU_THERMAL_THRESHOLD)
+		schedule_delayed_work(&thermal_work, msecs_to_jiffies(5000));
+	else
+		orderly_poweroff(true);
+}
+
 static int __init loongson_hwmon_init(void)
 {
 	int ret;
@@ -164,6 +178,9 @@ static int __init loongson_hwmon_init(void)
 		goto fail_create_sysfs_cputemp_files;
 	}
 
+	INIT_DEFERRABLE_WORK(&thermal_work, do_thermal_timer);
+	schedule_delayed_work(&thermal_work, msecs_to_jiffies(20000));
+
 	return ret;
 
 fail_create_sysfs_cputemp_files:
@@ -179,6 +196,7 @@ fail_hwmon_device_register:
 
 static void __exit loongson_hwmon_exit(void)
 {
+	cancel_delayed_work_sync(&thermal_work);
 	remove_sysfs_cputemp_files(&cpu_hwmon_dev->kobj);
 	sysfs_remove_group(&cpu_hwmon_dev->kobj,
 				&cpu_hwmon_attribute_group);
