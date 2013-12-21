@@ -139,10 +139,8 @@ int usb_ep_disable(struct usb_ep *ep)
 		goto out;
 
 	ret = ep->ops->disable(ep);
-	if (ret) {
-		ret = ret;
+	if (ret)
 		goto out;
-	}
 
 	ep->enabled = false;
 
@@ -192,8 +190,8 @@ EXPORT_SYMBOL_GPL(usb_ep_alloc_request);
 void usb_ep_free_request(struct usb_ep *ep,
 				       struct usb_request *req)
 {
-	ep->ops->free_request(ep, req);
 	trace_usb_ep_free_request(ep, req, 0);
+	ep->ops->free_request(ep, req);
 }
 EXPORT_SYMBOL_GPL(usb_ep_free_request);
 
@@ -249,6 +247,9 @@ EXPORT_SYMBOL_GPL(usb_ep_free_request);
  * For periodic endpoints, like interrupt or isochronous ones, the usb host
  * arranges to poll once per interval, and the gadget driver usually will
  * have queued some data to transfer at that time.
+ *
+ * Note that @req's ->complete() callback must never be called from
+ * within usb_ep_queue() as that can create deadlock situations.
  *
  * Returns zero, or a negative error code.  Endpoints that are not enabled
  * report errors; errors will also be
@@ -913,7 +914,7 @@ int usb_gadget_ep_match_desc(struct usb_gadget *gadget,
 		return 0;
 
 	/* "high bandwidth" works only at high speed */
-	if (!gadget_is_dualspeed(gadget) && usb_endpoint_maxp(desc) & (3<<11))
+	if (!gadget_is_dualspeed(gadget) && usb_endpoint_maxp_mult(desc) > 1)
 		return 0;
 
 	switch (type) {
@@ -1080,6 +1081,24 @@ static void usb_udc_nop_release(struct device *dev)
 	dev_vdbg(dev, "%s\n", __func__);
 }
 
+/* should be called with udc_lock held */
+static int check_pending_gadget_drivers(struct usb_udc *udc)
+{
+	struct usb_gadget_driver *driver;
+	int ret = 0;
+
+	list_for_each_entry(driver, &gadget_driver_pending_list, pending)
+		if (!driver->udc_name || strcmp(driver->udc_name,
+						dev_name(&udc->dev)) == 0) {
+			ret = udc_bind_to_driver(udc, driver);
+			if (ret != -EPROBE_DEFER)
+				list_del(&driver->pending);
+			break;
+		}
+
+	return ret;
+}
+
 /**
  * usb_add_gadget_udc_release - adds a new gadget to the udc class driver list
  * @parent: the parent device to this udc. Usually the controller driver's
@@ -1093,7 +1112,6 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 		void (*release)(struct device *dev))
 {
 	struct usb_udc		*udc;
-	struct usb_gadget_driver *driver;
 	int			ret = -ENOMEM;
 
 	udc = kzalloc(sizeof(*udc), GFP_KERNEL);
@@ -1136,17 +1154,9 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 	udc->vbus = true;
 
 	/* pick up one of pending gadget drivers */
-	list_for_each_entry(driver, &gadget_driver_pending_list, pending) {
-		if (!driver->udc_name || strcmp(driver->udc_name,
-						dev_name(&udc->dev)) == 0) {
-			ret = udc_bind_to_driver(udc, driver);
-			if (ret != -EPROBE_DEFER)
-				list_del(&driver->pending);
-			if (ret)
-				goto err5;
-			break;
-		}
-	}
+	ret = check_pending_gadget_drivers(udc);
+	if (ret)
+		goto err5;
 
 	mutex_unlock(&udc_lock);
 
@@ -1317,7 +1327,11 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver)
 			if (!ret)
 				break;
 		}
-		if (!ret && !udc->driver)
+		if (ret)
+			ret = -ENODEV;
+		else if (udc->driver)
+			ret = -EBUSY;
+		else
 			goto found;
 	} else {
 		list_for_each_entry(udc, &udc_list, list) {
@@ -1352,14 +1366,22 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 		return -EINVAL;
 
 	mutex_lock(&udc_lock);
-	list_for_each_entry(udc, &udc_list, list)
+	list_for_each_entry(udc, &udc_list, list) {
 		if (udc->driver == driver) {
 			usb_gadget_remove_driver(udc);
 			usb_gadget_set_state(udc->gadget,
-					USB_STATE_NOTATTACHED);
+					     USB_STATE_NOTATTACHED);
+
+			/* Maybe there is someone waiting for this UDC? */
+			check_pending_gadget_drivers(udc);
+			/*
+			 * For now we ignore bind errors as probably it's
+			 * not a valid reason to fail other's gadget unbind
+			 */
 			ret = 0;
 			break;
 		}
+	}
 
 	if (ret) {
 		list_del(&driver->pending);

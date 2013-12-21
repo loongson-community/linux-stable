@@ -780,6 +780,7 @@ static const struct hda_pintbl alienware_pincfgs[] = {
 static const struct snd_pci_quirk ca0132_quirks[] = {
 	SND_PCI_QUIRK(0x1028, 0x0685, "Alienware 15 2015", QUIRK_ALIENWARE),
 	SND_PCI_QUIRK(0x1028, 0x0688, "Alienware 17 2015", QUIRK_ALIENWARE),
+	SND_PCI_QUIRK(0x1028, 0x0708, "Alienware 15 R2 2016", QUIRK_ALIENWARE),
 	{}
 };
 
@@ -1480,6 +1481,9 @@ static int dspio_scp(struct hda_codec *codec,
 			return -EINVAL;
 		} else if (ret_size != reply_data_size) {
 			codec_dbg(codec, "RetLen and HdrLen .NE.\n");
+			return -EINVAL;
+		} else if (!reply) {
+			codec_dbg(codec, "NULL reply\n");
 			return -EINVAL;
 		} else {
 			*reply_len = ret_size*sizeof(unsigned int);

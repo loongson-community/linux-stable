@@ -366,6 +366,10 @@ static int lvs_rh_probe(struct usb_interface *intf,
 
 	hdev = interface_to_usbdev(intf);
 	desc = intf->cur_altsetting;
+
+	if (desc->desc.bNumEndpoints < 1)
+		return -ENODEV;
+
 	endpoint = &desc->endpoint[0].desc;
 
 	/* valid only for SS root hub */
@@ -429,6 +433,7 @@ static void lvs_rh_disconnect(struct usb_interface *intf)
 	struct lvs_rh *lvs = usb_get_intfdata(intf);
 
 	sysfs_remove_group(&intf->dev.kobj, &lvs_attr_group);
+	usb_poison_urb(lvs->urb); /* used in scheduled work */
 	flush_work(&lvs->rh_work);
 	usb_free_urb(lvs->urb);
 }

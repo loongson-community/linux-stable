@@ -145,7 +145,7 @@ static struct pnv_ioda_pe *pnv_ioda_init_pe(struct pnv_phb *phb, int pe_no)
 	 */
 	rc = opal_pci_eeh_freeze_clear(phb->opal_id, pe_no,
 				       OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
-	if (rc != OPAL_SUCCESS)
+	if (rc != OPAL_SUCCESS && rc != OPAL_UNSUPPORTED)
 		pr_warn("%s: Error %lld unfreezing PHB#%d-PE#%d\n",
 			__func__, rc, phb->hose->global_number, pe_no);
 
@@ -2623,6 +2623,9 @@ static long pnv_pci_ioda2_table_alloc_pages(int nid, __u64 bus_offset,
 	level_shift = entries_shift + 3;
 	level_shift = max_t(unsigned, level_shift, PAGE_SHIFT);
 
+	if ((level_shift - 3) * levels + page_shift >= 60)
+		return -EINVAL;
+
 	/* Allocate TCE table */
 	addr = pnv_pci_ioda2_table_do_alloc_pages(nid, level_shift,
 			levels, tce_table_size, &offset, &total_allocated);
@@ -3421,7 +3424,6 @@ static void pnv_pci_ioda2_release_pe_dma(struct pnv_ioda_pe *pe)
 		WARN_ON(pe->table_group.group);
 	}
 
-	pnv_pci_ioda2_table_free_pages(tbl);
 	iommu_free_table(tbl, "pnv");
 }
 

@@ -702,10 +702,18 @@ static int mlx4_ib_demux_mad(struct ib_device *ibdev, u8 port,
 
 	/* If a grh is present, we demux according to it */
 	if (wc->wc_flags & IB_WC_GRH) {
-		slave = mlx4_ib_find_real_gid(ibdev, port, grh->dgid.global.interface_id);
-		if (slave < 0) {
-			mlx4_ib_warn(ibdev, "failed matching grh\n");
-			return -ENOENT;
+		if (grh->dgid.global.interface_id ==
+			cpu_to_be64(IB_SA_WELL_KNOWN_GUID) &&
+		    grh->dgid.global.subnet_prefix == cpu_to_be64(
+			atomic64_read(&dev->sriov.demux[port - 1].subnet_prefix))) {
+			slave = 0;
+		} else {
+			slave = mlx4_ib_find_real_gid(ibdev, port,
+						      grh->dgid.global.interface_id);
+			if (slave < 0) {
+				mlx4_ib_warn(ibdev, "failed matching grh\n");
+				return -ENOENT;
+			}
 		}
 	}
 	/* Class-specific handling */
@@ -1889,7 +1897,6 @@ static void mlx4_ib_sqp_comp_worker(struct work_struct *work)
 					       "buf:%lld\n", wc.wr_id);
 				break;
 			default:
-				BUG_ON(1);
 				break;
 			}
 		} else  {

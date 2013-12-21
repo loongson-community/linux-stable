@@ -27,6 +27,7 @@
 #include <linux/stm.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include <linux/vmalloc.h>
 #include "stm.h"
 
 #include <uapi/linux/stm.h>
@@ -361,7 +362,7 @@ static int stm_char_open(struct inode *inode, struct file *file)
 	struct stm_file *stmf;
 	struct device *dev;
 	unsigned int major = imajor(inode);
-	int err = -ENODEV;
+	int err = -ENOMEM;
 
 	dev = class_find_device(&stm_class, NULL, &major, major_match);
 	if (!dev)
@@ -369,8 +370,9 @@ static int stm_char_open(struct inode *inode, struct file *file)
 
 	stmf = kzalloc(sizeof(*stmf), GFP_KERNEL);
 	if (!stmf)
-		return -ENOMEM;
+		goto err_put_device;
 
+	err = -ENODEV;
 	stm_output_init(&stmf->output);
 	stmf->stm = to_stm_device(dev);
 
@@ -382,9 +384,10 @@ static int stm_char_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 
 err_free:
+	kfree(stmf);
+err_put_device:
 	/* matches class_find_device() above */
 	put_device(dev);
-	kfree(stmf);
 
 	return err;
 }
@@ -680,7 +683,7 @@ static void stm_device_release(struct device *dev)
 {
 	struct stm_device *stm = to_stm_device(dev);
 
-	kfree(stm);
+	vfree(stm);
 }
 
 int stm_register_device(struct device *parent, struct stm_data *stm_data,
@@ -697,7 +700,7 @@ int stm_register_device(struct device *parent, struct stm_data *stm_data,
 		return -EINVAL;
 
 	nmasters = stm_data->sw_end - stm_data->sw_start + 1;
-	stm = kzalloc(sizeof(*stm) + nmasters * sizeof(void *), GFP_KERNEL);
+	stm = vzalloc(sizeof(*stm) + nmasters * sizeof(void *));
 	if (!stm)
 		return -ENOMEM;
 
@@ -750,7 +753,7 @@ err_device:
 	/* matches device_initialize() above */
 	put_device(&stm->dev);
 err_free:
-	kfree(stm);
+	vfree(stm);
 
 	return err;
 }
@@ -1117,7 +1120,7 @@ void stm_source_unregister_device(struct stm_source_data *data)
 
 	stm_source_link_drop(src);
 
-	device_destroy(&stm_source_class, src->dev.devt);
+	device_unregister(&src->dev);
 }
 EXPORT_SYMBOL_GPL(stm_source_unregister_device);
 

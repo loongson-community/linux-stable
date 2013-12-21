@@ -177,7 +177,7 @@ static void __drop_largest_extent(struct inode *inode,
 }
 
 /* return true, if inode page is changed */
-bool f2fs_init_extent_tree(struct inode *inode, struct f2fs_extent *i_ext)
+static bool __f2fs_init_extent_tree(struct inode *inode, struct f2fs_extent *i_ext)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct extent_tree *et;
@@ -213,6 +213,16 @@ bool f2fs_init_extent_tree(struct inode *inode, struct f2fs_extent *i_ext)
 out:
 	write_unlock(&et->lock);
 	return false;
+}
+
+bool f2fs_init_extent_tree(struct inode *inode, struct f2fs_extent *i_ext)
+{
+	bool ret =  __f2fs_init_extent_tree(inode, i_ext);
+
+	if (!F2FS_I(inode)->extent_tree)
+		set_inode_flag(inode, FI_NO_EXTENT);
+
+	return ret;
 }
 
 static bool f2fs_lookup_extent_tree(struct inode *inode, pgoff_t pgofs,
@@ -352,11 +362,12 @@ static struct extent_node *__try_merge_extent_node(struct inode *inode,
 	}
 
 	if (next_ex && __is_front_mergeable(ei, &next_ex->ei)) {
-		if (en)
-			__release_extent_node(sbi, et, prev_ex);
 		next_ex->ei.fofs = ei->fofs;
 		next_ex->ei.blk = ei->blk;
 		next_ex->ei.len += ei->len;
+		if (en)
+			__release_extent_node(sbi, et, prev_ex);
+
 		en = next_ex;
 	}
 
@@ -635,6 +646,9 @@ void f2fs_drop_extent_tree(struct inode *inode)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct extent_tree *et = F2FS_I(inode)->extent_tree;
+
+	if (!f2fs_may_extent_tree(inode))
+		return;
 
 	set_inode_flag(inode, FI_NO_EXTENT);
 

@@ -1515,6 +1515,7 @@ static struct ib_mr *i40iw_alloc_mr(struct ib_pd *pd,
 		err_code = -EOVERFLOW;
 		goto err;
 	}
+	stag &= ~I40IW_CQPSQ_STAG_KEY_MASK;
 	iwmr->stag = stag;
 	iwmr->ibmr.rkey = stag;
 	iwmr->ibmr.lkey = stag;
@@ -2501,7 +2502,7 @@ static int i40iw_get_hw_stats(struct ib_device *ibdev,
 			return -ENOSYS;
 	}
 
-	memcpy(&stats->value[0], &hw_stats, sizeof(*hw_stats));
+	memcpy(&stats->value[0], hw_stats, sizeof(*hw_stats));
 
 	return stats->num_counters;
 }
