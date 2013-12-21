@@ -389,10 +389,6 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 			dev->secondary_head += (amount - i);
 			bytes_read += (amount - i);
 			bytes_to_read -= (amount - i);
-			if (i) {
-				retval = bytes_read ? bytes_read : -EFAULT;
-				goto exit;
-			}
 		} else {
 			/* we check the primary buffer */
 			spin_lock_irqsave (&dev->buflock, flags);
@@ -814,15 +810,10 @@ static void adu_disconnect(struct usb_interface *interface)
 	usb_set_intfdata(interface, NULL);
 
 	/* if the device is not opened, then we clean up right now */
-	dev_dbg(&dev->udev->dev, "%s : open count %d\n",
-		__func__, dev->open_count);
 	if (!dev->open_count)
 		adu_delete(dev);
 
 	mutex_unlock(&adutux_mutex);
-
-	dev_info(&interface->dev, "ADU device adutux%d now disconnected\n",
-		 (minor - ADU_MINOR_BASE));
 }
 
 /* usb specific object needed to register this driver with the usb subsystem */

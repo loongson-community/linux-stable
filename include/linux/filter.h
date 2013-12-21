@@ -346,7 +346,11 @@ static inline unsigned int sk_filter_size(unsigned int proglen)
 #define sk_filter_proglen(fprog)			\
 		(fprog->len * sizeof(fprog->filter[0]))
 
-int sk_filter(struct sock *sk, struct sk_buff *skb);
+int sk_filter_trim_cap(struct sock *sk, struct sk_buff *skb, unsigned int cap);
+static inline int sk_filter(struct sock *sk, struct sk_buff *skb)
+{
+	return sk_filter_trim_cap(sk, skb, 1);
+}
 
 void sk_filter_select_runtime(struct sk_filter *fp);
 void sk_filter_free(struct sk_filter *fp);
@@ -359,7 +363,10 @@ int sk_unattached_filter_create(struct sk_filter **pfp,
 void sk_unattached_filter_destroy(struct sk_filter *fp);
 
 int sk_attach_filter(struct sock_fprog *fprog, struct sock *sk);
+int __sk_attach_filter(struct sock_fprog *fprog, struct sock *sk,
+		       bool locked);
 int sk_detach_filter(struct sock *sk);
+int __sk_detach_filter(struct sock *sk, bool locked);
 
 int sk_chk_filter(struct sock_filter *filter, unsigned int flen);
 int sk_get_filter(struct sock *sk, struct sock_filter __user *filter,
@@ -372,6 +379,25 @@ u64 __bpf_call_base(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 void bpf_int_jit_compile(struct sk_filter *fp);
 
 #define BPF_ANC		BIT(15)
+
+static inline bool bpf_needs_clear_a(const struct sock_filter *first)
+{
+	switch (first->code) {
+	case BPF_RET | BPF_K:
+	case BPF_LD | BPF_W | BPF_LEN:
+		return false;
+
+	case BPF_LD | BPF_W | BPF_ABS:
+	case BPF_LD | BPF_H | BPF_ABS:
+	case BPF_LD | BPF_B | BPF_ABS:
+		if (first->k == SKF_AD_OFF + SKF_AD_ALU_XOR_X)
+			return true;
+		return false;
+
+	default:
+		return true;
+	}
+}
 
 static inline u16 bpf_anc_helper(const struct sock_filter *ftest)
 {

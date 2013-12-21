@@ -690,7 +690,7 @@ void i9xx_check_fifo_underruns(struct drm_device *dev);
 
 /* intel_crt.c */
 void intel_crt_init(struct drm_device *dev);
-
+void intel_crt_reset(struct drm_encoder *encoder);
 
 /* intel_ddi.c */
 void intel_prepare_ddi(struct drm_device *dev);
@@ -721,6 +721,7 @@ void intel_ddi_get_config(struct intel_encoder *encoder,
 const char *intel_output_name(int output);
 bool intel_has_pending_fb_unpin(struct drm_device *dev);
 int intel_pch_rawclk(struct drm_device *dev);
+bool intel_pipe_has_type(struct drm_crtc *crtc, int type);
 int valleyview_cur_cdclk(struct drm_i915_private *dev_priv);
 void intel_mark_busy(struct drm_device *dev);
 void intel_mark_fb_busy(struct drm_i915_gem_object *obj,
@@ -754,8 +755,7 @@ bool intel_get_load_detect_pipe(struct drm_connector *connector,
 				struct intel_load_detect_pipe *old,
 				struct drm_modeset_acquire_ctx *ctx);
 void intel_release_load_detect_pipe(struct drm_connector *connector,
-				    struct intel_load_detect_pipe *old,
-				    struct drm_modeset_acquire_ctx *ctx);
+				    struct intel_load_detect_pipe *old);
 int intel_pin_and_fence_fb_obj(struct drm_device *dev,
 			       struct drm_i915_gem_object *obj,
 			       struct intel_engine_cs *pipelined);

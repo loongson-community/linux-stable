@@ -80,10 +80,17 @@ __do_hyp_init:
 	msr	mair_el2, x4
 	isb
 
-	mrs	x4, sctlr_el2
-	and	x4, x4, #SCTLR_EL2_EE	// preserve endianness of EL2
-	ldr	x5, =SCTLR_EL2_FLAGS
-	orr	x4, x4, x5
+	/* Invalidate the stale TLBs from Bootloader */
+	tlbi	alle2
+	dsb	sy
+
+	/*
+	 * Preserve all the RES1 bits while setting the default flags,
+	 * as well as the EE bit on BE. Drop the A flag since the compiler
+	 * is allowed to generate unaligned accesses.
+	 */
+	ldr	x4, =(SCTLR_EL2_RES1 | (SCTLR_EL2_FLAGS & ~SCTLR_EL2_A))
+CPU_BE(	orr	x4, x4, #SCTLR_EL2_EE)
 	msr	sctlr_el2, x4
 	isb
 

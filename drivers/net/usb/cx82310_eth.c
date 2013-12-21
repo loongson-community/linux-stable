@@ -275,12 +275,9 @@ static struct sk_buff *cx82310_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 {
 	int len = skb->len;
 
-	if (skb_headroom(skb) < 2) {
-		struct sk_buff *skb2 = skb_copy_expand(skb, 2, 0, flags);
+	if (skb_cow_head(skb, 2)) {
 		dev_kfree_skb_any(skb);
-		skb = skb2;
-		if (!skb)
-			return NULL;
+		return NULL;
 	}
 	skb_push(skb, 2);
 
@@ -300,9 +297,18 @@ static const struct driver_info	cx82310_info = {
 	.tx_fixup	= cx82310_tx_fixup,
 };
 
+#define USB_DEVICE_CLASS(vend, prod, cl, sc, pr) \
+	.match_flags = USB_DEVICE_ID_MATCH_DEVICE | \
+		       USB_DEVICE_ID_MATCH_DEV_INFO, \
+	.idVendor = (vend), \
+	.idProduct = (prod), \
+	.bDeviceClass = (cl), \
+	.bDeviceSubClass = (sc), \
+	.bDeviceProtocol = (pr)
+
 static const struct usb_device_id products[] = {
 	{
-		USB_DEVICE_AND_INTERFACE_INFO(0x0572, 0xcb01, 0xff, 0, 0),
+		USB_DEVICE_CLASS(0x0572, 0xcb01, 0xff, 0, 0),
 		.driver_info = (unsigned long) &cx82310_info
 	},
 	{ },

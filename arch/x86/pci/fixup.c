@@ -350,8 +350,7 @@ static void pci_fixup_video(struct pci_dev *pdev)
 		pci_read_config_word(pdev, PCI_COMMAND, &config);
 		if (config & (PCI_COMMAND_IO | PCI_COMMAND_MEMORY)) {
 			pdev->resource[PCI_ROM_RESOURCE].flags |= IORESOURCE_ROM_SHADOW;
-			dev_printk(KERN_DEBUG, &pdev->dev, "Boot video device\n");
-			vga_set_default_device(pdev);
+			dev_printk(KERN_DEBUG, &pdev->dev, "Video device with shadowed ROM\n");
 		}
 	}
 }
@@ -554,3 +553,55 @@ static void twinhead_reserve_killing_zone(struct pci_dev *dev)
         }
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x27B9, twinhead_reserve_killing_zone);
+
+/*
+ * Device [8086:2fc0]
+ * Erratum HSE43
+ * CONFIG_TDP_NOMINAL CSR Implemented at Incorrect Offset
+ * http://www.intel.com/content/www/us/en/processors/xeon/xeon-e5-v3-spec-update.html
+ *
+ * Devices [8086:6f60,6fa0,6fc0]
+ * Erratum BDF2
+ * PCI BARs in the Home Agent Will Return Non-Zero Values During Enumeration
+ * http://www.intel.com/content/www/us/en/processors/xeon/xeon-e5-v4-spec-update.html
+ */
+static void pci_invalid_bar(struct pci_dev *dev)
+{
+	dev->non_compliant_bars = 1;
+}
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x2fc0, pci_invalid_bar);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x6f60, pci_invalid_bar);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x6fa0, pci_invalid_bar);
+DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, 0x6fc0, pci_invalid_bar);
+
+/*
+ * Apple MacBook Pro: Avoid [mem 0x7fa00000-0x7fbfffff]
+ *
+ * Using the [mem 0x7fa00000-0x7fbfffff] region, e.g., by assigning it to
+ * the 00:1c.0 Root Port, causes a conflict with [io 0x1804], which is used
+ * for soft poweroff and suspend-to-RAM.
+ *
+ * As far as we know, this is related to the address space, not to the Root
+ * Port itself.  Attaching the quirk to the Root Port is a convenience, but
+ * it could probably also be a standalone DMI quirk.
+ *
+ * https://bugzilla.kernel.org/show_bug.cgi?id=103211
+ */
+static void quirk_apple_mbp_poweroff(struct pci_dev *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct resource *res;
+
+	if ((!dmi_match(DMI_PRODUCT_NAME, "MacBookPro11,4") &&
+	     !dmi_match(DMI_PRODUCT_NAME, "MacBookPro11,5")) ||
+	    pdev->bus->number != 0 || pdev->devfn != PCI_DEVFN(0x1c, 0))
+		return;
+
+	res = request_mem_region(0x7fa00000, 0x200000,
+				 "MacBook Pro poweroff workaround");
+	if (res)
+		dev_info(dev, "claimed %s %pR\n", res->name, res);
+	else
+		dev_info(dev, "can't work around MacBook Pro poweroff issue\n");
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x8c10, quirk_apple_mbp_poweroff);

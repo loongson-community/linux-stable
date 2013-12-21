@@ -34,10 +34,11 @@
  */
 unsigned int pipe_max_size = 1048576;
 
-/*
- * Minimum pipe size, as required by POSIX
+/* Maximum allocatable pages per user. Hard limit is unset by default, soft
+ * matches default values.
  */
-unsigned int pipe_min_size = PAGE_SIZE;
+unsigned long pipe_user_pages_hard;
+unsigned long pipe_user_pages_soft = PIPE_DEF_BUFFERS * INR_OPEN_CUR;
 
 /*
  * We use a start+len construction, which provides full use of the 
@@ -367,18 +368,17 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
 		int offset = buf->offset + buf->len;
 
 		if (ops->can_merge && offset + chars <= PAGE_SIZE) {
-			int error = ops->confirm(pipe, buf);
-			if (error)
+			ret = ops->confirm(pipe, buf);
+			if (ret)
 				goto out;
 
 			ret = copy_page_from_iter(buf->page, offset, chars, from);
 			if (unlikely(ret < chars)) {
-				error = -EFAULT;
+				ret = -EFAULT;
 				goto out;
 			}
 			do_wakeup = 1;
-			buf->len += chars;
-			ret = chars;
+			buf->len += ret;
 			if (!iov_iter_count(from))
 				goto out;
 		}
@@ -585,23 +585,73 @@ pipe_fasync(int fd, struct file *filp, int on)
 	return retval;
 }
 
+static unsigned long account_pipe_buffers(struct user_struct *user,
+                                 unsigned long old, unsigned long new)
+{
+	return atomic_long_add_return(new - old, &user->pipe_bufs);
+}
+
+static bool too_many_pipe_buffers_soft(unsigned long user_bufs)
+{
+	unsigned long soft_limit = ACCESS_ONCE(pipe_user_pages_soft);
+
+	return soft_limit && user_bufs > soft_limit;
+}
+
+static bool too_many_pipe_buffers_hard(unsigned long user_bufs)
+{
+	unsigned long hard_limit = ACCESS_ONCE(pipe_user_pages_hard);
+
+	return hard_limit && user_bufs > hard_limit;
+}
+
+static bool is_unprivileged_user(void)
+{
+	return !capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN);
+}
+
 struct pipe_inode_info *alloc_pipe_info(void)
 {
 	struct pipe_inode_info *pipe;
+	unsigned long pipe_bufs = PIPE_DEF_BUFFERS;
+	struct user_struct *user = get_current_user();
+	unsigned long user_bufs;
+	unsigned int max_size = ACCESS_ONCE(pipe_max_size);
 
 	pipe = kzalloc(sizeof(struct pipe_inode_info), GFP_KERNEL);
-	if (pipe) {
-		pipe->bufs = kzalloc(sizeof(struct pipe_buffer) * PIPE_DEF_BUFFERS, GFP_KERNEL);
-		if (pipe->bufs) {
-			init_waitqueue_head(&pipe->wait);
-			pipe->r_counter = pipe->w_counter = 1;
-			pipe->buffers = PIPE_DEF_BUFFERS;
-			mutex_init(&pipe->mutex);
-			return pipe;
-		}
-		kfree(pipe);
+	if (pipe == NULL)
+		goto out_free_uid;
+
+	if (pipe_bufs * PAGE_SIZE > max_size && !capable(CAP_SYS_RESOURCE))
+		pipe_bufs = max_size >> PAGE_SHIFT;
+
+	user_bufs = account_pipe_buffers(user, 0, pipe_bufs);
+
+	if (too_many_pipe_buffers_soft(user_bufs) && is_unprivileged_user()) {
+		user_bufs = account_pipe_buffers(user, pipe_bufs, 1);
+		pipe_bufs = 1;
 	}
 
+	if (too_many_pipe_buffers_hard(user_bufs) && is_unprivileged_user())
+		goto out_revert_acct;
+
+	pipe->bufs = kcalloc(pipe_bufs, sizeof(struct pipe_buffer),
+			     GFP_KERNEL);
+
+	if (pipe->bufs) {
+		init_waitqueue_head(&pipe->wait);
+		pipe->r_counter = pipe->w_counter = 1;
+		pipe->buffers = pipe_bufs;
+		pipe->user = user;
+		mutex_init(&pipe->mutex);
+		return pipe;
+	}
+
+out_revert_acct:
+	(void) account_pipe_buffers(user, pipe_bufs, 0);
+	kfree(pipe);
+out_free_uid:
+	free_uid(user);
 	return NULL;
 }
 
@@ -609,6 +659,8 @@ void free_pipe_info(struct pipe_inode_info *pipe)
 {
 	int i;
 
+	(void) account_pipe_buffers(pipe->user, pipe->buffers, 0);
+	free_uid(pipe->user);
 	for (i = 0; i < pipe->buffers; i++) {
 		struct pipe_buffer *buf = pipe->bufs + i;
 		if (buf->ops)
@@ -958,12 +1010,58 @@ const struct file_operations pipefifo_fops = {
 };
 
 /*
+ * Currently we rely on the pipe array holding a power-of-2 number
+ * of pages. Returns 0 on error.
+ */
+unsigned int round_pipe_size(unsigned long size)
+{
+	if (size > (1U << 31))
+		return 0;
+
+	/* Minimum pipe size, as required by POSIX */
+	if (size < PAGE_SIZE)
+		return PAGE_SIZE;
+
+	return roundup_pow_of_two(size);
+}
+
+/*
  * Allocate a new array of pipe buffers and copy the info over. Returns the
  * pipe size if successful, or return -ERROR on error.
  */
-static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
+static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 {
 	struct pipe_buffer *bufs;
+	unsigned int size, nr_pages;
+	unsigned long user_bufs;
+	long ret = 0;
+
+	size = round_pipe_size(arg);
+	nr_pages = size >> PAGE_SHIFT;
+
+	if (!nr_pages)
+		return -EINVAL;
+
+	/*
+	 * If trying to increase the pipe capacity, check that an
+	 * unprivileged user is not trying to exceed various limits
+	 * (soft limit check here, hard limit check just below).
+	 * Decreasing the pipe capacity is always permitted, even
+	 * if the user is currently over a limit.
+	 */
+	if (nr_pages > pipe->buffers &&
+			size > pipe_max_size && !capable(CAP_SYS_RESOURCE))
+		return -EPERM;
+
+	user_bufs = account_pipe_buffers(pipe->user, pipe->buffers, nr_pages);
+
+	if (nr_pages > pipe->buffers &&
+			(too_many_pipe_buffers_hard(user_bufs) ||
+			 too_many_pipe_buffers_soft(user_bufs)) &&
+			is_unprivileged_user()) {
+		ret = -EPERM;
+		goto out_revert_acct;
+	}
 
 	/*
 	 * We can shrink the pipe, if arg >= pipe->nrbufs. Since we don't
@@ -971,12 +1069,16 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
 	 * again like we would do for growing. If the pipe currently
 	 * contains more buffers than arg, then return busy.
 	 */
-	if (nr_pages < pipe->nrbufs)
-		return -EBUSY;
+	if (nr_pages < pipe->nrbufs) {
+		ret = -EBUSY;
+		goto out_revert_acct;
+	}
 
 	bufs = kcalloc(nr_pages, sizeof(*bufs), GFP_KERNEL | __GFP_NOWARN);
-	if (unlikely(!bufs))
-		return -ENOMEM;
+	if (unlikely(!bufs)) {
+		ret = -ENOMEM;
+		goto out_revert_acct;
+	}
 
 	/*
 	 * The pipe array wraps around, so just start the new one at zero
@@ -1004,34 +1106,9 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
 	pipe->bufs = bufs;
 	pipe->buffers = nr_pages;
 	return nr_pages * PAGE_SIZE;
-}
 
-/*
- * Currently we rely on the pipe array holding a power-of-2 number
- * of pages.
- */
-static inline unsigned int round_pipe_size(unsigned int size)
-{
-	unsigned long nr_pages;
-
-	nr_pages = (size + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	return roundup_pow_of_two(nr_pages) << PAGE_SHIFT;
-}
-
-/*
- * This should work even if CONFIG_PROC_FS isn't set, as proc_dointvec_minmax
- * will return an error.
- */
-int pipe_proc_fn(struct ctl_table *table, int write, void __user *buf,
-		 size_t *lenp, loff_t *ppos)
-{
-	int ret;
-
-	ret = proc_dointvec_minmax(table, write, buf, lenp, ppos);
-	if (ret < 0 || !write)
-		return ret;
-
-	pipe_max_size = round_pipe_size(pipe_max_size);
+out_revert_acct:
+	(void) account_pipe_buffers(pipe->user, nr_pages, pipe->buffers);
 	return ret;
 }
 
@@ -1057,23 +1134,9 @@ long pipe_fcntl(struct file *file, unsigned int cmd, unsigned long arg)
 	__pipe_lock(pipe);
 
 	switch (cmd) {
-	case F_SETPIPE_SZ: {
-		unsigned int size, nr_pages;
-
-		size = round_pipe_size(arg);
-		nr_pages = size >> PAGE_SHIFT;
-
-		ret = -EINVAL;
-		if (!nr_pages)
-			goto out;
-
-		if (!capable(CAP_SYS_RESOURCE) && size > pipe_max_size) {
-			ret = -EPERM;
-			goto out;
-		}
-		ret = pipe_set_size(pipe, nr_pages);
+	case F_SETPIPE_SZ:
+		ret = pipe_set_size(pipe, arg);
 		break;
-		}
 	case F_GETPIPE_SZ:
 		ret = pipe->buffers * PAGE_SIZE;
 		break;
@@ -1082,7 +1145,6 @@ long pipe_fcntl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 
-out:
 	__pipe_unlock(pipe);
 	return ret;
 }

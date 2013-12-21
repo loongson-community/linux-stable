@@ -644,6 +644,16 @@ static int s5m8767_rtc_init_reg(struct s5m_rtc_info *info)
 	case S2MPS14X:
 		data[0] = (0 << BCD_EN_SHIFT) | (1 << MODEL24_SHIFT);
 		ret = regmap_write(info->regmap, info->regs->ctrl, data[0]);
+		if (ret < 0)
+			break;
+
+		/*
+		 * Should set WUDR & (RUDR or AUDR) bits to high after writing
+		 * RTC_CTRL register like writing Alarm registers. We can't find
+		 * the description from datasheet but vendor code does that
+		 * really.
+		 */
+		ret = s5m8767_rtc_set_alarm_reg(info);
 		break;
 
 	default:
@@ -825,6 +835,7 @@ static SIMPLE_DEV_PM_OPS(s5m_rtc_pm_ops, s5m_rtc_suspend, s5m_rtc_resume);
 static const struct platform_device_id s5m_rtc_id[] = {
 	{ "s5m-rtc",		S5M8767X },
 	{ "s2mps14-rtc",	S2MPS14X },
+	{ },
 };
 
 static struct platform_driver s5m_rtc_driver = {

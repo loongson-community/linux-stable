@@ -98,14 +98,15 @@ static int uinput_request_reserve_slot(struct uinput_device *udev,
 					uinput_request_alloc_id(udev, request));
 }
 
-static void uinput_request_done(struct uinput_device *udev,
-				struct uinput_request *request)
+static void uinput_request_release_slot(struct uinput_device *udev,
+					unsigned int id)
 {
 	/* Mark slot as available */
-	udev->requests[request->id] = NULL;
-	wake_up(&udev->requests_waitq);
+	spin_lock(&udev->requests_lock);
+	udev->requests[id] = NULL;
+	spin_unlock(&udev->requests_lock);
 
-	complete(&request->done);
+	wake_up(&udev->requests_waitq);
 }
 
 static int uinput_request_send(struct uinput_device *udev,
@@ -138,20 +139,22 @@ static int uinput_request_send(struct uinput_device *udev,
 static int uinput_request_submit(struct uinput_device *udev,
 				 struct uinput_request *request)
 {
-	int error;
+	int retval;
 
-	error = uinput_request_reserve_slot(udev, request);
-	if (error)
-		return error;
+	retval = uinput_request_reserve_slot(udev, request);
+	if (retval)
+		return retval;
 
-	error = uinput_request_send(udev, request);
-	if (error) {
-		uinput_request_done(udev, request);
-		return error;
-	}
+	retval = uinput_request_send(udev, request);
+	if (retval)
+		goto out;
 
 	wait_for_completion(&request->done);
-	return request->retval;
+	retval = request->retval;
+
+ out:
+	uinput_request_release_slot(udev, request->id);
+	return retval;
 }
 
 /*
@@ -169,7 +172,7 @@ static void uinput_flush_requests(struct uinput_device *udev)
 		request = udev->requests[i];
 		if (request) {
 			request->retval = -ENODEV;
-			uinput_request_done(udev, request);
+			complete(&request->done);
 		}
 	}
 
@@ -230,6 +233,18 @@ static int uinput_dev_erase_effect(struct input_dev *dev, int effect_id)
 	return uinput_request_submit(udev, &request);
 }
 
+static int uinput_dev_flush(struct input_dev *dev, struct file *file)
+{
+	/*
+	 * If we are called with file == NULL that means we are tearing
+	 * down the device, and therefore we can not handle FF erase
+	 * requests: either we are handling UI_DEV_DESTROY (and holding
+	 * the udev->mutex), or the file descriptor is closed and there is
+	 * nobody on the other side anymore.
+	 */
+	return file ? input_ff_flush(dev, file) : 0;
+}
+
 static void uinput_destroy_device(struct uinput_device *udev)
 {
 	const char *name, *phys;
@@ -273,6 +288,12 @@ static int uinput_create_device(struct uinput_device *udev)
 		dev->ff->playback = uinput_dev_playback;
 		dev->ff->set_gain = uinput_dev_set_gain;
 		dev->ff->set_autocenter = uinput_dev_set_autocenter;
+		/*
+		 * The standard input_ff_flush() implementation does
+		 * not quite work for uinput as we can't reasonably
+		 * handle FF requests during device teardown.
+		 */
+		dev->flush = uinput_dev_flush;
 	}
 
 	error = input_register_device(udev->dev);
@@ -840,7 +861,7 @@ static long uinput_ioctl_handler(struct file *file, unsigned int cmd,
 			}
 
 			req->retval = ff_up.retval;
-			uinput_request_done(udev, req);
+			complete(&req->done);
 			goto out;
 
 		case UI_END_FF_ERASE:
@@ -856,7 +877,7 @@ static long uinput_ioctl_handler(struct file *file, unsigned int cmd,
 			}
 
 			req->retval = ff_erase.retval;
-			uinput_request_done(udev, req);
+			complete(&req->done);
 			goto out;
 	}
 
@@ -886,9 +907,15 @@ static long uinput_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 
 #ifdef CONFIG_COMPAT
+
+#define UI_SET_PHYS_COMPAT	_IOW(UINPUT_IOCTL_BASE, 108, compat_uptr_t)
+
 static long uinput_compat_ioctl(struct file *file,
 				unsigned int cmd, unsigned long arg)
 {
+	if (cmd == UI_SET_PHYS_COMPAT)
+		cmd = UI_SET_PHYS;
+
 	return uinput_ioctl_handler(file, cmd, arg, compat_ptr(arg));
 }
 #endif

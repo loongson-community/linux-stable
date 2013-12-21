@@ -93,7 +93,7 @@ static struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb,
 	csum = skb_checksum(skb, offset, skb->len - offset, 0);
 	offset += skb->csum_offset;
 	*(__sum16 *)(skb->data + offset) = csum_fold(csum);
-	skb->ip_summed = CHECKSUM_NONE;
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 	/* Fragment the skb. IP headers of the fragments are updated in
 	 * inet_gso_segment()
@@ -160,12 +160,12 @@ static struct sk_buff **udp_gro_receive(struct sk_buff **head, struct sk_buff *s
 	unsigned int hlen, off;
 	int flush = 1;
 
-	if (NAPI_GRO_CB(skb)->udp_mark ||
+	if (NAPI_GRO_CB(skb)->encap_mark ||
 	    (!skb->encapsulation && skb->ip_summed != CHECKSUM_COMPLETE))
 		goto out;
 
-	/* mark that this skb passed once through the udp gro layer */
-	NAPI_GRO_CB(skb)->udp_mark = 1;
+	/* mark that this skb passed once through the tunnel gro layer */
+	NAPI_GRO_CB(skb)->encap_mark = 1;
 
 	off  = skb_gro_offset(skb);
 	hlen = off + sizeof(*uh);

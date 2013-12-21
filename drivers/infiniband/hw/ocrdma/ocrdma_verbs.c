@@ -565,7 +565,8 @@ err:
 	if (is_uctx_pd) {
 		ocrdma_release_ucontext_pd(uctx);
 	} else {
-		status = ocrdma_mbx_dealloc_pd(dev, pd);
+		if (ocrdma_mbx_dealloc_pd(dev, pd))
+			pr_err("%s: ocrdma_mbx_dealloc_pd() failed\n", __func__);
 		kfree(pd);
 	}
 exit:
@@ -1719,6 +1720,7 @@ struct ib_srq *ocrdma_create_srq(struct ib_pd *ibpd,
 		goto err;
 
 	if (udata == NULL) {
+		status = -ENOMEM;
 		srq->rqe_wr_id_tbl = kzalloc(sizeof(u64) * srq->rq.max_cnt,
 			    GFP_KERNEL);
 		if (srq->rqe_wr_id_tbl == NULL)

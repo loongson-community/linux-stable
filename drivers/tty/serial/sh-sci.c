@@ -38,7 +38,6 @@
 #include <linux/major.h>
 #include <linux/module.h>
 #include <linux/mm.h>
-#include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -118,8 +117,6 @@ struct sci_port {
 	struct timer_list		rx_timer;
 	unsigned int			rx_timeout;
 #endif
-
-	struct notifier_block		freq_transition;
 };
 
 /* Function prototypes */
@@ -737,6 +734,8 @@ static void sci_receive_chars(struct uart_port *port)
 		/* Tell the rest of the system the news. New characters! */
 		tty_flip_buffer_push(tport);
 	} else {
+		/* TTY buffers full; read from RX reg to prevent lockup */
+		serial_port_in(port, SCxRDR);
 		serial_port_in(port, SCxSR); /* dummy read */
 		serial_port_out(port, SCxSR, SCxSR_RDxF_CLEAR(port));
 	}
@@ -1027,29 +1026,6 @@ static irqreturn_t sci_mpxed_interrupt(int irq, void *ptr)
 		ret = sci_br_interrupt(irq, ptr);
 
 	return ret;
-}
-
-/*
- * Here we define a transition notifier so that we can update all of our
- * ports' baud rate when the peripheral clock changes.
- */
-static int sci_notifier(struct notifier_block *self,
-			unsigned long phase, void *p)
-{
-	struct sci_port *sci_port;
-	unsigned long flags;
-
-	sci_port = container_of(self, struct sci_port, freq_transition);
-
-	if (phase == CPUFREQ_POSTCHANGE) {
-		struct uart_port *port = &sci_port->port;
-
-		spin_lock_irqsave(&port->lock, flags);
-		port->uartclk = clk_get_rate(sci_port->iclk);
-		spin_unlock_irqrestore(&port->lock, flags);
-	}
-
-	return NOTIFY_OK;
 }
 
 static struct sci_irq_desc {
@@ -1741,11 +1717,13 @@ static int sci_startup(struct uart_port *port)
 
 	dev_dbg(port->dev, "%s(%d)\n", __func__, port->line);
 
-	ret = sci_request_irq(s);
-	if (unlikely(ret < 0))
-		return ret;
-
 	sci_request_dma(port);
+
+	ret = sci_request_irq(s);
+	if (unlikely(ret < 0)) {
+		sci_free_dma(port);
+		return ret;
+	}
 
 	spin_lock_irqsave(&port->lock, flags);
 	sci_start_tx(port);
@@ -1767,8 +1745,8 @@ static void sci_shutdown(struct uart_port *port)
 	sci_stop_tx(port);
 	spin_unlock_irqrestore(&port->lock, flags);
 
-	sci_free_dma(port);
 	sci_free_irq(s);
+	sci_free_dma(port);
 }
 
 static unsigned int sci_scbrr_calc(struct sci_port *s, unsigned int bps,
@@ -2406,9 +2384,6 @@ static int sci_remove(struct platform_device *dev)
 {
 	struct sci_port *port = platform_get_drvdata(dev);
 
-	cpufreq_unregister_notifier(&port->freq_transition,
-				    CPUFREQ_TRANSITION_NOTIFIER);
-
 	uart_remove_one_port(&sci_uart_driver, &port->port);
 
 	sci_cleanup_single(port);
@@ -2556,16 +2531,6 @@ static int sci_probe(struct platform_device *dev)
 	ret = sci_probe_single(dev, dev_id, p, sp);
 	if (ret)
 		return ret;
-
-	sp->freq_transition.notifier_call = sci_notifier;
-
-	ret = cpufreq_register_notifier(&sp->freq_transition,
-					CPUFREQ_TRANSITION_NOTIFIER);
-	if (unlikely(ret < 0)) {
-		uart_remove_one_port(&sci_uart_driver, &sp->port);
-		sci_cleanup_single(sp);
-		return ret;
-	}
 
 #ifdef CONFIG_SH_STANDARD_BIOS
 	sh_bios_gdb_detach();

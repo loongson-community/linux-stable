@@ -973,21 +973,26 @@ nomem:
  */
 int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 {
+	char *name;
 	int i, err;
 
 	/*
 	 * The memory controller needs its own bus, in order to avoid
 	 * namespace conflicts at /sys/bus/edac.
 	 */
-	mci->bus->name = kasprintf(GFP_KERNEL, "mc%d", mci->mc_idx);
-	if (!mci->bus->name)
+	name = kasprintf(GFP_KERNEL, "mc%d", mci->mc_idx);
+	if (!name)
 		return -ENOMEM;
+
+	mci->bus->name = name;
 
 	edac_dbg(0, "creating bus %s\n", mci->bus->name);
 
 	err = bus_register(mci->bus);
-	if (err < 0)
+	if (err < 0) {
+		kfree(name);
 		return err;
+	}
 
 	/* get the /sys/devices/system/edac subsys reference */
 	mci->dev.type = &mci_attr_type;
@@ -1003,9 +1008,7 @@ int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 	err = device_add(&mci->dev);
 	if (err < 0) {
 		edac_dbg(1, "failure: create device %s\n", dev_name(&mci->dev));
-		bus_unregister(mci->bus);
-		kfree(mci->bus->name);
-		return err;
+		goto fail_unregister_bus;
 	}
 
 	if (mci->set_sdram_scrub_rate || mci->get_sdram_scrub_rate) {
@@ -1013,15 +1016,16 @@ int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 			dev_attr_sdram_scrub_rate.attr.mode |= S_IRUGO;
 			dev_attr_sdram_scrub_rate.show = &mci_sdram_scrub_rate_show;
 		}
+
 		if (mci->set_sdram_scrub_rate) {
 			dev_attr_sdram_scrub_rate.attr.mode |= S_IWUSR;
 			dev_attr_sdram_scrub_rate.store = &mci_sdram_scrub_rate_store;
 		}
-		err = device_create_file(&mci->dev,
-					 &dev_attr_sdram_scrub_rate);
+
+		err = device_create_file(&mci->dev, &dev_attr_sdram_scrub_rate);
 		if (err) {
 			edac_dbg(1, "failure: create sdram_scrub_rate\n");
-			goto fail2;
+			goto fail_unregister_dev;
 		}
 	}
 	/*
@@ -1030,8 +1034,9 @@ int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 	for (i = 0; i < mci->tot_dimms; i++) {
 		struct dimm_info *dimm = mci->dimms[i];
 		/* Only expose populated DIMMs */
-		if (dimm->nr_pages == 0)
+		if (!dimm->nr_pages)
 			continue;
+
 #ifdef CONFIG_EDAC_DEBUG
 		edac_dbg(1, "creating dimm%d, located at ", i);
 		if (edac_debug_level >= 1) {
@@ -1046,14 +1051,14 @@ int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 		err = edac_create_dimm_object(mci, dimm, i);
 		if (err) {
 			edac_dbg(1, "failure: create dimm %d obj\n", i);
-			goto fail;
+			goto fail_unregister_dimm;
 		}
 	}
 
 #ifdef CONFIG_EDAC_LEGACY_SYSFS
 	err = edac_create_csrow_objects(mci);
 	if (err < 0)
-		goto fail;
+		goto fail_unregister_dimm;
 #endif
 
 #ifdef CONFIG_EDAC_DEBUG
@@ -1061,17 +1066,20 @@ int edac_create_sysfs_mci_device(struct mem_ctl_info *mci)
 #endif
 	return 0;
 
-fail:
+fail_unregister_dimm:
 	for (i--; i >= 0; i--) {
 		struct dimm_info *dimm = mci->dimms[i];
-		if (dimm->nr_pages == 0)
+		if (!dimm->nr_pages)
 			continue;
+
 		device_unregister(&dimm->dev);
 	}
-fail2:
+fail_unregister_dev:
 	device_unregister(&mci->dev);
+fail_unregister_bus:
 	bus_unregister(mci->bus);
-	kfree(mci->bus->name);
+	kfree(name);
+
 	return err;
 }
 
@@ -1102,10 +1110,12 @@ void edac_remove_sysfs_mci_device(struct mem_ctl_info *mci)
 
 void edac_unregister_sysfs(struct mem_ctl_info *mci)
 {
+	const char *name = mci->bus->name;
+
 	edac_dbg(1, "Unregistering device %s\n", dev_name(&mci->dev));
 	device_unregister(&mci->dev);
 	bus_unregister(mci->bus);
-	kfree(mci->bus->name);
+	kfree(name);
 }
 
 static void mc_attr_release(struct device *dev)

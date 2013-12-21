@@ -36,6 +36,7 @@
 #include <linux/netpoll.h>
 
 #define MACVLAN_HASH_SIZE	(1 << BITS_PER_BYTE)
+#define MACVLAN_BC_QUEUE_LEN	1000
 
 struct macvlan_port {
 	struct net_device	*dev;
@@ -45,9 +46,8 @@ struct macvlan_port {
 	struct sk_buff_head	bc_queue;
 	struct work_struct	bc_work;
 	bool 			passthru;
+	int			count;
 };
-
-#define MACVLAN_PORT_IS_EMPTY(port)    list_empty(&port->vlans)
 
 struct macvlan_skb_cb {
 	const struct macvlan_dev *src;
@@ -201,7 +201,7 @@ static void macvlan_process_broadcast(struct work_struct *w)
 	struct sk_buff *skb;
 	struct sk_buff_head list;
 
-	skb_queue_head_init(&list);
+	__skb_queue_head_init(&list);
 
 	spin_lock_bh(&port->bc_queue.lock);
 	skb_queue_splice_tail_init(&port->bc_queue, &list);
@@ -234,11 +234,14 @@ static void macvlan_process_broadcast(struct work_struct *w)
 
 		rcu_read_unlock();
 
+		if (src)
+			dev_put(src->dev);
 		kfree_skb(skb);
 	}
 }
 
 static void macvlan_broadcast_enqueue(struct macvlan_port *port,
+				      const struct macvlan_dev *src,
 				      struct sk_buff *skb)
 {
 	struct sk_buff *nskb;
@@ -248,8 +251,12 @@ static void macvlan_broadcast_enqueue(struct macvlan_port *port,
 	if (!nskb)
 		goto err;
 
+	MACVLAN_SKB_CB(nskb)->src = src;
+
 	spin_lock(&port->bc_queue.lock);
-	if (skb_queue_len(&port->bc_queue) < skb->dev->tx_queue_len) {
+	if (skb_queue_len(&port->bc_queue) < MACVLAN_BC_QUEUE_LEN) {
+		if (src)
+			dev_hold(src->dev);
 		__skb_queue_tail(&port->bc_queue, nskb);
 		err = 0;
 	}
@@ -284,6 +291,7 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 		skb = ip_check_defrag(skb, IP_DEFRAG_MACVLAN);
 		if (!skb)
 			return RX_HANDLER_CONSUMED;
+		*pskb = skb;
 		eth = eth_hdr(skb);
 		src = macvlan_hash_lookup(port, eth->h_source);
 		if (src && src->mode != MACVLAN_MODE_VEPA &&
@@ -295,8 +303,7 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 			goto out;
 		}
 
-		MACVLAN_SKB_CB(skb)->src = src;
-		macvlan_broadcast_enqueue(port, skb);
+		macvlan_broadcast_enqueue(port, src, skb);
 
 		return RX_HANDLER_PASS;
 	}
@@ -319,6 +326,7 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 	if (!skb)
 		goto out;
 
+	*pskb = skb;
 	skb->dev = dev;
 	skb->pkt_type = PACKET_HOST;
 
@@ -646,6 +654,7 @@ static int macvlan_init(struct net_device *dev)
 				  (lowerdev->state & MACVLAN_STATE_MASK);
 	dev->features 		= lowerdev->features & MACVLAN_FEATURES;
 	dev->features		|= ALWAYS_ON_FEATURES;
+	dev->vlan_features	= lowerdev->vlan_features & MACVLAN_FEATURES;
 	dev->gso_max_size	= lowerdev->gso_max_size;
 	dev->iflink		= lowerdev->ifindex;
 	dev->hard_header_len	= lowerdev->hard_header_len;
@@ -666,7 +675,8 @@ static void macvlan_uninit(struct net_device *dev)
 
 	free_percpu(vlan->pcpu_stats);
 
-	if (MACVLAN_PORT_IS_EMPTY(port))
+	port->count -= 1;
+	if (!port->count)
 		macvlan_port_destroy(port->dev);
 }
 
@@ -799,6 +809,7 @@ static netdev_features_t macvlan_fix_features(struct net_device *dev,
 					     features,
 					     mask);
 	features |= ALWAYS_ON_FEATURES;
+	features &= ~NETIF_F_NETNS_LOCAL;
 
 	return features;
 }
@@ -931,10 +942,25 @@ static int macvlan_port_create(struct net_device *dev)
 static void macvlan_port_destroy(struct net_device *dev)
 {
 	struct macvlan_port *port = macvlan_port_get_rtnl(dev);
+	struct sk_buff *skb;
 
-	cancel_work_sync(&port->bc_work);
 	dev->priv_flags &= ~IFF_MACVLAN_PORT;
 	netdev_rx_handler_unregister(dev);
+
+	/* After this point, no packet can schedule bc_work anymore,
+	 * but we need to cancel it and purge left skbs if any.
+	 */
+	cancel_work_sync(&port->bc_work);
+
+	while ((skb = __skb_dequeue(&port->bc_queue))) {
+		const struct macvlan_dev *src = MACVLAN_SKB_CB(skb)->src;
+
+		if (src)
+			dev_put(src->dev);
+
+		kfree_skb(skb);
+	}
+
 	kfree_rcu(port, rcu);
 }
 
@@ -1019,12 +1045,13 @@ int macvlan_common_newlink(struct net *src_net, struct net_device *dev,
 		vlan->flags = nla_get_u16(data[IFLA_MACVLAN_FLAGS]);
 
 	if (vlan->mode == MACVLAN_MODE_PASSTHRU) {
-		if (!MACVLAN_PORT_IS_EMPTY(port))
+		if (port->count)
 			return -EINVAL;
 		port->passthru = true;
 		eth_hw_addr_inherit(dev, lowerdev);
 	}
 
+	port->count += 1;
 	err = register_netdevice(dev);
 	if (err < 0)
 		goto destroy_port;
@@ -1042,7 +1069,8 @@ int macvlan_common_newlink(struct net *src_net, struct net_device *dev,
 unregister_netdev:
 	unregister_netdevice(dev);
 destroy_port:
-	if (MACVLAN_PORT_IS_EMPTY(port))
+	port->count -= 1;
+	if (!port->count)
 		macvlan_port_destroy(lowerdev);
 
 	return err;

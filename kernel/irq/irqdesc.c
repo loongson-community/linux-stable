@@ -131,6 +131,16 @@ static void free_masks(struct irq_desc *desc)
 static inline void free_masks(struct irq_desc *desc) { }
 #endif
 
+void irq_lock_sparse(void)
+{
+	mutex_lock(&sparse_irq_lock);
+}
+
+void irq_unlock_sparse(void)
+{
+	mutex_unlock(&sparse_irq_lock);
+}
+
 static struct irq_desc *alloc_desc(int irq, int node, struct module *owner)
 {
 	struct irq_desc *desc;
@@ -167,9 +177,13 @@ static void free_desc(unsigned int irq)
 
 	unregister_irq_proc(irq, desc);
 
-	mutex_lock(&sparse_irq_lock);
+	/*
+	 * sparse_irq_lock protects also show_interrupts() and
+	 * kstat_irq_usr(). Once we deleted the descriptor from the
+	 * sparse tree we can free it. Access in proc will fail to
+	 * lookup the descriptor.
+	 */
 	delete_irq_desc(irq);
-	mutex_unlock(&sparse_irq_lock);
 
 	free_masks(desc);
 	free_percpu(desc->kstat_irqs);
@@ -186,19 +200,14 @@ static int alloc_descs(unsigned int start, unsigned int cnt, int node,
 		desc = alloc_desc(start + i, node, owner);
 		if (!desc)
 			goto err;
-		mutex_lock(&sparse_irq_lock);
 		irq_insert_desc(start + i, desc);
-		mutex_unlock(&sparse_irq_lock);
 	}
+	bitmap_set(allocated_irqs, start, cnt);
 	return start;
 
 err:
 	for (i--; i >= 0; i--)
 		free_desc(start + i);
-
-	mutex_lock(&sparse_irq_lock);
-	bitmap_clear(allocated_irqs, start, cnt);
-	mutex_unlock(&sparse_irq_lock);
 	return -ENOMEM;
 }
 
@@ -296,6 +305,7 @@ static inline int alloc_descs(unsigned int start, unsigned int cnt, int node,
 
 		desc->owner = owner;
 	}
+	bitmap_set(allocated_irqs, start, cnt);
 	return start;
 }
 
@@ -350,10 +360,10 @@ void irq_free_descs(unsigned int from, unsigned int cnt)
 	if (from >= nr_irqs || (from + cnt) > nr_irqs)
 		return;
 
+	mutex_lock(&sparse_irq_lock);
 	for (i = 0; i < cnt; i++)
 		free_desc(from + i);
 
-	mutex_lock(&sparse_irq_lock);
 	bitmap_clear(allocated_irqs, from, cnt);
 	mutex_unlock(&sparse_irq_lock);
 }
@@ -397,19 +407,15 @@ __irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
 					   from, cnt, 0);
 	ret = -EEXIST;
 	if (irq >=0 && start != irq)
-		goto err;
+		goto unlock;
 
 	if (start + cnt > nr_irqs) {
 		ret = irq_expand_nr_irqs(start + cnt);
 		if (ret)
-			goto err;
+			goto unlock;
 	}
-
-	bitmap_set(allocated_irqs, start, cnt);
-	mutex_unlock(&sparse_irq_lock);
-	return alloc_descs(start, cnt, node, owner);
-
-err:
+	ret = alloc_descs(start, cnt, node, owner);
+unlock:
 	mutex_unlock(&sparse_irq_lock);
 	return ret;
 }
@@ -532,6 +538,15 @@ void kstat_incr_irq_this_cpu(unsigned int irq)
 	kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
 }
 
+/**
+ * kstat_irqs_cpu - Get the statistics for an interrupt on a cpu
+ * @irq:	The interrupt number
+ * @cpu:	The cpu number
+ *
+ * Returns the sum of interrupt counts on @cpu since boot for
+ * @irq. The caller must ensure that the interrupt is not removed
+ * concurrently.
+ */
 unsigned int kstat_irqs_cpu(unsigned int irq, int cpu)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -540,6 +555,14 @@ unsigned int kstat_irqs_cpu(unsigned int irq, int cpu)
 			*per_cpu_ptr(desc->kstat_irqs, cpu) : 0;
 }
 
+/**
+ * kstat_irqs - Get the statistics for an interrupt
+ * @irq:	The interrupt number
+ *
+ * Returns the sum of interrupt counts on all cpus since boot for
+ * @irq. The caller must ensure that the interrupt is not removed
+ * concurrently.
+ */
 unsigned int kstat_irqs(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
@@ -550,5 +573,24 @@ unsigned int kstat_irqs(unsigned int irq)
 		return 0;
 	for_each_possible_cpu(cpu)
 		sum += *per_cpu_ptr(desc->kstat_irqs, cpu);
+	return sum;
+}
+
+/**
+ * kstat_irqs_usr - Get the statistics for an interrupt
+ * @irq:	The interrupt number
+ *
+ * Returns the sum of interrupt counts on all cpus since boot for
+ * @irq. Contrary to kstat_irqs() this can be called from any
+ * preemptible context. It's protected against concurrent removal of
+ * an interrupt descriptor when sparse irqs are enabled.
+ */
+unsigned int kstat_irqs_usr(unsigned int irq)
+{
+	int sum;
+
+	irq_lock_sparse();
+	sum = kstat_irqs(irq);
+	irq_unlock_sparse();
 	return sum;
 }

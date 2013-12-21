@@ -353,12 +353,17 @@ struct samsung_quirks {
 	bool broken_acpi_video;
 	bool four_kbd_backlight_levels;
 	bool enable_kbd_backlight;
+	bool use_native_backlight;
 };
 
 static struct samsung_quirks samsung_unknown = {};
 
 static struct samsung_quirks samsung_broken_acpi_video = {
 	.broken_acpi_video = true,
+};
+
+static struct samsung_quirks samsung_use_native_backlight = {
+	.use_native_backlight = true,
 };
 
 static struct samsung_quirks samsung_np740u3e = {
@@ -1342,9 +1347,9 @@ static int __init samsung_sabi_init(struct samsung_laptop *samsung)
 	const struct sabi_config *config = NULL;
 	const struct sabi_commands *commands;
 	unsigned int ifaceP;
+	int loca = 0xffff;
 	int ret = 0;
 	int i;
-	int loca;
 
 	samsung->f0000_segment = ioremap_nocache(0xf0000, 0xffff);
 	if (!samsung->f0000_segment) {
@@ -1507,7 +1512,7 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		DMI_MATCH(DMI_PRODUCT_NAME, "N150P"),
 		DMI_MATCH(DMI_BOARD_NAME, "N150P"),
 		},
-	 .driver_data = &samsung_broken_acpi_video,
+	 .driver_data = &samsung_use_native_backlight,
 	},
 	{
 	 .callback = samsung_dmi_matched,
@@ -1517,7 +1522,7 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		DMI_MATCH(DMI_PRODUCT_NAME, "N145P/N250P/N260P"),
 		DMI_MATCH(DMI_BOARD_NAME, "N145P/N250P/N260P"),
 		},
-	 .driver_data = &samsung_broken_acpi_video,
+	 .driver_data = &samsung_use_native_backlight,
 	},
 	{
 	 .callback = samsung_dmi_matched,
@@ -1556,6 +1561,16 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
 		DMI_MATCH(DMI_PRODUCT_NAME, "N250P"),
 		DMI_MATCH(DMI_BOARD_NAME, "N250P"),
+		},
+	 .driver_data = &samsung_use_native_backlight,
+	},
+	{
+	 .callback = samsung_dmi_matched,
+	 .ident = "NC210",
+	 .matches = {
+		DMI_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
+		DMI_MATCH(DMI_PRODUCT_NAME, "NC210/NC110"),
+		DMI_MATCH(DMI_BOARD_NAME, "NC210/NC110"),
 		},
 	 .driver_data = &samsung_broken_acpi_video,
 	},
@@ -1605,6 +1620,15 @@ static int __init samsung_init(void)
 	} else if (samsung->quirks->broken_acpi_video) {
 		pr_info("Disabling ACPI video driver\n");
 		acpi_video_unregister();
+	}
+
+	if (samsung->quirks->use_native_backlight) {
+		pr_info("Using native backlight driver\n");
+		/* Tell acpi-video to not handle the backlight */
+		acpi_video_dmi_promote_vendor();
+		acpi_video_unregister();
+		/* And also do not handle it ourselves */
+		samsung->handle_backlight = false;
 	}
 #endif
 

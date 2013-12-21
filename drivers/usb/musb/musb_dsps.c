@@ -780,6 +780,7 @@ static int dsps_suspend(struct device *dev)
 	struct musb *musb = platform_get_drvdata(glue->musb);
 	void __iomem *mbase = musb->ctrl_base;
 
+	del_timer_sync(&glue->timer);
 	glue->context.control = dsps_readl(mbase, wrp->control);
 	glue->context.epintr = dsps_readl(mbase, wrp->epintr_set);
 	glue->context.coreintr = dsps_readl(mbase, wrp->coreintr_set);
@@ -805,6 +806,9 @@ static int dsps_resume(struct device *dev)
 	dsps_writel(mbase, wrp->mode, glue->context.mode);
 	dsps_writel(mbase, wrp->tx_mode, glue->context.tx_mode);
 	dsps_writel(mbase, wrp->rx_mode, glue->context.rx_mode);
+	if (musb->xceiv->state == OTG_STATE_B_IDLE &&
+	    musb->port_mode == MUSB_PORT_MODE_DUAL_ROLE)
+		mod_timer(&glue->timer, jiffies + wrp->poll_seconds * HZ);
 
 	return 0;
 }

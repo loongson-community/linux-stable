@@ -427,6 +427,12 @@ sun4v_chip_type:
 	cmp	%g2, '5'
 	be,pt	%xcc, 5f
 	 mov	SUN4V_CHIP_NIAGARA5, %g4
+	cmp	%g2, '6'
+	be,pt	%xcc, 5f
+	 mov	SUN4V_CHIP_SPARC_M6, %g4
+	cmp	%g2, '7'
+	be,pt	%xcc, 5f
+	 mov	SUN4V_CHIP_SPARC_M7, %g4
 	ba,pt	%xcc, 49f
 	 nop
 
@@ -455,9 +461,8 @@ sun4v_chip_type:
 	subcc	%g3, 1, %g3
 	bne,pt	%xcc, 41b
 	add	%g1, 1, %g1
-	mov	SUN4V_CHIP_SPARC64X, %g4
 	ba,pt	%xcc, 5f
-	nop
+	 mov	SUN4V_CHIP_SPARC64X, %g4
 
 49:
 	mov	SUN4V_CHIP_UNKNOWN, %g4
@@ -542,8 +547,7 @@ sun4u_init:
 	stxa		%g0, [%g7] ASI_DMMU
 	membar	#Sync
 
-	ba,pt		%xcc, sun4u_continue
-	 nop
+	ba,a,pt		%xcc, sun4u_continue
 
 sun4v_init:
 	/* Set ctx 0 */
@@ -554,14 +558,12 @@ sun4v_init:
 	mov		SECONDARY_CONTEXT, %g7
 	stxa		%g0, [%g7] ASI_MMU
 	membar		#Sync
-	ba,pt		%xcc, niagara_tlb_fixup
-	 nop
+	ba,a,pt		%xcc, niagara_tlb_fixup
 
 sun4u_continue:
 	BRANCH_IF_ANY_CHEETAH(g1, g7, cheetah_tlb_fixup)
 
-	ba,pt	%xcc, spitfire_tlb_fixup
-	 nop
+	ba,a,pt	%xcc, spitfire_tlb_fixup
 
 niagara_tlb_fixup:
 	mov	3, %g2		/* Set TLB type to hypervisor. */
@@ -583,6 +585,12 @@ niagara_tlb_fixup:
 	be,pt	%xcc, niagara4_patch
 	 nop
 	cmp	%g1, SUN4V_CHIP_NIAGARA5
+	be,pt	%xcc, niagara4_patch
+	 nop
+	cmp	%g1, SUN4V_CHIP_SPARC_M6
+	be,pt	%xcc, niagara4_patch
+	 nop
+	cmp	%g1, SUN4V_CHIP_SPARC_M7
 	be,pt	%xcc, niagara4_patch
 	 nop
 
@@ -627,8 +635,7 @@ niagara_patch:
 	call	hypervisor_patch_cachetlbops
 	 nop
 
-	ba,pt	%xcc, tlb_fixup_done
-	 nop
+	ba,a,pt	%xcc, tlb_fixup_done
 
 cheetah_tlb_fixup:
 	mov	2, %g2		/* Set TLB type to cheetah+. */
@@ -647,8 +654,7 @@ cheetah_tlb_fixup:
 	call	cheetah_patch_cachetlbops
 	 nop
 
-	ba,pt	%xcc, tlb_fixup_done
-	 nop
+	ba,a,pt	%xcc, tlb_fixup_done
 
 spitfire_tlb_fixup:
 	/* Set TLB type to spitfire. */
@@ -660,14 +666,12 @@ tlb_fixup_done:
 	sethi	%hi(init_thread_union), %g6
 	or	%g6, %lo(init_thread_union), %g6
 	ldx	[%g6 + TI_TASK], %g4
-	mov	%sp, %l6
 
 	wr	%g0, ASI_P, %asi
 	mov	1, %g1
 	sllx	%g1, THREAD_SHIFT, %g1
 	sub	%g1, (STACKFRAME_SZ + STACK_BIAS), %g1
 	add	%g6, %g1, %sp
-	mov	0, %fp
 
 	/* Set per-cpu pointer initially to zero, this makes
 	 * the boot-cpu use the in-kernel-image per-cpu areas
@@ -694,44 +698,14 @@ tlb_fixup_done:
 	 nop
 #endif
 
-	mov	%l6, %o1			! OpenPROM stack
 	call	prom_init
 	 mov	%l7, %o0			! OpenPROM cif handler
 
-	/* Initialize current_thread_info()->cpu as early as possible.
-	 * In order to do that accurately we have to patch up the get_cpuid()
-	 * assembler sequences.  And that, in turn, requires that we know
-	 * if we are on a Starfire box or not.  While we're here, patch up
-	 * the sun4v sequences as well.
+	/* To create a one-register-window buffer between the kernel's
+	 * initial stack and the last stack frame we use from the firmware,
+	 * do the rest of the boot from a C helper function.
 	 */
-	call	check_if_starfire
-	 nop
-	call	per_cpu_patch
-	 nop
-	call	sun4v_patch
-	 nop
-
-#ifdef CONFIG_SMP
-	call	hard_smp_processor_id
-	 nop
-	cmp	%o0, NR_CPUS
-	blu,pt	%xcc, 1f
-	 nop
-	call	boot_cpu_id_too_large
-	 nop
-	/* Not reached... */
-
-1:
-#else
-	mov	0, %o0
-#endif
-	sth	%o0, [%g6 + TI_CPU]
-
-	call	prom_init_report
-	 nop
-
-	/* Off we go.... */
-	call	start_kernel
+	call	start_early_boot
 	 nop
 	/* Not reached... */
 
@@ -802,8 +776,7 @@ setup_trap_table:
 	call	%o1
 	 add	%sp, (2047 + 128), %o0
 
-	ba,pt	%xcc, 2f
-	 nop
+	ba,a,pt	%xcc, 2f
 
 1:	sethi	%hi(sparc64_ttable_tl0), %o0
 	set	prom_set_trap_table_name, %g2
@@ -842,8 +815,7 @@ setup_trap_table:
 
 	BRANCH_IF_ANY_CHEETAH(o2, o3, 1f)
 
-	ba,pt	%xcc, 2f
-	 nop
+	ba,a,pt	%xcc, 2f
 
 	/* Disable STICK_INT interrupts. */
 1:

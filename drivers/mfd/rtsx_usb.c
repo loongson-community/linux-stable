@@ -46,9 +46,6 @@ static void rtsx_usb_sg_timed_out(unsigned long data)
 
 	dev_dbg(&ucr->pusb_intf->dev, "%s: sg transfer timed out", __func__);
 	usb_sg_cancel(&ucr->current_sg);
-
-	/* we know the cancellation is caused by time-out */
-	ucr->current_sg.status = -ETIMEDOUT;
 }
 
 static int rtsx_usb_bulk_transfer_sglist(struct rtsx_ucr *ucr,
@@ -67,12 +64,15 @@ static int rtsx_usb_bulk_transfer_sglist(struct rtsx_ucr *ucr,
 	ucr->sg_timer.expires = jiffies + msecs_to_jiffies(timeout);
 	add_timer(&ucr->sg_timer);
 	usb_sg_wait(&ucr->current_sg);
-	del_timer_sync(&ucr->sg_timer);
+	if (!del_timer_sync(&ucr->sg_timer))
+		ret = -ETIMEDOUT;
+	else
+		ret = ucr->current_sg.status;
 
 	if (act_len)
 		*act_len = ucr->current_sg.bytes;
 
-	return ucr->current_sg.status;
+	return ret;
 }
 
 int rtsx_usb_transfer_data(struct rtsx_ucr *ucr, unsigned int pipe,
@@ -681,20 +681,9 @@ static void rtsx_usb_disconnect(struct usb_interface *intf)
 #ifdef CONFIG_PM
 static int rtsx_usb_suspend(struct usb_interface *intf, pm_message_t message)
 {
-	struct rtsx_ucr *ucr =
-		(struct rtsx_ucr *)usb_get_intfdata(intf);
 
 	dev_dbg(&intf->dev, "%s called with pm message 0x%04u\n",
 			__func__, message.event);
-
-	/*
-	 * Call to make sure LED is off during suspend to save more power.
-	 * It is NOT a permanent state and could be turned on anytime later.
-	 * Thus no need to call turn_on when resunming.
-	 */
-	mutex_lock(&ucr->dev_mutex);
-	rtsx_usb_turn_off_led(ucr);
-	mutex_unlock(&ucr->dev_mutex);
 
 	return 0;
 }
@@ -744,6 +733,7 @@ static struct usb_device_id rtsx_usb_usb_ids[] = {
 	{ USB_DEVICE(0x0BDA, 0x0140) },
 	{ }
 };
+MODULE_DEVICE_TABLE(usb, rtsx_usb_usb_ids);
 
 static struct usb_driver rtsx_usb_driver = {
 	.name			= "rtsx_usb",

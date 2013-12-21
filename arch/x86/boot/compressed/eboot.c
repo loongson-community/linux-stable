@@ -649,6 +649,7 @@ setup_gop32(struct screen_info *si, efi_guid_t *proto,
 		bool conout_found = false;
 		void *dummy = NULL;
 		u32 h = handles[i];
+		u32 current_fb_base;
 
 		status = efi_call_early(handle_protocol, h,
 					proto, (void **)&gop32);
@@ -660,7 +661,7 @@ setup_gop32(struct screen_info *si, efi_guid_t *proto,
 		if (status == EFI_SUCCESS)
 			conout_found = true;
 
-		status = __gop_query32(gop32, &info, &size, &fb_base);
+		status = __gop_query32(gop32, &info, &size, &current_fb_base);
 		if (status == EFI_SUCCESS && (!first_gop || conout_found)) {
 			/*
 			 * Systems that use the UEFI Console Splitter may
@@ -674,6 +675,7 @@ setup_gop32(struct screen_info *si, efi_guid_t *proto,
 			pixel_format = info->pixel_format;
 			pixel_info = info->pixel_information;
 			pixels_per_scan_line = info->pixels_per_scan_line;
+			fb_base = current_fb_base;
 
 			/*
 			 * Once we've found a GOP supporting ConOut,
@@ -752,6 +754,7 @@ setup_gop64(struct screen_info *si, efi_guid_t *proto,
 		bool conout_found = false;
 		void *dummy = NULL;
 		u64 h = handles[i];
+		u32 current_fb_base;
 
 		status = efi_call_early(handle_protocol, h,
 					proto, (void **)&gop64);
@@ -763,7 +766,7 @@ setup_gop64(struct screen_info *si, efi_guid_t *proto,
 		if (status == EFI_SUCCESS)
 			conout_found = true;
 
-		status = __gop_query64(gop64, &info, &size, &fb_base);
+		status = __gop_query64(gop64, &info, &size, &current_fb_base);
 		if (status == EFI_SUCCESS && (!first_gop || conout_found)) {
 			/*
 			 * Systems that use the UEFI Console Splitter may
@@ -777,6 +780,7 @@ setup_gop64(struct screen_info *si, efi_guid_t *proto,
 			pixel_format = info->pixel_format;
 			pixel_info = info->pixel_information;
 			pixels_per_scan_line = info->pixels_per_scan_line;
+			fb_base = current_fb_base;
 
 			/*
 			 * Once we've found a GOP supporting ConOut,
@@ -1091,6 +1095,8 @@ struct boot_params *make_boot_params(struct efi_config *c)
 	if (!cmdline_ptr)
 		goto fail;
 	hdr->cmd_line_ptr = (unsigned long)cmdline_ptr;
+	/* Fill in upper bits of command line address, NOP on 32 bit  */
+	boot_params->ext_cmd_line_ptr = (u64)(unsigned long)cmdline_ptr >> 32;
 
 	hdr->ramdisk_image = 0;
 	hdr->ramdisk_size = 0;
@@ -1156,6 +1162,10 @@ static efi_status_t setup_e820(struct boot_params *params,
 		efi_memory_desc_t *d;
 		unsigned int e820_type = 0;
 		unsigned long m = efi->efi_memmap;
+
+#ifdef CONFIG_X86_64
+		m |= (u64)efi->efi_memmap_hi << 32;
+#endif
 
 		d = (efi_memory_desc_t *)(m + (i * efi->efi_memdesc_size));
 		switch (d->type) {
@@ -1256,7 +1266,7 @@ static efi_status_t exit_boot(struct boot_params *boot_params,
 			      void *handle, bool is64)
 {
 	struct efi_info *efi = &boot_params->efi_info;
-	unsigned long map_sz, key, desc_size;
+	unsigned long map_sz, key, desc_size, buff_size;
 	efi_memory_desc_t *mem_map;
 	struct setup_data *e820ext;
 	const char *signature;
@@ -1267,14 +1277,20 @@ static efi_status_t exit_boot(struct boot_params *boot_params,
 	bool called_exit = false;
 	u8 nr_entries;
 	int i;
+	struct efi_boot_memmap map;
 
-	nr_desc = 0;
-	e820ext = NULL;
-	e820ext_size = 0;
+	nr_desc =	0;
+	e820ext =	NULL;
+	e820ext_size =	0;
+	map.map =	&mem_map;
+	map.map_size =	&map_sz;
+	map.desc_size =	&desc_size;
+	map.desc_ver =	&desc_version;
+	map.key_ptr =	&key;
+	map.buff_size =	&buff_size;
 
 get_map:
-	status = efi_get_memory_map(sys_table, &mem_map, &map_sz, &desc_size,
-				    &desc_version, &key);
+	status = efi_get_memory_map(sys_table, &map);
 
 	if (status != EFI_SUCCESS)
 		return status;

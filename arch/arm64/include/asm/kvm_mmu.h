@@ -59,10 +59,9 @@
 #define KERN_TO_HYP(kva)	((unsigned long)kva - PAGE_OFFSET + HYP_PAGE_OFFSET)
 
 /*
- * Align KVM with the kernel's view of physical memory. Should be
- * 40bit IPA, with PGD being 8kB aligned in the 4KB page configuration.
+ * We currently only support a 40bit IPA.
  */
-#define KVM_PHYS_SHIFT	PHYS_MASK_SHIFT
+#define KVM_PHYS_SHIFT	(40)
 #define KVM_PHYS_SIZE	(1UL << KVM_PHYS_SHIFT)
 #define KVM_PHYS_MASK	(KVM_PHYS_SIZE - 1UL)
 
@@ -70,11 +69,14 @@
 #define PTRS_PER_S2_PGD (1 << (KVM_PHYS_SHIFT - PGDIR_SHIFT))
 #define S2_PGD_ORDER	get_order(PTRS_PER_S2_PGD * sizeof(pgd_t))
 
+#define kvm_pgd_index(addr)	(((addr) >> PGDIR_SHIFT) & (PTRS_PER_S2_PGD - 1))
+
 int create_hyp_mappings(void *from, void *to);
 int create_hyp_io_mappings(void *from, void *to, phys_addr_t);
 void free_boot_hyp_pgd(void);
 void free_hyp_pgds(void);
 
+void stage2_unmap_vm(struct kvm *kvm);
 int kvm_alloc_stage2_pgd(struct kvm *kvm);
 void kvm_free_stage2_pgd(struct kvm *kvm);
 int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
@@ -92,19 +94,6 @@ void kvm_clear_hyp_idmap(void);
 
 #define	kvm_set_pte(ptep, pte)		set_pte(ptep, pte)
 #define	kvm_set_pmd(pmdp, pmd)		set_pmd(pmdp, pmd)
-
-static inline bool kvm_is_write_fault(unsigned long esr)
-{
-	unsigned long esr_ec = esr >> ESR_EL2_EC_SHIFT;
-
-	if (esr_ec == ESR_EL2_EC_IABT)
-		return false;
-
-	if ((esr & ESR_EL2_ISV) && !(esr & ESR_EL2_WNR))
-		return false;
-
-	return true;
-}
 
 static inline void kvm_clean_pgd(pgd_t *pgd) {}
 static inline void kvm_clean_pmd_entry(pmd_t *pmd) {}
@@ -125,6 +114,21 @@ static inline void kvm_set_s2pmd_writable(pmd_t *pmd)
 #define kvm_pud_addr_end(addr, end)	pud_addr_end(addr, end)
 #define kvm_pmd_addr_end(addr, end)	pmd_addr_end(addr, end)
 
+static inline bool kvm_page_empty(void *ptr)
+{
+	struct page *ptr_page = virt_to_page(ptr);
+	return page_count(ptr_page) == 1;
+}
+
+#define kvm_pte_table_empty(ptep) kvm_page_empty(ptep)
+#ifndef CONFIG_ARM64_64K_PAGES
+#define kvm_pmd_table_empty(pmdp) kvm_page_empty(pmdp)
+#else
+#define kvm_pmd_table_empty(pmdp) (0)
+#endif
+#define kvm_pud_table_empty(pudp) (0)
+
+
 struct kvm;
 
 #define kvm_flush_dcache_to_poc(a,l)	__flush_dcache_area((a), (l))
@@ -137,8 +141,7 @@ static inline bool vcpu_has_cache_enabled(struct kvm_vcpu *vcpu)
 static inline void coherent_cache_guest_page(struct kvm_vcpu *vcpu, hva_t hva,
 					     unsigned long size)
 {
-	if (!vcpu_has_cache_enabled(vcpu))
-		kvm_flush_dcache_to_poc((void *)hva, size);
+	kvm_flush_dcache_to_poc((void *)hva, size);
 
 	if (!icache_is_aliasing()) {		/* PIPT */
 		flush_icache_range(hva, hva + size);

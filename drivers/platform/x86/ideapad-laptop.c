@@ -87,6 +87,7 @@ struct ideapad_private {
 	struct backlight_device *blightdev;
 	struct dentry *debug;
 	unsigned long cfg;
+	bool has_hw_rfkill_switch;
 };
 
 static bool no_bt_rfkill;
@@ -463,8 +464,9 @@ const struct ideapad_rfk_data ideapad_rfk_data[] = {
 static int ideapad_rfk_set(void *data, bool blocked)
 {
 	struct ideapad_rfk_priv *priv = data;
+	int opcode = ideapad_rfk_data[priv->dev].opcode;
 
-	return write_ec_cmd(priv->priv->adev->handle, priv->dev, !blocked);
+	return write_ec_cmd(priv->priv->adev->handle, opcode, !blocked);
 }
 
 static struct rfkill_ops ideapad_rfk_ops = {
@@ -473,12 +475,14 @@ static struct rfkill_ops ideapad_rfk_ops = {
 
 static void ideapad_sync_rfk_state(struct ideapad_private *priv)
 {
-	unsigned long hw_blocked;
+	unsigned long hw_blocked = 0;
 	int i;
 
-	if (read_ec_data(priv->adev->handle, VPCCMD_R_RF, &hw_blocked))
-		return;
-	hw_blocked = !hw_blocked;
+	if (priv->has_hw_rfkill_switch) {
+		if (read_ec_data(priv->adev->handle, VPCCMD_R_RF, &hw_blocked))
+			return;
+		hw_blocked = !hw_blocked;
+	}
 
 	for (i = 0; i < IDEAPAD_RFKILL_DEV_NUM; i++)
 		if (priv->rfk[i])
@@ -821,14 +825,73 @@ static void ideapad_acpi_notify(acpi_handle handle, u32 event, void *data)
 	}
 }
 
-/* Blacklist for devices where the ideapad rfkill interface does not work */
-static struct dmi_system_id rfkill_blacklist[] = {
-	/* The Lenovo Yoga 2 11 always reports everything as blocked */
+/*
+ * Some ideapads don't have a hardware rfkill switch, reading VPCCMD_R_RF
+ * always results in 0 on these models, causing ideapad_laptop to wrongly
+ * report all radios as hardware-blocked.
+ */
+static struct dmi_system_id no_hw_rfkill_list[] = {
 	{
-		.ident = "Lenovo Yoga 2 11",
+		.ident = "Lenovo G50-30",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
-			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo Yoga 2 11"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo G50-30"),
+		},
+	},
+	{
+		.ident = "Lenovo ideapad Y700-15ISK",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo ideapad Y700-15ISK"),
+		},
+	},
+	{
+		.ident = "Lenovo ideapad Y700 Touch-15ISK",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo ideapad Y700 Touch-15ISK"),
+		},
+	},
+	{
+		.ident = "Lenovo ideapad Y700-17ISK",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo ideapad Y700-17ISK"),
+		},
+	},
+	{
+		.ident = "Lenovo Yoga 2 11 / 13 / Pro",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo Yoga 2"),
+		},
+	},
+	{
+		.ident = "Lenovo Yoga 3 14",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo Yoga 3 14"),
+		},
+	},
+	{
+		.ident = "Lenovo Yoga 3 Pro 1370",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo YOGA 3 Pro-1370"),
+		},
+	},
+	{
+		.ident = "Lenovo Yoga 700",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo YOGA 700"),
+		},
+	},
+	{
+		.ident = "Lenovo Yoga 900",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo YOGA 900"),
 		},
 	},
 	{}
@@ -856,6 +919,7 @@ static int ideapad_acpi_add(struct platform_device *pdev)
 	priv->cfg = cfg;
 	priv->adev = adev;
 	priv->platform_device = pdev;
+	priv->has_hw_rfkill_switch = !dmi_check_system(no_hw_rfkill_list);
 
 	ret = ideapad_sysfs_init(priv);
 	if (ret)
@@ -869,11 +933,17 @@ static int ideapad_acpi_add(struct platform_device *pdev)
 	if (ret)
 		goto input_failed;
 
-	if (!dmi_check_system(rfkill_blacklist)) {
-		for (i = 0; i < IDEAPAD_RFKILL_DEV_NUM; i++)
-			if (test_bit(ideapad_rfk_data[i].cfgbit, &priv->cfg))
-				ideapad_register_rfkill(priv, i);
-	}
+	/*
+	 * On some models without a hw-switch (the yoga 2 13 at least)
+	 * VPCCMD_W_RF must be explicitly set to 1 for the wifi to work.
+	 */
+	if (!priv->has_hw_rfkill_switch)
+		write_ec_cmd(priv->adev->handle, VPCCMD_W_RF, 1);
+
+	for (i = 0; i < IDEAPAD_RFKILL_DEV_NUM; i++)
+		if (test_bit(ideapad_rfk_data[i].cfgbit, &priv->cfg))
+			ideapad_register_rfkill(priv, i);
+
 	ideapad_sync_rfk_state(priv);
 	ideapad_sync_touchpad_state(priv);
 

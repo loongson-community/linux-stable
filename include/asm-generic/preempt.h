@@ -7,10 +7,10 @@
 
 static __always_inline int preempt_count(void)
 {
-	return current_thread_info()->preempt_count;
+	return ACCESS_ONCE(current_thread_info()->preempt_count);
 }
 
-static __always_inline int *preempt_count_ptr(void)
+static __always_inline volatile int *preempt_count_ptr(void)
 {
 	return &current_thread_info()->preempt_count;
 }
@@ -74,9 +74,10 @@ static __always_inline bool __preempt_count_dec_and_test(void)
 /*
  * Returns true when we need to resched and can (barring IRQ state).
  */
-static __always_inline bool should_resched(void)
+static __always_inline bool should_resched(int preempt_offset)
 {
-	return unlikely(!preempt_count() && tif_need_resched());
+	return unlikely(preempt_count() == preempt_offset &&
+			tif_need_resched());
 }
 
 #ifdef CONFIG_PREEMPT

@@ -67,11 +67,11 @@ static ssize_t map_attr_show(struct kobject *kobj, struct attribute *attr,
 	return map_attr->show(entry, buf);
 }
 
-static struct map_attribute map_type_attr = __ATTR_RO(type);
-static struct map_attribute map_phys_addr_attr   = __ATTR_RO(phys_addr);
-static struct map_attribute map_virt_addr_attr  = __ATTR_RO(virt_addr);
-static struct map_attribute map_num_pages_attr  = __ATTR_RO(num_pages);
-static struct map_attribute map_attribute_attr  = __ATTR_RO(attribute);
+static struct map_attribute map_type_attr = __ATTR_RO_MODE(type, 0400);
+static struct map_attribute map_phys_addr_attr = __ATTR_RO_MODE(phys_addr, 0400);
+static struct map_attribute map_virt_addr_attr = __ATTR_RO_MODE(virt_addr, 0400);
+static struct map_attribute map_num_pages_attr = __ATTR_RO_MODE(num_pages, 0400);
+static struct map_attribute map_attribute_attr = __ATTR_RO_MODE(attribute, 0400);
 
 /*
  * These are default attributes that are added for every memmap entry.
@@ -120,7 +120,8 @@ add_sysfs_runtime_map_entry(struct kobject *kobj, int nr)
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry) {
 		kset_unregister(map_kset);
-		return entry;
+		map_kset = NULL;
+		return ERR_PTR(-ENOMEM);
 	}
 
 	memcpy(&entry->md, efi_runtime_map + nr * efi_memdesc_size,
@@ -132,6 +133,7 @@ add_sysfs_runtime_map_entry(struct kobject *kobj, int nr)
 	if (ret) {
 		kobject_put(&entry->kobj);
 		kset_unregister(map_kset);
+		map_kset = NULL;
 		return ERR_PTR(ret);
 	}
 
@@ -170,12 +172,10 @@ int __init efi_runtime_map_init(struct kobject *efi_kobj)
 
 	return 0;
 out_add_entry:
-	for (j = i - 1; j > 0; j--) {
+	for (j = i - 1; j >= 0; j--) {
 		entry = *(map_entries + j);
 		kobject_put(&entry->kobj);
 	}
-	if (map_kset)
-		kset_unregister(map_kset);
 out:
 	return ret;
 }

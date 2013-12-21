@@ -507,7 +507,16 @@ static void amdtp_pull_midi(struct amdtp_stream *s,
 static void update_pcm_pointers(struct amdtp_stream *s,
 				struct snd_pcm_substream *pcm,
 				unsigned int frames)
-{	unsigned int ptr;
+{
+	unsigned int ptr;
+
+	/*
+	 * In IEC 61883-6, one data block represents one event. In ALSA, one
+	 * event equals to one PCM frame. But Dice has a quirk to transfer
+	 * two PCM frames in one data block.
+	 */
+	if (s->double_pcm_frames)
+		frames *= 2;
 
 	ptr = s->pcm_buffer_pointer + frames;
 	if (ptr >= pcm->runtime->buffer_size)
@@ -669,8 +678,9 @@ static void handle_in_packet(struct amdtp_stream *s,
 	    s->data_block_counter != UINT_MAX)
 		data_block_counter = s->data_block_counter;
 
-	if (((s->flags & CIP_SKIP_DBC_ZERO_CHECK) && data_block_counter == 0) ||
-	    (s->data_block_counter == UINT_MAX)) {
+	if (((s->flags & CIP_SKIP_DBC_ZERO_CHECK) &&
+	     data_block_counter == s->tx_first_dbc) ||
+	    s->data_block_counter == UINT_MAX) {
 		lost = false;
 	} else if (!(s->flags & CIP_DBC_IS_END_EVENT)) {
 		lost = data_block_counter != s->data_block_counter;

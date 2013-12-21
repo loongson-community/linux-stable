@@ -212,6 +212,7 @@ static int mlx4_ib_query_device(struct ib_device *ibdev,
 	props->max_total_mcast_qp_attach = props->max_mcast_qp_attach *
 					   props->max_mcast_grp;
 	props->max_map_per_fmr = dev->dev->caps.max_fmr_maps;
+	props->max_ah = INT_MAX;
 
 out:
 	kfree(in_mad);
@@ -345,9 +346,11 @@ static int eth_link_query_port(struct ib_device *ibdev, u8 port,
 	if (err)
 		goto out;
 
-	props->active_width	=  (((u8 *)mailbox->buf)[5] == 0x40) ?
-						IB_WIDTH_4X : IB_WIDTH_1X;
-	props->active_speed	= IB_SPEED_QDR;
+	props->active_width	=  (((u8 *)mailbox->buf)[5] == 0x40) ||
+				   (((u8 *)mailbox->buf)[5] == 0x20 /*56Gb*/) ?
+					   IB_WIDTH_4X : IB_WIDTH_1X;
+	props->active_speed	=  (((u8 *)mailbox->buf)[5] == 0x20 /*56Gb*/) ?
+					   IB_SPEED_FDR : IB_SPEED_QDR;
 	props->port_cap_flags	= IB_PORT_CM_SUP | IB_PORT_IP_BASED_GIDS;
 	props->gid_tbl_len	= mdev->dev->caps.gid_table_len[port];
 	props->max_msg_sz	= mdev->dev->caps.max_msg_sz;
@@ -1016,6 +1019,9 @@ static int __mlx4_ib_create_flow(struct ib_qp *qp, struct ib_flow_attr *flow_att
 		[IB_FLOW_DOMAIN_NIC] = MLX4_DOMAIN_NIC,
 	};
 
+	if (flow_attr->port < 1 || flow_attr->port > qp->device->phys_port_cnt)
+		return -EINVAL;
+
 	if (flow_attr->priority > MLX4_IB_FLOW_MAX_PRIO) {
 		pr_err("Invalid priority value %d\n", flow_attr->priority);
 		return -EINVAL;
@@ -1170,8 +1176,7 @@ static int mlx4_ib_mcg_attach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	struct mlx4_ib_qp *mqp = to_mqp(ibqp);
 	u64 reg_id;
 	struct mlx4_ib_steering *ib_steering = NULL;
-	enum mlx4_protocol prot = (gid->raw[1] == 0x0e) ?
-		MLX4_PROT_IB_IPV4 : MLX4_PROT_IB_IPV6;
+	enum mlx4_protocol prot = MLX4_PROT_IB_IPV6;
 
 	if (mdev->dev->caps.steering_mode ==
 	    MLX4_STEERING_MODE_DEVICE_MANAGED) {
@@ -1184,8 +1189,10 @@ static int mlx4_ib_mcg_attach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 				    !!(mqp->flags &
 				       MLX4_IB_QP_BLOCK_MULTICAST_LOOPBACK),
 				    prot, &reg_id);
-	if (err)
+	if (err) {
+		pr_err("multicast attach op failed, err %d\n", err);
 		goto err_malloc;
+	}
 
 	err = add_gid_entry(ibqp, gid);
 	if (err)
@@ -1233,8 +1240,7 @@ static int mlx4_ib_mcg_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	struct net_device *ndev;
 	struct mlx4_ib_gid_entry *ge;
 	u64 reg_id = 0;
-	enum mlx4_protocol prot = (gid->raw[1] == 0x0e) ?
-		MLX4_PROT_IB_IPV4 : MLX4_PROT_IB_IPV6;
+	enum mlx4_protocol prot =  MLX4_PROT_IB_IPV6;
 
 	if (mdev->dev->caps.steering_mode ==
 	    MLX4_STEERING_MODE_DEVICE_MANAGED) {
@@ -1678,6 +1684,7 @@ static void mlx4_ib_get_dev_addr(struct net_device *dev,
 	struct inet6_dev *in6_dev;
 	union ib_gid  *pgid;
 	struct inet6_ifaddr *ifp;
+	union ib_gid default_gid;
 #endif
 	union ib_gid gid;
 
@@ -1698,12 +1705,15 @@ static void mlx4_ib_get_dev_addr(struct net_device *dev,
 		in_dev_put(in_dev);
 	}
 #if IS_ENABLED(CONFIG_IPV6)
+	mlx4_make_default_gid(dev, &default_gid);
 	/* IPv6 gids */
 	in6_dev = in6_dev_get(dev);
 	if (in6_dev) {
 		read_lock_bh(&in6_dev->lock);
 		list_for_each_entry(ifp, &in6_dev->addr_list, if_list) {
 			pgid = (union ib_gid *)&ifp->addr;
+			if (!memcmp(pgid, &default_gid, sizeof(*pgid)))
+				continue;
 			update_gid_table(ibdev, port, pgid, 0, 0);
 		}
 		read_unlock_bh(&in6_dev->lock);
@@ -1788,31 +1798,34 @@ static void mlx4_ib_scan_netdevs(struct mlx4_ib_dev *ibdev,
 			port_state = (netif_running(curr_netdev) && netif_carrier_ok(curr_netdev)) ?
 						IB_PORT_ACTIVE : IB_PORT_DOWN;
 			mlx4_ib_set_default_gid(ibdev, curr_netdev, port);
+			/* if using bonding/team and a slave port is down, we
+			 * don't the bond IP based gids in the table since
+			 * flows that select port by gid may get the down port.
+			 */
+			if (curr_master && (port_state == IB_PORT_DOWN)) {
+				reset_gid_table(ibdev, port);
+				mlx4_ib_set_default_gid(ibdev,
+							curr_netdev, port);
+			}
+			/* if bonding is used it is possible that we add it to
+			 * masters only after IP address is assigned to the
+			 * net bonding interface.
+			*/
+			if (curr_master && (old_master != curr_master)) {
+				reset_gid_table(ibdev, port);
+				mlx4_ib_set_default_gid(ibdev,
+							curr_netdev, port);
+				mlx4_ib_get_dev_addr(curr_master, ibdev, port);
+			}
+
+			if (!curr_master && (old_master != curr_master)) {
+				reset_gid_table(ibdev, port);
+				mlx4_ib_set_default_gid(ibdev,
+							curr_netdev, port);
+				mlx4_ib_get_dev_addr(curr_netdev, ibdev, port);
+			}
 		} else {
 			reset_gid_table(ibdev, port);
-		}
-		/* if using bonding/team and a slave port is down, we don't the bond IP
-		 * based gids in the table since flows that select port by gid may get
-		 * the down port.
-		 */
-		if (curr_master && (port_state == IB_PORT_DOWN)) {
-			reset_gid_table(ibdev, port);
-			mlx4_ib_set_default_gid(ibdev, curr_netdev, port);
-		}
-		/* if bonding is used it is possible that we add it to masters
-		 * only after IP address is assigned to the net bonding
-		 * interface.
-		*/
-		if (curr_master && (old_master != curr_master)) {
-			reset_gid_table(ibdev, port);
-			mlx4_ib_set_default_gid(ibdev, curr_netdev, port);
-			mlx4_ib_get_dev_addr(curr_master, ibdev, port);
-		}
-
-		if (!curr_master && (old_master != curr_master)) {
-			reset_gid_table(ibdev, port);
-			mlx4_ib_set_default_gid(ibdev, curr_netdev, port);
-			mlx4_ib_get_dev_addr(curr_netdev, ibdev, port);
 		}
 	}
 
@@ -2146,14 +2159,19 @@ static void *mlx4_ib_add(struct mlx4_dev *dev)
 			goto err_steer_qp_release;
 		}
 
-		bitmap_zero(ibdev->ib_uc_qpns_bitmap, ibdev->steer_qpn_count);
-
-		err = mlx4_FLOW_STEERING_IB_UC_QP_RANGE(
-				dev, ibdev->steer_qpn_base,
-				ibdev->steer_qpn_base +
-				ibdev->steer_qpn_count - 1);
-		if (err)
-			goto err_steer_free_bitmap;
+		if (dev->caps.flags2 & MLX4_DEV_CAP_FLAG2_DMFS_IPOIB) {
+			bitmap_zero(ibdev->ib_uc_qpns_bitmap,
+				    ibdev->steer_qpn_count);
+			err = mlx4_FLOW_STEERING_IB_UC_QP_RANGE(
+					dev, ibdev->steer_qpn_base,
+					ibdev->steer_qpn_base +
+					ibdev->steer_qpn_count - 1);
+			if (err)
+				goto err_steer_free_bitmap;
+		} else {
+			bitmap_fill(ibdev->ib_uc_qpns_bitmap,
+				    ibdev->steer_qpn_count);
+		}
 	}
 
 	if (ib_register_device(&ibdev->ib_dev, NULL))
@@ -2254,15 +2272,15 @@ err_steer_free_bitmap:
 	kfree(ibdev->ib_uc_qpns_bitmap);
 
 err_steer_qp_release:
-	if (ibdev->steering_support == MLX4_STEERING_MODE_DEVICE_MANAGED)
-		mlx4_qp_release_range(dev, ibdev->steer_qpn_base,
-				      ibdev->steer_qpn_count);
+	mlx4_qp_release_range(dev, ibdev->steer_qpn_base,
+			      ibdev->steer_qpn_count);
 err_counter:
 	for (; i; --i)
 		if (ibdev->counters[i - 1] != -1)
 			mlx4_counter_free(ibdev->dev, ibdev->counters[i - 1]);
 
 err_map:
+	mlx4_ib_free_eqs(dev, ibdev);
 	iounmap(ibdev->uar_map);
 
 err_uar:
@@ -2354,11 +2372,9 @@ static void mlx4_ib_remove(struct mlx4_dev *dev, void *ibdev_ptr)
 		ibdev->iboe.nb.notifier_call = NULL;
 	}
 
-	if (ibdev->steering_support == MLX4_STEERING_MODE_DEVICE_MANAGED) {
-		mlx4_qp_release_range(dev, ibdev->steer_qpn_base,
-				      ibdev->steer_qpn_count);
-		kfree(ibdev->ib_uc_qpns_bitmap);
-	}
+	mlx4_qp_release_range(dev, ibdev->steer_qpn_base,
+			      ibdev->steer_qpn_count);
+	kfree(ibdev->ib_uc_qpns_bitmap);
 
 	if (ibdev->iboe.nb_inet.notifier_call) {
 		if (unregister_inetaddr_notifier(&ibdev->iboe.nb_inet))

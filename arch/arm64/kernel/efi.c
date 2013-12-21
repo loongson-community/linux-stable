@@ -98,7 +98,7 @@ static int __init uefi_init(void)
 
 	/* Show what we know for posterity */
 	c16 = early_memremap(efi.systab->fw_vendor,
-			     sizeof(vendor));
+			     sizeof(vendor) * sizeof(efi_char16_t));
 	if (c16) {
 		for (i = 0; i < (int) sizeof(vendor) - 1 && *c16; ++i)
 			vendor[i] = c16[i];
@@ -113,7 +113,7 @@ static int __init uefi_init(void)
 	if (retval == 0)
 		set_bit(EFI_CONFIG_TABLES, &efi.flags);
 
-	early_memunmap(c16, sizeof(vendor));
+	early_memunmap(c16, sizeof(vendor) * sizeof(efi_char16_t));
 	early_memunmap(efi.systab,  sizeof(efi_system_table_t));
 
 	return retval;
@@ -338,6 +338,7 @@ void __init efi_idmap_init(void)
 
 	/* boot time idmap_pg_dir is incomplete, so fill in missing parts */
 	efi_setup_idmap();
+	early_memunmap(memmap.map, memmap.map_end - memmap.map);
 }
 
 static int __init remap_region(efi_memory_desc_t *md, void **new)
@@ -395,7 +396,6 @@ static int __init arm64_enter_virtual_mode(void)
 
 	/* replace early memmap mapping with permanent mapping */
 	mapsize = memmap.map_end - memmap.map;
-	early_memunmap(memmap.map, mapsize);
 	memmap.map = (__force void *)ioremap_cache((phys_addr_t)memmap.phys_map,
 						   mapsize);
 	memmap.map_end = memmap.map + mapsize;
@@ -463,6 +463,8 @@ static int __init arm64_enter_virtual_mode(void)
 	efi.reset_system = runtime->reset_system;
 
 	set_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+
+	efi.runtime_version = efi.systab->hdr.revision;
 
 	return 0;
 }

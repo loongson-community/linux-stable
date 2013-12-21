@@ -137,24 +137,9 @@ static int is_himemory(const u8 ifnum,
 	return 0;
 }
 
-static int sierra_calc_interface(struct usb_serial *serial)
+static u8 sierra_interface_num(struct usb_serial *serial)
 {
-	int interface;
-	struct usb_interface *p_interface;
-	struct usb_host_interface *p_host_interface;
-
-	/* Get the interface structure pointer from the serial struct */
-	p_interface = serial->interface;
-
-	/* Get a pointer to the host interface structure */
-	p_host_interface = p_interface->cur_altsetting;
-
-	/* read the interface descriptor for this active altsetting
-	 * to find out the interface number we are on
-	*/
-	interface = p_host_interface->desc.bInterfaceNumber;
-
-	return interface;
+	return serial->interface->cur_altsetting->desc.bInterfaceNumber;
 }
 
 static int sierra_probe(struct usb_serial *serial,
@@ -165,7 +150,7 @@ static int sierra_probe(struct usb_serial *serial,
 	u8 ifnum;
 
 	udev = serial->dev;
-	ifnum = sierra_calc_interface(serial);
+	ifnum = sierra_interface_num(serial);
 
 	/*
 	 * If this interface supports more than 1 alternate
@@ -177,9 +162,6 @@ static int sierra_probe(struct usb_serial *serial,
 		/* We know the alternate setting is 1 for the MC8785 */
 		usb_set_interface(udev, ifnum, 1);
 	}
-
-	/* ifnum could have changed - by calling usb_set_interface */
-	ifnum = sierra_calc_interface(serial);
 
 	if (is_blacklisted(ifnum,
 				(struct sierra_iface_info *)id->driver_info)) {
@@ -282,14 +264,20 @@ static const struct usb_device_id id_table[] = {
 	/* Sierra Wireless HSPA Non-Composite Device */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x1199, 0x6892, 0xFF, 0xFF, 0xFF)},
 	{ USB_DEVICE(0x1199, 0x6893) },	/* Sierra Wireless Device */
-	{ USB_DEVICE(0x1199, 0x68A3), 	/* Sierra Wireless Direct IP modems */
+	/* Sierra Wireless Direct IP modems */
+	{ USB_DEVICE_AND_INTERFACE_INFO(0x1199, 0x68A3, 0xFF, 0xFF, 0xFF),
 	  .driver_info = (kernel_ulong_t)&direct_ip_interface_blacklist
 	},
+	{ USB_DEVICE_AND_INTERFACE_INFO(0x1199, 0x68AA, 0xFF, 0xFF, 0xFF),
+	  .driver_info = (kernel_ulong_t)&direct_ip_interface_blacklist
+	},
+	{ USB_DEVICE(0x1199, 0x68AB) }, /* Sierra Wireless AR8550 */
 	/* AT&T Direct IP LTE modems */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x0F3D, 0x68AA, 0xFF, 0xFF, 0xFF),
 	  .driver_info = (kernel_ulong_t)&direct_ip_interface_blacklist
 	},
-	{ USB_DEVICE(0x0f3d, 0x68A3), 	/* Airprime/Sierra Wireless Direct IP modems */
+	/* Airprime/Sierra Wireless Direct IP modems */
+	{ USB_DEVICE_AND_INTERFACE_INFO(0x0F3D, 0x68A3, 0xFF, 0xFF, 0xFF),
 	  .driver_info = (kernel_ulong_t)&direct_ip_interface_blacklist
 	},
 
@@ -336,7 +324,7 @@ static int sierra_send_setup(struct usb_serial_port *port)
 
 	/* If composite device then properly report interface */
 	if (serial->num_ports == 1) {
-		interface = sierra_calc_interface(serial);
+		interface = sierra_interface_num(serial);
 		/* Control message is sent only to interfaces with
 		 * interrupt_in endpoints
 		 */
@@ -910,7 +898,7 @@ static int sierra_port_probe(struct usb_serial_port *port)
 	/* Determine actual memory requirements */
 	if (serial->num_ports == 1) {
 		/* Get interface number for composite device */
-		ifnum = sierra_calc_interface(serial);
+		ifnum = sierra_interface_num(serial);
 		himemoryp = &typeB_interface_list;
 	} else {
 		/* This is really the usb-serial port number of the interface

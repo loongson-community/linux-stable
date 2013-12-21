@@ -151,6 +151,12 @@ int acpi_unregister_ioapic(acpi_handle handle, u32 gsi_base);
 void acpi_irq_stats_init(void);
 extern u32 acpi_irq_handled;
 extern u32 acpi_irq_not_handled;
+extern unsigned int acpi_sci_irq;
+#define INVALID_ACPI_IRQ	((unsigned)-1)
+static inline bool acpi_sci_irq_valid(void)
+{
+	return acpi_sci_irq != INVALID_ACPI_IRQ;
+}
 
 extern int sbf_port;
 extern unsigned long acpi_realmode_flags;
@@ -403,6 +409,7 @@ extern acpi_status acpi_pci_osc_control_set(acpi_handle handle,
 #define ACPI_OST_SC_INSERT_NOT_SUPPORTED	0x82
 
 extern void acpi_early_init(void);
+extern void acpi_subsystem_init(void);
 
 extern int acpi_nvs_register(__u64 start, __u64 size);
 
@@ -437,6 +444,7 @@ static inline const char *acpi_dev_name(struct acpi_device *adev)
 }
 
 static inline void acpi_early_init(void) { }
+static inline void acpi_subsystem_init(void) { }
 
 static inline int early_acpi_boot_init(void)
 {

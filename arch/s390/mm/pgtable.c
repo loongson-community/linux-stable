@@ -202,7 +202,7 @@ static int gmap_unlink_segment(struct gmap *gmap, unsigned long *table)
 static void gmap_flush_tlb(struct gmap *gmap)
 {
 	if (MACHINE_HAS_IDTE)
-		__tlb_flush_asce(gmap->mm, (unsigned long) gmap->table |
+		__tlb_flush_idte((unsigned long) gmap->table |
 				 _ASCE_TYPE_REGION1);
 	else
 		__tlb_flush_global();
@@ -221,7 +221,7 @@ void gmap_free(struct gmap *gmap)
 
 	/* Flush tlb. */
 	if (MACHINE_HAS_IDTE)
-		__tlb_flush_asce(gmap->mm, (unsigned long) gmap->table |
+		__tlb_flush_idte((unsigned long) gmap->table |
 				 _ASCE_TYPE_REGION1);
 	else
 		__tlb_flush_global();
@@ -986,11 +986,21 @@ int set_guest_storage_key(struct mm_struct *mm, unsigned long addr,
 	pte_t *ptep;
 
 	down_read(&mm->mmap_sem);
+retry:
 	ptep = get_locked_pte(current->mm, addr, &ptl);
 	if (unlikely(!ptep)) {
 		up_read(&mm->mmap_sem);
 		return -EFAULT;
 	}
+	if (!(pte_val(*ptep) & _PAGE_INVALID) &&
+	     (pte_val(*ptep) & _PAGE_PROTECT)) {
+			pte_unmap_unlock(*ptep, ptl);
+			if (fixup_user_fault(current, mm, addr, FAULT_FLAG_WRITE)) {
+				up_read(&mm->mmap_sem);
+				return -EFAULT;
+			}
+			goto retry;
+		}
 
 	new = old = pgste_get_lock(ptep);
 	pgste_val(new) &= ~(PGSTE_GR_BIT | PGSTE_GC_BIT |
@@ -1279,6 +1289,7 @@ static unsigned long page_table_realloc_pmd(struct mmu_gather *tlb,
 {
 	unsigned long next, *table, *new;
 	struct page *page;
+	spinlock_t *ptl;
 	pmd_t *pmd;
 
 	pmd = pmd_offset(pud, addr);
@@ -1296,7 +1307,7 @@ again:
 		if (!new)
 			return -ENOMEM;
 
-		spin_lock(&mm->page_table_lock);
+		ptl = pmd_lock(mm, pmd);
 		if (likely((unsigned long *) pmd_deref(*pmd) == table)) {
 			/* Nuke pmd entry pointing to the "short" page table */
 			pmdp_flush_lazy(mm, addr, pmd);
@@ -1310,7 +1321,7 @@ again:
 			page_table_free_rcu(tlb, table);
 			new = NULL;
 		}
-		spin_unlock(&mm->page_table_lock);
+		spin_unlock(ptl);
 		if (new) {
 			page_table_free_pgste(new);
 			goto again;
@@ -1400,11 +1411,28 @@ EXPORT_SYMBOL_GPL(s390_enable_skey);
  */
 bool gmap_test_and_clear_dirty(unsigned long address, struct gmap *gmap)
 {
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
 	pte_t *pte;
 	spinlock_t *ptl;
 	bool dirty = false;
 
-	pte = get_locked_pte(gmap->mm, address, &ptl);
+	pgd = pgd_offset(gmap->mm, address);
+	pud = pud_alloc(gmap->mm, pgd, address);
+	if (!pud)
+		return false;
+	pmd = pmd_alloc(gmap->mm, pud, address);
+	if (!pmd)
+		return false;
+	/* We can't run guests backed by huge pages, but userspace can
+	 * still set them up and then try to migrate them without any
+	 * migration support.
+	 */
+	if (pmd_large(*pmd))
+		return true;
+
+	pte = pte_alloc_map_lock(gmap->mm, pmd, address, &ptl);
 	if (unlikely(!pte))
 		return false;
 

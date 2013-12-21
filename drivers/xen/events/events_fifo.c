@@ -67,10 +67,9 @@ static event_word_t *event_array[MAX_EVENT_ARRAY_PAGES] __read_mostly;
 static unsigned event_array_pages __read_mostly;
 
 /*
- * sync_set_bit() and friends must be unsigned long aligned on non-x86
- * platforms.
+ * sync_set_bit() and friends must be unsigned long aligned.
  */
-#if !defined(CONFIG_X86) && BITS_PER_LONG > 32
+#if BITS_PER_LONG > 32
 
 #define BM(w) (unsigned long *)((unsigned long)w & ~0x7UL)
 #define EVTCHN_FIFO_BIT(b, w) \
@@ -98,6 +97,25 @@ static unsigned evtchn_fifo_max_channels(void)
 static unsigned evtchn_fifo_nr_channels(void)
 {
 	return event_array_pages * EVENT_WORDS_PER_PAGE;
+}
+
+static int init_control_block(int cpu,
+                              struct evtchn_fifo_control_block *control_block)
+{
+	struct evtchn_fifo_queue *q = &per_cpu(cpu_queue, cpu);
+	struct evtchn_init_control init_control;
+	unsigned int i;
+
+	/* Reset the control block and the local HEADs. */
+	clear_page(control_block);
+	for (i = 0; i < EVTCHN_FIFO_MAX_QUEUES; i++)
+		q->head[i] = 0;
+
+	init_control.control_gfn = virt_to_mfn(control_block);
+	init_control.offset      = 0;
+	init_control.vcpu        = cpu;
+
+	return HYPERVISOR_event_channel_op(EVTCHNOP_init_control, &init_control);
 }
 
 static void free_unused_array_pages(void)
@@ -263,7 +281,8 @@ static void handle_irq_for_port(unsigned port)
 
 static void consume_one_event(unsigned cpu,
 			      struct evtchn_fifo_control_block *control_block,
-			      unsigned priority, unsigned long *ready)
+			      unsigned priority, unsigned long *ready,
+			      bool drop)
 {
 	struct evtchn_fifo_queue *q = &per_cpu(cpu_queue, cpu);
 	uint32_t head;
@@ -295,13 +314,17 @@ static void consume_one_event(unsigned cpu,
 	if (head == 0)
 		clear_bit(priority, ready);
 
-	if (evtchn_fifo_is_pending(port) && !evtchn_fifo_is_masked(port))
-		handle_irq_for_port(port);
+	if (evtchn_fifo_is_pending(port) && !evtchn_fifo_is_masked(port)) {
+		if (unlikely(drop))
+			pr_warn("Dropping pending event for port %u\n", port);
+		else
+			handle_irq_for_port(port);
+	}
 
 	q->head[priority] = head;
 }
 
-static void evtchn_fifo_handle_events(unsigned cpu)
+static void __evtchn_fifo_handle_events(unsigned cpu, bool drop)
 {
 	struct evtchn_fifo_control_block *control_block;
 	unsigned long ready;
@@ -313,9 +336,14 @@ static void evtchn_fifo_handle_events(unsigned cpu)
 
 	while (ready) {
 		q = find_first_bit(BM(&ready), EVTCHN_FIFO_MAX_QUEUES);
-		consume_one_event(cpu, control_block, q, &ready);
+		consume_one_event(cpu, control_block, q, &ready, drop);
 		ready |= xchg(&control_block->ready, 0);
 	}
+}
+
+static void evtchn_fifo_handle_events(unsigned cpu)
+{
+	__evtchn_fifo_handle_events(cpu, false);
 }
 
 static void evtchn_fifo_resume(void)
@@ -324,7 +352,6 @@ static void evtchn_fifo_resume(void)
 
 	for_each_possible_cpu(cpu) {
 		void *control_block = per_cpu(cpu_control_block, cpu);
-		struct evtchn_init_control init_control;
 		int ret;
 
 		if (!control_block)
@@ -341,12 +368,7 @@ static void evtchn_fifo_resume(void)
 			continue;
 		}
 
-		init_control.control_gfn = virt_to_mfn(control_block);
-		init_control.offset = 0;
-		init_control.vcpu = cpu;
-
-		ret = HYPERVISOR_event_channel_op(EVTCHNOP_init_control,
-						  &init_control);
+		ret = init_control_block(cpu, control_block);
 		if (ret < 0)
 			BUG();
 	}
@@ -374,30 +396,25 @@ static const struct evtchn_ops evtchn_ops_fifo = {
 	.resume            = evtchn_fifo_resume,
 };
 
-static int evtchn_fifo_init_control_block(unsigned cpu)
+static int evtchn_fifo_alloc_control_block(unsigned cpu)
 {
-	struct page *control_block = NULL;
-	struct evtchn_init_control init_control;
+	void *control_block = NULL;
 	int ret = -ENOMEM;
 
-	control_block = alloc_page(GFP_KERNEL|__GFP_ZERO);
+	control_block = (void *)__get_free_page(GFP_KERNEL);
 	if (control_block == NULL)
 		goto error;
 
-	init_control.control_gfn = virt_to_mfn(page_address(control_block));
-	init_control.offset      = 0;
-	init_control.vcpu        = cpu;
-
-	ret = HYPERVISOR_event_channel_op(EVTCHNOP_init_control, &init_control);
+	ret = init_control_block(cpu, control_block);
 	if (ret < 0)
 		goto error;
 
-	per_cpu(cpu_control_block, cpu) = page_address(control_block);
+	per_cpu(cpu_control_block, cpu) = control_block;
 
 	return 0;
 
   error:
-	__free_page(control_block);
+	free_page((unsigned long)control_block);
 	return ret;
 }
 
@@ -411,7 +428,10 @@ static int evtchn_fifo_cpu_notification(struct notifier_block *self,
 	switch (action) {
 	case CPU_UP_PREPARE:
 		if (!per_cpu(cpu_control_block, cpu))
-			ret = evtchn_fifo_init_control_block(cpu);
+			ret = evtchn_fifo_alloc_control_block(cpu);
+		break;
+	case CPU_DEAD:
+		__evtchn_fifo_handle_events(cpu, true);
 		break;
 	default:
 		break;
@@ -425,19 +445,18 @@ static struct notifier_block evtchn_fifo_cpu_notifier = {
 
 int __init xen_evtchn_fifo_init(void)
 {
-	int cpu = get_cpu();
+	int cpu = smp_processor_id();
 	int ret;
 
-	ret = evtchn_fifo_init_control_block(cpu);
+	ret = evtchn_fifo_alloc_control_block(cpu);
 	if (ret < 0)
-		goto out;
+		return ret;
 
 	pr_info("Using FIFO-based ABI\n");
 
 	evtchn_ops = &evtchn_ops_fifo;
 
 	register_cpu_notifier(&evtchn_fifo_cpu_notifier);
-out:
-	put_cpu();
+
 	return ret;
 }

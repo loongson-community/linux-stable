@@ -369,7 +369,7 @@ static void vlv_clock(int refclk, intel_clock_t *clock)
 /**
  * Returns whether any output on the specified pipe is of the specified type
  */
-static bool intel_pipe_has_type(struct drm_crtc *crtc, int type)
+bool intel_pipe_has_type(struct drm_crtc *crtc, int type)
 {
 	struct drm_device *dev = crtc->dev;
 	struct intel_encoder *encoder;
@@ -2200,6 +2200,15 @@ intel_pin_and_fence_fb_obj(struct drm_device *dev,
 	if (need_vtd_wa(dev) && alignment < 256 * 1024)
 		alignment = 256 * 1024;
 
+	/*
+	 * Global gtt pte registers are special registers which actually forward
+	 * writes to a chunk of system memory. Which means that there is no risk
+	 * that the register values disappear as soon as we call
+	 * intel_runtime_pm_put(), so it is correct to wrap only the
+	 * pin/unpin/fence and not more.
+	 */
+	intel_runtime_pm_get(dev_priv);
+
 	dev_priv->mm.interruptible = false;
 	ret = i915_gem_object_pin_to_display_plane(obj, alignment, pipelined);
 	if (ret)
@@ -2217,12 +2226,14 @@ intel_pin_and_fence_fb_obj(struct drm_device *dev,
 	i915_gem_object_pin_fence(obj);
 
 	dev_priv->mm.interruptible = true;
+	intel_runtime_pm_put(dev_priv);
 	return 0;
 
 err_unpin:
 	i915_gem_object_unpin_from_display_plane(obj);
 err_interruptible:
 	dev_priv->mm.interruptible = true;
+	intel_runtime_pm_put(dev_priv);
 	return ret;
 }
 
@@ -4172,7 +4183,6 @@ static void ironlake_crtc_disable(struct drm_crtc *crtc)
 		ironlake_fdi_disable(crtc);
 
 		ironlake_disable_pch_transcoder(dev_priv, pipe);
-		intel_set_pch_fifo_underrun_reporting(dev, pipe, true);
 
 		if (HAS_PCH_CPT(dev)) {
 			/* disable TRANS_DP_CTL */
@@ -4239,7 +4249,6 @@ static void haswell_crtc_disable(struct drm_crtc *crtc)
 
 	if (intel_crtc->config.has_pch_encoder) {
 		lpt_disable_pch_transcoder(dev_priv);
-		intel_set_pch_fifo_underrun_reporting(dev, TRANSCODER_A, true);
 		intel_ddi_fdi_disable(crtc);
 	}
 
@@ -6254,12 +6263,14 @@ static void ironlake_init_pch_refclk(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_mode_config *mode_config = &dev->mode_config;
 	struct intel_encoder *encoder;
+	int i;
 	u32 val, final;
 	bool has_lvds = false;
 	bool has_cpu_edp = false;
 	bool has_panel = false;
 	bool has_ck505 = false;
 	bool can_ssc = false;
+	bool using_ssc_source = false;
 
 	/* We need to take the global config into account */
 	list_for_each_entry(encoder, &mode_config->encoder_list,
@@ -6285,8 +6296,22 @@ static void ironlake_init_pch_refclk(struct drm_device *dev)
 		can_ssc = true;
 	}
 
-	DRM_DEBUG_KMS("has_panel %d has_lvds %d has_ck505 %d\n",
-		      has_panel, has_lvds, has_ck505);
+	/* Check if any DPLLs are using the SSC source */
+	for (i = 0; i < dev_priv->num_shared_dpll; i++) {
+		u32 temp = I915_READ(PCH_DPLL(i));
+
+		if (!(temp & DPLL_VCO_ENABLE))
+			continue;
+
+		if ((temp & PLL_REF_INPUT_MASK) ==
+		    PLLB_REF_INPUT_SPREADSPECTRUMIN) {
+			using_ssc_source = true;
+			break;
+		}
+	}
+
+	DRM_DEBUG_KMS("has_panel %d has_lvds %d has_ck505 %d using_ssc_source %d\n",
+		      has_panel, has_lvds, has_ck505, using_ssc_source);
 
 	/* Ironlake: try to setup display ref clock before DPLL
 	 * enabling. This is only under driver's control after
@@ -6323,9 +6348,9 @@ static void ironlake_init_pch_refclk(struct drm_device *dev)
 				final |= DREF_CPU_SOURCE_OUTPUT_NONSPREAD;
 		} else
 			final |= DREF_CPU_SOURCE_OUTPUT_DISABLE;
-	} else {
-		final |= DREF_SSC_SOURCE_DISABLE;
-		final |= DREF_CPU_SOURCE_OUTPUT_DISABLE;
+	} else if (using_ssc_source) {
+		final |= DREF_SSC_SOURCE_ENABLE;
+		final |= DREF_SSC1_ENABLE;
 	}
 
 	if (final == val)
@@ -6371,7 +6396,7 @@ static void ironlake_init_pch_refclk(struct drm_device *dev)
 		POSTING_READ(PCH_DREF_CONTROL);
 		udelay(200);
 	} else {
-		DRM_DEBUG_KMS("Disabling SSC entirely\n");
+		DRM_DEBUG_KMS("Disabling CPU source output\n");
 
 		val &= ~DREF_CPU_SOURCE_OUTPUT_MASK;
 
@@ -6382,16 +6407,20 @@ static void ironlake_init_pch_refclk(struct drm_device *dev)
 		POSTING_READ(PCH_DREF_CONTROL);
 		udelay(200);
 
-		/* Turn off the SSC source */
-		val &= ~DREF_SSC_SOURCE_MASK;
-		val |= DREF_SSC_SOURCE_DISABLE;
+		if (!using_ssc_source) {
+			DRM_DEBUG_KMS("Disabling SSC source\n");
 
-		/* Turn off SSC1 */
-		val &= ~DREF_SSC1_ENABLE;
+			/* Turn off the SSC source */
+			val &= ~DREF_SSC_SOURCE_MASK;
+			val |= DREF_SSC_SOURCE_DISABLE;
 
-		I915_WRITE(PCH_DREF_CONTROL, val);
-		POSTING_READ(PCH_DREF_CONTROL);
-		udelay(200);
+			/* Turn off SSC1 */
+			val &= ~DREF_SSC1_ENABLE;
+
+			I915_WRITE(PCH_DREF_CONTROL, val);
+			POSTING_READ(PCH_DREF_CONTROL);
+			udelay(200);
+		}
 	}
 
 	BUG_ON(val != final);
@@ -8087,6 +8116,15 @@ static int intel_crtc_cursor_set(struct drm_crtc *crtc,
 			goto fail_locked;
 		}
 
+		/*
+		 * Global gtt pte registers are special registers which actually
+		 * forward writes to a chunk of system memory. Which means that
+		 * there is no risk that the register values disappear as soon
+		 * as we call intel_runtime_pm_put(), so it is correct to wrap
+		 * only the pin/unpin/fence and not more.
+		 */
+		intel_runtime_pm_get(dev_priv);
+
 		/* Note that the w/a also requires 2 PTE of padding following
 		 * the bo. We currently fill all unused PTE with the shadow
 		 * page and so we should always have valid PTE following the
@@ -8099,16 +8137,20 @@ static int intel_crtc_cursor_set(struct drm_crtc *crtc,
 		ret = i915_gem_object_pin_to_display_plane(obj, alignment, NULL);
 		if (ret) {
 			DRM_DEBUG_KMS("failed to move cursor bo into the GTT\n");
+			intel_runtime_pm_put(dev_priv);
 			goto fail_locked;
 		}
 
 		ret = i915_gem_object_put_fence(obj);
 		if (ret) {
 			DRM_DEBUG_KMS("failed to release fence for cursor");
+			intel_runtime_pm_put(dev_priv);
 			goto fail_unpin;
 		}
 
 		addr = i915_gem_obj_ggtt_offset(obj);
+
+		intel_runtime_pm_put(dev_priv);
 	} else {
 		int align = IS_I830(dev) ? 16 * 1024 : 256;
 		ret = i915_gem_object_attach_phys(obj, align);
@@ -8197,20 +8239,17 @@ __intel_framebuffer_create(struct drm_device *dev,
 	int ret;
 
 	intel_fb = kzalloc(sizeof(*intel_fb), GFP_KERNEL);
-	if (!intel_fb) {
-		drm_gem_object_unreference_unlocked(&obj->base);
+	if (!intel_fb)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	ret = intel_framebuffer_init(dev, intel_fb, mode_cmd, obj);
 	if (ret)
 		goto err;
 
 	return &intel_fb->base;
-err:
-	drm_gem_object_unreference_unlocked(&obj->base);
-	kfree(intel_fb);
 
+err:
+	kfree(intel_fb);
 	return ERR_PTR(ret);
 }
 
@@ -8250,6 +8289,7 @@ intel_framebuffer_create_for_mode(struct drm_device *dev,
 				  struct drm_display_mode *mode,
 				  int depth, int bpp)
 {
+	struct drm_framebuffer *fb;
 	struct drm_i915_gem_object *obj;
 	struct drm_mode_fb_cmd2 mode_cmd = { 0 };
 
@@ -8264,7 +8304,11 @@ intel_framebuffer_create_for_mode(struct drm_device *dev,
 								bpp);
 	mode_cmd.pixel_format = drm_mode_legacy_fb_format(bpp, depth);
 
-	return intel_framebuffer_create(dev, &mode_cmd, obj);
+	fb = intel_framebuffer_create(dev, &mode_cmd, obj);
+	if (IS_ERR(fb))
+		drm_gem_object_unreference_unlocked(&obj->base);
+
+	return fb;
 }
 
 static struct drm_framebuffer *
@@ -8319,8 +8363,6 @@ bool intel_get_load_detect_pipe(struct drm_connector *connector,
 		      connector->base.id, connector->name,
 		      encoder->base.id, encoder->name);
 
-	drm_modeset_acquire_init(ctx, 0);
-
 retry:
 	ret = drm_modeset_lock(&config->connection_mutex, ctx);
 	if (ret)
@@ -8359,10 +8401,14 @@ retry:
 		i++;
 		if (!(encoder->possible_crtcs & (1 << i)))
 			continue;
-		if (!possible_crtc->enabled) {
-			crtc = possible_crtc;
-			break;
-		}
+		if (possible_crtc->enabled)
+			continue;
+		/* This can occur when applying the pipe A quirk on resume. */
+		if (to_intel_crtc(possible_crtc)->new_enabled)
+			continue;
+
+		crtc = possible_crtc;
+		break;
 	}
 
 	/*
@@ -8431,15 +8477,11 @@ fail_unlock:
 		goto retry;
 	}
 
-	drm_modeset_drop_locks(ctx);
-	drm_modeset_acquire_fini(ctx);
-
 	return false;
 }
 
 void intel_release_load_detect_pipe(struct drm_connector *connector,
-				    struct intel_load_detect_pipe *old,
-				    struct drm_modeset_acquire_ctx *ctx)
+				    struct intel_load_detect_pipe *old)
 {
 	struct intel_encoder *intel_encoder =
 		intel_attached_encoder(connector);
@@ -8463,17 +8505,12 @@ void intel_release_load_detect_pipe(struct drm_connector *connector,
 			drm_framebuffer_unreference(old->release_fb);
 		}
 
-		goto unlock;
 		return;
 	}
 
 	/* Switch crtc and encoder back off if necessary */
 	if (old->dpms_mode != DRM_MODE_DPMS_ON)
 		connector->funcs->dpms(connector, old->dpms_mode);
-
-unlock:
-	drm_modeset_drop_locks(ctx);
-	drm_modeset_acquire_fini(ctx);
 }
 
 static int i9xx_pll_refclk(struct drm_device *dev,
@@ -8625,13 +8662,10 @@ struct drm_display_mode *intel_crtc_mode_get(struct drm_device *dev,
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
-	enum transcoder cpu_transcoder = intel_crtc->config.cpu_transcoder;
+	enum transcoder cpu_transcoder;
 	struct drm_display_mode *mode;
 	struct intel_crtc_config pipe_config;
-	int htot = I915_READ(HTOTAL(cpu_transcoder));
-	int hsync = I915_READ(HSYNC(cpu_transcoder));
-	int vtot = I915_READ(VTOTAL(cpu_transcoder));
-	int vsync = I915_READ(VSYNC(cpu_transcoder));
+	u32 htot, hsync, vtot, vsync;
 	enum pipe pipe = intel_crtc->pipe;
 
 	mode = kzalloc(sizeof(*mode), GFP_KERNEL);
@@ -8653,6 +8687,13 @@ struct drm_display_mode *intel_crtc_mode_get(struct drm_device *dev,
 	i9xx_crtc_clock_get(intel_crtc, &pipe_config);
 
 	mode->clock = pipe_config.port_clock / pipe_config.pixel_multiplier;
+
+	cpu_transcoder = pipe_config.cpu_transcoder;
+	htot = I915_READ(HTOTAL(cpu_transcoder));
+	hsync = I915_READ(HSYNC(cpu_transcoder));
+	vtot = I915_READ(VTOTAL(cpu_transcoder));
+	vsync = I915_READ(VSYNC(cpu_transcoder));
+
 	mode->hdisplay = (htot & 0xffff) + 1;
 	mode->htotal = ((htot & 0xffff0000) >> 16) + 1;
 	mode->hsync_start = (hsync & 0xffff) + 1;
@@ -8876,9 +8917,9 @@ static void do_intel_finish_page_flip(struct drm_device *dev,
 
 	wake_up_all(&dev_priv->pending_flip_queue);
 
-	queue_work(dev_priv->wq, &work->work);
-
 	trace_i915_flip_complete(intel_crtc->plane, work->pending_flip_obj);
+
+	queue_work(dev_priv->wq, &work->work);
 }
 
 void intel_finish_page_flip(struct drm_device *dev, int pipe)
@@ -8907,6 +8948,10 @@ static bool page_flip_finished(struct intel_crtc *crtc)
 {
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
+
+	if (i915_reset_in_progress(&dev_priv->gpu_error) ||
+	    crtc->reset_counter != atomic_read(&dev_priv->gpu_error.reset_counter))
+		return true;
 
 	/*
 	 * The relevant registers doen't exist on pre-ctg.
@@ -9293,6 +9338,8 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 		work->flip_count = I915_READ(PIPE_FLIPCOUNT_GM45(intel_crtc->pipe)) + 1;
 
 	if (IS_VALLEYVIEW(dev)) {
+		ring = &dev_priv->ring[BCS];
+	} else if (IS_IVYBRIDGE(dev) || IS_HASWELL(dev)) {
 		ring = &dev_priv->ring[BCS];
 	} else if (INTEL_INFO(dev)->gen >= 7) {
 		ring = obj->ring;
@@ -10270,6 +10317,15 @@ static void update_scanline_offset(struct intel_crtc *crtc)
 	 * type. For DP ports it behaves like most other platforms, but on HDMI
 	 * there's an extra 1 line difference. So we need to add two instead of
 	 * one to the value.
+	 *
+	 * On VLV/CHV DSI the scanline counter would appear to increment
+	 * approx. 1/3 of a scanline before start of vblank. Unfortunately
+	 * that means we can't tell whether we're in vblank or not while
+	 * we're on that particular line. We must still set scanline_offset
+	 * to 1 so that the vblank timestamps come out correct when we query
+	 * the scanline counter from within the vblank interrupt handler.
+	 * However if queried just before the start of vblank we'll get an
+	 * answer that's slightly in the future.
 	 */
 	if (IS_GEN2(dev)) {
 		const struct drm_display_mode *mode = &crtc->config.adjusted_mode;
@@ -11264,6 +11320,11 @@ static int intel_user_framebuffer_create_handle(struct drm_framebuffer *fb,
 	struct intel_framebuffer *intel_fb = to_intel_framebuffer(fb);
 	struct drm_i915_gem_object *obj = intel_fb->obj;
 
+	if (obj->userptr.mm) {
+		DRM_DEBUG("attempting to use a userptr for a framebuffer, denied\n");
+		return -EINVAL;
+	}
+
 	return drm_gem_handle_create(file, &obj->base, handle);
 }
 
@@ -11395,6 +11456,7 @@ intel_user_framebuffer_create(struct drm_device *dev,
 			      struct drm_file *filp,
 			      struct drm_mode_fb_cmd2 *mode_cmd)
 {
+	struct drm_framebuffer *fb;
 	struct drm_i915_gem_object *obj;
 
 	obj = to_intel_bo(drm_gem_object_lookup(dev, filp,
@@ -11402,7 +11464,11 @@ intel_user_framebuffer_create(struct drm_device *dev,
 	if (&obj->base == NULL)
 		return ERR_PTR(-ENOENT);
 
-	return intel_framebuffer_create(dev, mode_cmd, obj);
+	fb = intel_framebuffer_create(dev, mode_cmd, obj);
+	if (IS_ERR(fb))
+		drm_gem_object_unreference_unlocked(&obj->base);
+
+	return fb;
 }
 
 #ifndef CONFIG_DRM_I915_FBDEV
@@ -11671,11 +11737,26 @@ static struct intel_quirk intel_quirks[] = {
 	/* Acer C720 and C720P Chromebooks (Celeron 2955U) have backlights */
 	{ 0x0a06, 0x1025, 0x0a11, quirk_backlight_present },
 
+	/* Acer C720 Chromebook (Core i3 4005U) */
+	{ 0x0a16, 0x1025, 0x0a11, quirk_backlight_present },
+
+	/* Apple Macbook 2,1 (Core 2 T7400) */
+	{ 0x27a2, 0x8086, 0x7270, quirk_backlight_present },
+
+	/* Apple Macbook 4,1 */
+	{ 0x2a02, 0x106b, 0x00a1, quirk_backlight_present },
+
 	/* Toshiba CB35 Chromebook (Celeron 2955U) */
 	{ 0x0a06, 0x1179, 0x0a88, quirk_backlight_present },
 
 	/* HP Chromebook 14 (Celeron 2955U) */
 	{ 0x0a06, 0x103c, 0x21ed, quirk_backlight_present },
+
+	/* Dell Chromebook 11 */
+	{ 0x0a06, 0x1028, 0x0a35, quirk_backlight_present },
+
+	/* Dell Chromebook 11 (2015 version) */
+	{ 0x0a16, 0x1028, 0x0a35, quirk_backlight_present },
 };
 
 static void intel_init_quirks(struct drm_device *dev)
@@ -11840,7 +11921,7 @@ static void intel_enable_pipe_a(struct drm_device *dev)
 	struct intel_connector *connector;
 	struct drm_connector *crt = NULL;
 	struct intel_load_detect_pipe load_detect_temp;
-	struct drm_modeset_acquire_ctx ctx;
+	struct drm_modeset_acquire_ctx *ctx = dev->mode_config.acquire_ctx;
 
 	/* We can't just switch on the pipe A, we need to set things up with a
 	 * proper mode and output configuration. As a gross hack, enable pipe A
@@ -11857,10 +11938,8 @@ static void intel_enable_pipe_a(struct drm_device *dev)
 	if (!crt)
 		return;
 
-	if (intel_get_load_detect_pipe(crt, NULL, &load_detect_temp, &ctx))
-		intel_release_load_detect_pipe(crt, &load_detect_temp, &ctx);
-
-
+	if (intel_get_load_detect_pipe(crt, NULL, &load_detect_temp, ctx))
+		intel_release_load_detect_pipe(crt, &load_detect_temp);
 }
 
 static bool

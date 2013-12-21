@@ -201,6 +201,7 @@ static void rt_fibinfo_free_cpus(struct rtable __rcu * __percpu *rtp)
 static void free_fib_info_rcu(struct rcu_head *head)
 {
 	struct fib_info *fi = container_of(head, struct fib_info, rcu);
+	struct dst_metrics *m;
 
 	change_nexthops(fi) {
 		if (nexthop_nh->nh_dev)
@@ -212,8 +213,9 @@ static void free_fib_info_rcu(struct rcu_head *head)
 	} endfor_nexthops(fi);
 
 	release_net(fi->fib_net);
-	if (fi->fib_metrics != (u32 *) dst_default_metrics)
-		kfree(fi->fib_metrics);
+	m = fi->fib_metrics;
+	if (m != &dst_default_metrics && atomic_dec_and_test(&m->refcnt))
+		dst_free_metrics(m);
 	kfree(fi);
 }
 
@@ -535,7 +537,7 @@ int fib_nh_match(struct fib_config *cfg, struct fib_info *fi)
 			return 1;
 
 		attrlen = rtnh_attrlen(rtnh);
-		if (attrlen < 0) {
+		if (attrlen > 0) {
 			struct nlattr *nla, *attrs = rtnh_attrs(rtnh);
 
 			nla = nla_find(attrs, attrlen, RTA_GATEWAY);
@@ -821,14 +823,17 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 	fi = kzalloc(sizeof(*fi)+nhs*sizeof(struct fib_nh), GFP_KERNEL);
 	if (fi == NULL)
 		goto failure;
-	fib_info_cnt++;
 	if (cfg->fc_mx) {
-		fi->fib_metrics = kzalloc(sizeof(u32) * RTAX_MAX, GFP_KERNEL);
-		if (!fi->fib_metrics)
-			goto failure;
-	} else
-		fi->fib_metrics = (u32 *) dst_default_metrics;
-
+		fi->fib_metrics = dst_alloc_metrics(GFP_KERNEL | __GFP_ZERO);
+		if (unlikely(!fi->fib_metrics)) {
+			kfree(fi);
+			return ERR_PTR(err);
+		}
+		atomic_set(&fi->fib_metrics->refcnt, 1);
+	} else {
+		fi->fib_metrics = (struct dst_metrics *)&dst_default_metrics;
+	}
+	fib_info_cnt++;
 	fi->fib_net = hold_net(net);
 	fi->fib_protocol = cfg->fc_protocol;
 	fi->fib_scope = cfg->fc_scope;
@@ -862,7 +867,9 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 					val = 65535 - 40;
 				if (type == RTAX_MTU && val > 65535 - 15)
 					val = 65535 - 15;
-				fi->fib_metrics[type - 1] = val;
+				if (type == RTAX_HOPLIMIT && val > 255)
+					val = 255;
+				fi->fib_metrics->metrics[type - 1] = val;
 			}
 		}
 	}
@@ -1027,7 +1034,7 @@ int fib_dump_info(struct sk_buff *skb, u32 portid, u32 seq, int event,
 	if (fi->fib_priority &&
 	    nla_put_u32(skb, RTA_PRIORITY, fi->fib_priority))
 		goto nla_put_failure;
-	if (rtnetlink_put_metrics(skb, fi->fib_metrics) < 0)
+	if (rtnetlink_put_metrics(skb, fi->fib_metrics->metrics) < 0)
 		goto nla_put_failure;
 
 	if (fi->fib_prefsrc &&

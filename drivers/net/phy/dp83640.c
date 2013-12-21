@@ -46,7 +46,7 @@
 #define PSF_TX		0x1000
 #define EXT_EVENT	1
 #define CAL_EVENT	7
-#define CAL_TRIGGER	7
+#define CAL_TRIGGER	1
 #define PER_TRIGGER	6
 #define DP83640_N_PINS	12
 
@@ -487,7 +487,9 @@ static int ptp_dp83640_enable(struct ptp_clock_info *ptp,
 			else
 				evnt |= EVNT_RISE;
 		}
+		mutex_lock(&clock->extreg_lock);
 		ext_write(0, phydev, PAGE5, PTP_EVNT, evnt);
+		mutex_unlock(&clock->extreg_lock);
 		return 0;
 
 	case PTP_CLK_REQ_PEROUT:
@@ -513,6 +515,8 @@ static u8 status_frame_src[6] = { 0x08, 0x00, 0x17, 0x0B, 0x6B, 0x0F };
 
 static void enable_status_frames(struct phy_device *phydev, bool on)
 {
+	struct dp83640_private *dp83640 = phydev->priv;
+	struct dp83640_clock *clock = dp83640->clock;
 	u16 cfg0 = 0, ver;
 
 	if (on)
@@ -520,8 +524,12 @@ static void enable_status_frames(struct phy_device *phydev, bool on)
 
 	ver = (PSF_PTPVER & VERSIONPTP_MASK) << VERSIONPTP_SHIFT;
 
+	mutex_lock(&clock->extreg_lock);
+
 	ext_write(0, phydev, PAGE5, PSF_CFG0, cfg0);
 	ext_write(0, phydev, PAGE6, PSF_CFG1, ver);
+
+	mutex_unlock(&clock->extreg_lock);
 
 	if (!phydev->attached_dev) {
 		pr_warn("expected to find an attached netdevice\n");
@@ -751,6 +759,11 @@ static void decode_rxts(struct dp83640_private *dp83640,
 {
 	struct rxts *rxts;
 	unsigned long flags;
+	u8 overflow;
+
+	overflow = (phy_rxts->ns_hi >> 14) & 0x3;
+	if (overflow)
+		pr_debug("rx timestamp queue overflow, count %d\n", overflow);
 
 	spin_lock_irqsave(&dp83640->rx_lock, flags);
 
@@ -774,6 +787,7 @@ static void decode_txts(struct dp83640_private *dp83640,
 	struct skb_shared_hwtstamps shhwtstamps;
 	struct sk_buff *skb;
 	u64 ns;
+	u8 overflow;
 
 	/* We must already have the skb that triggered this. */
 
@@ -783,6 +797,17 @@ static void decode_txts(struct dp83640_private *dp83640,
 		pr_debug("have timestamp but tx_queue empty\n");
 		return;
 	}
+
+	overflow = (phy_txts->ns_hi >> 14) & 0x3;
+	if (overflow) {
+		pr_debug("tx timestamp queue overflow, count %d\n", overflow);
+		while (skb) {
+			kfree_skb(skb);
+			skb = skb_dequeue(&dp83640->tx_queue);
+		}
+		return;
+	}
+
 	ns = phy2txts(phy_txts);
 	memset(&shhwtstamps, 0, sizeof(shhwtstamps));
 	shhwtstamps.hwtstamp = ns_to_ktime(ns);
@@ -1127,11 +1152,18 @@ static int dp83640_config_init(struct phy_device *phydev)
 
 	if (clock->chosen && !list_empty(&clock->phylist))
 		recalibrate(clock);
-	else
+	else {
+		mutex_lock(&clock->extreg_lock);
 		enable_broadcast(phydev, clock->page, 1);
+		mutex_unlock(&clock->extreg_lock);
+	}
 
 	enable_status_frames(phydev, true);
+
+	mutex_lock(&clock->extreg_lock);
 	ext_write(0, phydev, PAGE4, PTP_CTL, PTP_ENABLE);
+	mutex_unlock(&clock->extreg_lock);
+
 	return 0;
 }
 

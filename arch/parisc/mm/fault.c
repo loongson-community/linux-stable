@@ -151,6 +151,7 @@ int fixup_exception(struct pt_regs *regs)
 		struct exception_data *d;
 		d = this_cpu_ptr(&exception_data);
 		d->fault_ip = regs->iaoq[0];
+		d->fault_gp = regs->gr[27];
 		d->fault_space = regs->isr;
 		d->fault_addr = regs->ior;
 
@@ -256,6 +257,8 @@ good_area:
 		 */
 		if (fault & VM_FAULT_OOM)
 			goto out_of_memory;
+		else if (fault & VM_FAULT_SIGSEGV)
+			goto bad_area;
 		else if (fault & VM_FAULT_SIGBUS)
 			goto bad_area;
 		BUG();
@@ -300,7 +303,7 @@ bad_area:
 		case 15:	/* Data TLB miss fault/Data page fault */
 			/* send SIGSEGV when outside of vma */
 			if (!vma ||
-			    address < vma->vm_start || address > vma->vm_end) {
+			    address < vma->vm_start || address >= vma->vm_end) {
 				si.si_signo = SIGSEGV;
 				si.si_code = SEGV_MAPERR;
 				break;

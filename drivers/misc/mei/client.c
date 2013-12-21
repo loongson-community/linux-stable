@@ -459,7 +459,7 @@ int mei_cl_disconnect(struct mei_cl *cl)
 {
 	struct mei_device *dev;
 	struct mei_cl_cb *cb;
-	int rets, err;
+	int rets;
 
 	if (WARN_ON(!cl || !cl->dev))
 		return -ENODEV;
@@ -491,6 +491,7 @@ int mei_cl_disconnect(struct mei_cl *cl)
 			cl_err(dev, cl, "failed to disconnect.\n");
 			goto free;
 		}
+		cl->timer_count = MEI_CONNECT_TIMEOUT;
 		mdelay(10); /* Wait for hardware disconnection ready */
 		list_add_tail(&cb->list, &dev->ctrl_rd_list.list);
 	} else {
@@ -500,23 +501,18 @@ int mei_cl_disconnect(struct mei_cl *cl)
 	}
 	mutex_unlock(&dev->device_lock);
 
-	err = wait_event_timeout(dev->wait_recvd_msg,
+	wait_event_timeout(dev->wait_recvd_msg,
 			MEI_FILE_DISCONNECTED == cl->state,
 			mei_secs_to_jiffies(MEI_CL_CONNECT_TIMEOUT));
 
 	mutex_lock(&dev->device_lock);
+
 	if (MEI_FILE_DISCONNECTED == cl->state) {
 		rets = 0;
 		cl_dbg(dev, cl, "successfully disconnected from FW client.\n");
 	} else {
-		rets = -ENODEV;
-		if (MEI_FILE_DISCONNECTED != cl->state)
-			cl_err(dev, cl, "wrong status client disconnect.\n");
-
-		if (err)
-			cl_dbg(dev, cl, "wait failed disconnect err=%d\n", err);
-
-		cl_err(dev, cl, "failed to disconnect from FW client.\n");
+		cl_dbg(dev, cl, "timeout on disconnect from FW client.\n");
+		rets = -ETIME;
 	}
 
 	mei_io_list_flush(&dev->ctrl_rd_list, cl);
@@ -605,6 +601,7 @@ int mei_cl_connect(struct mei_cl *cl, struct file *file)
 		cl->timer_count = MEI_CONNECT_TIMEOUT;
 		list_add_tail(&cb->list, &dev->ctrl_rd_list.list);
 	} else {
+		cl->state = MEI_FILE_INITIALIZING;
 		list_add_tail(&cb->list, &dev->ctrl_wr_list.list);
 	}
 
@@ -616,6 +613,7 @@ int mei_cl_connect(struct mei_cl *cl, struct file *file)
 	mutex_lock(&dev->device_lock);
 
 	if (cl->state != MEI_FILE_CONNECTED) {
+		cl->state = MEI_FILE_DISCONNECTED;
 		/* something went really wrong */
 		if (!cl->status)
 			cl->status = -EFAULT;
@@ -821,7 +819,7 @@ int mei_cl_irq_write(struct mei_cl *cl, struct mei_cl_cb *cb,
 
 	rets = mei_cl_flow_ctrl_creds(cl);
 	if (rets < 0)
-		return rets;
+		goto err;
 
 	if (rets == 0) {
 		cl_dbg(dev, cl, "No flow control credentials: not sending.\n");
@@ -851,27 +849,31 @@ int mei_cl_irq_write(struct mei_cl *cl, struct mei_cl_cb *cb,
 		return 0;
 	}
 
-	cl_dbg(dev, cl, "buf: size = %d idx = %lu\n",
+	cl_dbg(dev, cl, "buf: size = %zu idx = %zu\n",
 			cb->request_buffer.size, cb->buf_idx);
 
 	rets = mei_write_message(dev, &mei_hdr, buf->data + cb->buf_idx);
-	if (rets) {
-		cl->status = rets;
-		list_move_tail(&cb->list, &cmpl_list->list);
-		return rets;
-	}
+	if (rets)
+		goto err;
 
 	cl->status = 0;
 	cl->writing_state = MEI_WRITING;
 	cb->buf_idx += mei_hdr.length;
 
 	if (mei_hdr.msg_complete) {
-		if (mei_cl_flow_ctrl_reduce(cl))
-			return -EIO;
+		if (mei_cl_flow_ctrl_reduce(cl)) {
+			rets = -EIO;
+			goto err;
+		}
 		list_move_tail(&cb->list, &dev->write_waiting_list.list);
 	}
 
 	return 0;
+
+err:
+	cl->status = rets;
+	list_move_tail(&cb->list, &cmpl_list->list);
+	return rets;
 }
 
 /**
@@ -902,7 +904,7 @@ int mei_cl_write(struct mei_cl *cl, struct mei_cl_cb *cb, bool blocking)
 
 	buf = &cb->request_buffer;
 
-	cl_dbg(dev, cl, "mei_cl_write %d\n", buf->size);
+	cl_dbg(dev, cl, "mei_cl_write %zu\n", buf->size);
 
 	rets = pm_runtime_get(&dev->pdev->dev);
 	if (rets < 0 && rets != -EINPROGRESS) {

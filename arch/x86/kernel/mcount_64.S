@@ -7,7 +7,7 @@
 #include <linux/linkage.h>
 #include <asm/ptrace.h>
 #include <asm/ftrace.h>
-
+#include <asm/nospec-branch.h>
 
 	.code64
 	.section .entry.text, "ax"
@@ -45,6 +45,39 @@ END(function_hook)
 #endif
 .endm
 
+#ifdef CONFIG_FRAME_POINTER
+/*
+ * Stack traces will stop at the ftrace trampoline if the frame pointer
+ * is not set up properly. If fentry is used, we need to save a frame
+ * pointer for the parent as well as the function traced, because the
+ * fentry is called before the stack frame is set up, where as mcount
+ * is called afterward.
+ */
+.macro create_frame parent rip
+#ifdef CC_USING_FENTRY
+	pushq \parent
+	pushq %rbp
+	movq %rsp, %rbp
+#endif
+	pushq \rip
+	pushq %rbp
+	movq %rsp, %rbp
+.endm
+
+.macro restore_frame
+#ifdef CC_USING_FENTRY
+	addq $16, %rsp
+#endif
+	popq %rbp
+	addq $8, %rsp
+.endm
+#else
+.macro create_frame parent rip
+.endm
+.macro restore_frame
+.endm
+#endif /* CONFIG_FRAME_POINTER */
+
 ENTRY(ftrace_caller)
 	/* Check if tracing was disabled (quick check) */
 	cmpl $0, function_trace_stop
@@ -54,8 +87,12 @@ ENTRY(ftrace_caller)
 	/* regs go into 4th parameter (but make it NULL) */
 	movq $0, %rcx
 
+	create_frame %rsi, %rdi
+
 GLOBAL(ftrace_call)
 	call ftrace_stub
+
+	restore_frame
 
 	MCOUNT_RESTORE_FRAME
 ftrace_return:
@@ -104,8 +141,12 @@ ENTRY(ftrace_regs_caller)
 	/* regs go into 4th parameter */
 	leaq (%rsp), %rcx
 
+	create_frame %rsi, %rdi
+
 GLOBAL(ftrace_regs_call)
 	call ftrace_stub
+
+	restore_frame
 
 	/* Copy flags back to SS, to restore them */
 	movq EFLAGS(%rsp), %rax
@@ -169,8 +210,8 @@ trace:
 #endif
 	subq $MCOUNT_INSN_SIZE, %rdi
 
-	call   *ftrace_trace_function
-
+	movq ftrace_trace_function, %r8
+	CALL_NOSPEC %r8
 	MCOUNT_RESTORE_FRAME
 
 	jmp ftrace_stub
@@ -213,5 +254,5 @@ GLOBAL(return_to_handler)
 	movq 8(%rsp), %rdx
 	movq (%rsp), %rax
 	addq $24, %rsp
-	jmp *%rdi
+	JMP_NOSPEC %rdi
 #endif

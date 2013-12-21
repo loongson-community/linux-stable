@@ -116,7 +116,11 @@ static struct kvm_task_sleep_node *_find_apf_task(struct kvm_task_sleep_head *b,
 	return NULL;
 }
 
-void kvm_async_pf_task_wait(u32 token)
+/*
+ * @interrupt_kernel: Is this called from a routine which interrupts the kernel
+ * 		      (other than user space)?
+ */
+void kvm_async_pf_task_wait(u32 token, int interrupt_kernel)
 {
 	u32 key = hash_32(token, KVM_TASK_SLEEP_HASHBITS);
 	struct kvm_task_sleep_head *b = &async_pf_sleepers[key];
@@ -139,7 +143,10 @@ void kvm_async_pf_task_wait(u32 token)
 
 	n.token = token;
 	n.cpu = smp_processor_id();
-	n.halted = is_idle_task(current) || preempt_count() > 1;
+	n.halted = is_idle_task(current) ||
+		   (IS_ENABLED(CONFIG_PREEMPT_COUNT)
+		    ? preempt_count() > 1 || rcu_preempt_depth()
+		    : interrupt_kernel);
 	init_waitqueue_head(&n.wq);
 	hlist_add_head(&n.link, &b->list);
 	spin_unlock(&b->lock);
@@ -150,6 +157,8 @@ void kvm_async_pf_task_wait(u32 token)
 		if (hlist_unhashed(&n.link))
 			break;
 
+		rcu_irq_exit();
+
 		if (!n.halted) {
 			local_irq_enable();
 			schedule();
@@ -158,11 +167,11 @@ void kvm_async_pf_task_wait(u32 token)
 			/*
 			 * We cannot reschedule. So halt.
 			 */
-			rcu_irq_exit();
 			native_safe_halt();
-			rcu_irq_enter();
 			local_irq_disable();
 		}
+
+		rcu_irq_enter();
 	}
 	if (!n.halted)
 		finish_wait(&n.wq, &wait);
@@ -266,7 +275,7 @@ do_async_page_fault(struct pt_regs *regs, unsigned long error_code)
 		/* page is swapped out by the host. */
 		prev_state = exception_enter();
 		exit_idle();
-		kvm_async_pf_task_wait((u32)read_cr2());
+		kvm_async_pf_task_wait((u32)read_cr2(), !user_mode_vm(regs));
 		exception_exit(prev_state);
 		break;
 	case KVM_PV_REASON_PAGE_READY:
@@ -282,7 +291,14 @@ NOKPROBE_SYMBOL(do_async_page_fault);
 static void __init paravirt_ops_setup(void)
 {
 	pv_info.name = "KVM";
-	pv_info.paravirt_enabled = 1;
+
+	/*
+	 * KVM isn't paravirt in the sense of paravirt_enabled.  A KVM
+	 * guest kernel works like a bare metal kernel with additional
+	 * features, and paravirt_enabled is about features that are
+	 * missing.
+	 */
+	pv_info.paravirt_enabled = 0;
 
 	if (kvm_para_has_feature(KVM_FEATURE_NOP_IO_DELAY))
 		pv_cpu_ops.io_delay = kvm_io_delay;

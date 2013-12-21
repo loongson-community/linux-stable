@@ -597,10 +597,8 @@ intel_dp_aux_ch(struct intel_dp *intel_dp,
 				      DP_AUX_CH_CTL_RECEIVE_ERROR))
 				continue;
 			if (status & DP_AUX_CH_CTL_DONE)
-				break;
+				goto done;
 		}
-		if (status & DP_AUX_CH_CTL_DONE)
-			break;
 	}
 
 	if ((status & DP_AUX_CH_CTL_DONE) == 0) {
@@ -609,6 +607,7 @@ intel_dp_aux_ch(struct intel_dp *intel_dp,
 		goto out;
 	}
 
+done:
 	/* Check for timeout or receive error.
 	 * Timeouts occur when the sink is not connected
 	 */
@@ -852,7 +851,7 @@ intel_dp_compute_config(struct intel_encoder *encoder,
 		pipe_config->has_pch_encoder = true;
 
 	pipe_config->has_dp_encoder = true;
-	pipe_config->has_audio = intel_dp->has_audio;
+	pipe_config->has_audio = intel_dp->has_audio && port != PORT_A;
 
 	if (is_edp(intel_dp) && intel_connector->panel.fixed_mode) {
 		intel_fixed_panel_mode(intel_connector->panel.fixed_mode,
@@ -1366,8 +1365,8 @@ void intel_edp_panel_off(struct intel_dp *intel_dp)
 	I915_WRITE(pp_ctrl_reg, pp);
 	POSTING_READ(pp_ctrl_reg);
 
-	intel_dp->last_power_cycle = jiffies;
 	wait_panel_off(intel_dp);
+	intel_dp->last_power_cycle = jiffies;
 
 	/* We got a reference when we enabled the VDD. */
 	power_domain = intel_display_port_power_domain(intel_encoder);
@@ -1578,8 +1577,8 @@ static void intel_dp_get_config(struct intel_encoder *encoder,
 	int dotclock;
 
 	tmp = I915_READ(intel_dp->output_reg);
-	if (tmp & DP_AUDIO_OUTPUT_ENABLE)
-		pipe_config->has_audio = true;
+
+	pipe_config->has_audio = tmp & DP_AUDIO_OUTPUT_ENABLE && port != PORT_A;
 
 	if ((port == PORT_A) || !HAS_PCH_CPT(dev)) {
 		if (tmp & DP_SYNC_HS_HIGH)
@@ -2165,6 +2164,13 @@ intel_dp_dpcd_read_wake(struct drm_dp_aux *aux, unsigned int offset,
 {
 	ssize_t ret;
 	int i;
+
+	/*
+	 * Sometime we just get the same incorrect byte repeated
+	 * over the entire buffer. Doing just one throw away read
+	 * initially seems to "solve" it.
+	 */
+	drm_dp_dpcd_read(aux, DP_DPCD_REV, buffer, 1);
 
 	for (i = 0; i < 3; i++) {
 		ret = drm_dp_dpcd_read(aux, offset, buffer, size);
@@ -3202,9 +3208,10 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 		}
 	}
 
-	/* Training Pattern 3 support */
+	/* Training Pattern 3 support, both source and sink */
 	if (intel_dp->dpcd[DP_DPCD_REV] >= 0x12 &&
-	    intel_dp->dpcd[DP_MAX_LANE_COUNT] & DP_TPS3_SUPPORTED) {
+	    intel_dp->dpcd[DP_MAX_LANE_COUNT] & DP_TPS3_SUPPORTED &&
+	    (IS_HASWELL(dev) || INTEL_INFO(dev)->gen >= 8)) {
 		intel_dp->use_tps3 = true;
 		DRM_DEBUG_KMS("Displayport TPS3 supported");
 	} else
@@ -3311,6 +3318,9 @@ intel_dp_check_link_status(struct intel_dp *intel_dp)
 		return;
 
 	if (WARN_ON(!intel_encoder->base.crtc))
+		return;
+
+	if (!to_intel_crtc(intel_encoder->base.crtc)->active)
 		return;
 
 	/* Try to read receiver status if the link appears to be up */

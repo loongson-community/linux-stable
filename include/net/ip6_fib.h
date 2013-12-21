@@ -66,6 +66,7 @@ struct fib6_node {
 	__u16			fn_flags;
 	__u32			fn_sernum;
 	struct rt6_info		*rr_ptr;
+	struct rcu_head		rcu;
 };
 
 #ifndef CONFIG_IPV6_SUBTREES
@@ -95,7 +96,7 @@ struct rt6_info {
 	 * the same cache line.
 	 */
 	struct fib6_table		*rt6i_table;
-	struct fib6_node		*rt6i_node;
+	struct fib6_node __rcu		*rt6i_node;
 
 	struct in6_addr			rt6i_gateway;
 
@@ -114,16 +115,13 @@ struct rt6_info {
 	u32				rt6i_flags;
 	struct rt6key			rt6i_src;
 	struct rt6key			rt6i_prefsrc;
-	u32				rt6i_metric;
 
 	struct inet6_dev		*rt6i_idev;
 	unsigned long			_rt6i_peer;
 
-	u32				rt6i_genid;
-
+	u32				rt6i_metric;
 	/* more non-fragment space at head required */
 	unsigned short			rt6i_nfheader_len;
-
 	u8				rt6i_protocol;
 };
 
@@ -194,6 +192,38 @@ static inline void rt6_set_from(struct rt6_info *rt, struct rt6_info *from)
 	rt->rt6i_flags &= ~RTF_EXPIRES;
 	dst_hold(new);
 	rt->dst.from = new;
+}
+
+/* Function to safely get fn->sernum for passed in rt
+ * and store result in passed in cookie.
+ * Return true if we can get cookie safely
+ * Return false if not
+ */
+static inline bool rt6_get_cookie_safe(const struct rt6_info *rt,
+				       u32 *cookie)
+{
+	struct fib6_node *fn;
+	bool status = false;
+
+	rcu_read_lock();
+	fn = rcu_dereference(rt->rt6i_node);
+
+	if (fn) {
+		*cookie = fn->fn_sernum;
+		status = true;
+	}
+
+	rcu_read_unlock();
+	return status;
+}
+
+static inline u32 rt6_get_cookie(const struct rt6_info *rt)
+{
+	u32 cookie = 0;
+
+	rt6_get_cookie_safe(rt, &cookie);
+
+	return cookie;
 }
 
 static inline void ip6_rt_put(struct rt6_info *rt)

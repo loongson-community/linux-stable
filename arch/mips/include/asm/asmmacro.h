@@ -10,6 +10,7 @@
 
 #include <asm/hazards.h>
 #include <asm/asm-offsets.h>
+#include <asm/msa.h>
 
 #ifdef CONFIG_32BIT
 #include <asm/asmmacro-32.h>
@@ -56,6 +57,8 @@
 #endif /* CONFIG_CPU_MIPSR2 */
 
 	.macro	fpu_save_16even thread tmp=t0
+	.set	push
+	SET_HARDFLOAT
 	cfc1	\tmp, fcr31
 	sdc1	$f0,  THREAD_FPR0_LS64(\thread)
 	sdc1	$f2,  THREAD_FPR2_LS64(\thread)
@@ -74,11 +77,13 @@
 	sdc1	$f28, THREAD_FPR28_LS64(\thread)
 	sdc1	$f30, THREAD_FPR30_LS64(\thread)
 	sw	\tmp, THREAD_FCR31(\thread)
+	.set	pop
 	.endm
 
 	.macro	fpu_save_16odd thread
 	.set	push
 	.set	mips64r2
+	SET_HARDFLOAT
 	sdc1	$f1,  THREAD_FPR1_LS64(\thread)
 	sdc1	$f3,  THREAD_FPR3_LS64(\thread)
 	sdc1	$f5,  THREAD_FPR5_LS64(\thread)
@@ -109,6 +114,8 @@
 	.endm
 
 	.macro	fpu_restore_16even thread tmp=t0
+	.set	push
+	SET_HARDFLOAT
 	lw	\tmp, THREAD_FCR31(\thread)
 	ldc1	$f0,  THREAD_FPR0_LS64(\thread)
 	ldc1	$f2,  THREAD_FPR2_LS64(\thread)
@@ -132,6 +139,7 @@
 	.macro	fpu_restore_16odd thread
 	.set	push
 	.set	mips64r2
+	SET_HARDFLOAT
 	ldc1	$f1,  THREAD_FPR1_LS64(\thread)
 	ldc1	$f3,  THREAD_FPR3_LS64(\thread)
 	ldc1	$f5,  THREAD_FPR5_LS64(\thread)
@@ -201,6 +209,22 @@
 	.endm
 
 #ifdef TOOLCHAIN_SUPPORTS_MSA
+	.macro	_cfcmsa	rd, cs
+	.set	push
+	.set	mips32r2
+	.set	msa
+	cfcmsa	\rd, $\cs
+	.set	pop
+	.endm
+
+	.macro	_ctcmsa	cd, rs
+	.set	push
+	.set	mips32r2
+	.set	msa
+	ctcmsa	$\cd, \rs
+	.set	pop
+	.endm
+
 	.macro	ld_d	wd, off, base
 	.set	push
 	.set	mips32r2
@@ -217,35 +241,35 @@
 	.set	pop
 	.endm
 
-	.macro	copy_u_w	rd, ws, n
+	.macro	copy_u_w	ws, n
 	.set	push
 	.set	mips32r2
 	.set	msa
-	copy_u.w \rd, $w\ws[\n]
+	copy_u.w $1, $w\ws[\n]
 	.set	pop
 	.endm
 
-	.macro	copy_u_d	rd, ws, n
+	.macro	copy_u_d	ws, n
 	.set	push
 	.set	mips64r2
 	.set	msa
-	copy_u.d \rd, $w\ws[\n]
+	copy_u.d $1, $w\ws[\n]
 	.set	pop
 	.endm
 
-	.macro	insert_w	wd, n, rs
+	.macro	insert_w	wd, n
 	.set	push
 	.set	mips32r2
 	.set	msa
-	insert.w $w\wd[\n], \rs
+	insert.w $w\wd[\n], $1
 	.set	pop
 	.endm
 
-	.macro	insert_d	wd, n, rs
+	.macro	insert_d	wd, n
 	.set	push
 	.set	mips64r2
 	.set	msa
-	insert.d $w\wd[\n], \rs
+	insert.d $w\wd[\n], $1
 	.set	pop
 	.endm
 #else
@@ -273,18 +297,20 @@
 	/*
 	 * Temporary until all toolchains in use include MSA support.
 	 */
-	.macro	cfcmsa	rd, cs
+	.macro	_cfcmsa	rd, cs
 	.set	push
 	.set	noat
+	SET_HARDFLOAT
 	.insn
 	.word	CFC_MSA_INSN | (\cs << 11)
 	move	\rd, $1
 	.set	pop
 	.endm
 
-	.macro	ctcmsa	cd, rs
+	.macro	_ctcmsa	cd, rs
 	.set	push
 	.set	noat
+	SET_HARDFLOAT
 	move	$1, \rs
 	.word	CTC_MSA_INSN | (\cd << 6)
 	.set	pop
@@ -293,7 +319,8 @@
 	.macro	ld_d	wd, off, base
 	.set	push
 	.set	noat
-	add	$1, \base, \off
+	SET_HARDFLOAT
+	addu	$1, \base, \off
 	.word	LDD_MSA_INSN | (\wd << 6)
 	.set	pop
 	.endm
@@ -301,45 +328,42 @@
 	.macro	st_d	wd, off, base
 	.set	push
 	.set	noat
-	add	$1, \base, \off
+	SET_HARDFLOAT
+	addu	$1, \base, \off
 	.word	STD_MSA_INSN | (\wd << 6)
 	.set	pop
 	.endm
 
-	.macro	copy_u_w	rd, ws, n
+	.macro	copy_u_w	ws, n
 	.set	push
 	.set	noat
+	SET_HARDFLOAT
 	.insn
 	.word	COPY_UW_MSA_INSN | (\n << 16) | (\ws << 11)
-	/* move triggers an assembler bug... */
-	or	\rd, $1, zero
 	.set	pop
 	.endm
 
-	.macro	copy_u_d	rd, ws, n
+	.macro	copy_u_d	ws, n
 	.set	push
 	.set	noat
+	SET_HARDFLOAT
 	.insn
 	.word	COPY_UD_MSA_INSN | (\n << 16) | (\ws << 11)
-	/* move triggers an assembler bug... */
-	or	\rd, $1, zero
 	.set	pop
 	.endm
 
-	.macro	insert_w	wd, n, rs
+	.macro	insert_w	wd, n
 	.set	push
 	.set	noat
-	/* move triggers an assembler bug... */
-	or	$1, \rs, zero
+	SET_HARDFLOAT
 	.word	INSERT_W_MSA_INSN | (\n << 16) | (\wd << 6)
 	.set	pop
 	.endm
 
-	.macro	insert_d	wd, n, rs
+	.macro	insert_d	wd, n
 	.set	push
 	.set	noat
-	/* move triggers an assembler bug... */
-	or	$1, \rs, zero
+	SET_HARDFLOAT
 	.word	INSERT_D_MSA_INSN | (\n << 16) | (\wd << 6)
 	.set	pop
 	.endm
@@ -378,9 +402,21 @@
 	st_d	29, THREAD_FPR29, \thread
 	st_d	30, THREAD_FPR30, \thread
 	st_d	31, THREAD_FPR31, \thread
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	_cfcmsa	$1, MSA_CSR
+	sw	$1, THREAD_MSA_CSR(\thread)
+	.set	pop
 	.endm
 
 	.macro	msa_restore_all	thread
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	lw	$1, THREAD_MSA_CSR(\thread)
+	_ctcmsa	MSA_CSR, $1
+	.set	pop
 	ld_d	0, THREAD_FPR0, \thread
 	ld_d	1, THREAD_FPR1, \thread
 	ld_d	2, THREAD_FPR2, \thread
@@ -413,6 +449,55 @@
 	ld_d	29, THREAD_FPR29, \thread
 	ld_d	30, THREAD_FPR30, \thread
 	ld_d	31, THREAD_FPR31, \thread
+	.endm
+
+	.macro	msa_init_upper wd
+#ifdef CONFIG_64BIT
+	insert_d \wd, 1
+#else
+	insert_w \wd, 2
+	insert_w \wd, 3
+#endif
+	.endm
+
+	.macro	msa_init_all_upper
+	.set	push
+	.set	noat
+	SET_HARDFLOAT
+	not	$1, zero
+	msa_init_upper	0
+	msa_init_upper	1
+	msa_init_upper	2
+	msa_init_upper	3
+	msa_init_upper	4
+	msa_init_upper	5
+	msa_init_upper	6
+	msa_init_upper	7
+	msa_init_upper	8
+	msa_init_upper	9
+	msa_init_upper	10
+	msa_init_upper	11
+	msa_init_upper	12
+	msa_init_upper	13
+	msa_init_upper	14
+	msa_init_upper	15
+	msa_init_upper	16
+	msa_init_upper	17
+	msa_init_upper	18
+	msa_init_upper	19
+	msa_init_upper	20
+	msa_init_upper	21
+	msa_init_upper	22
+	msa_init_upper	23
+	msa_init_upper	24
+	msa_init_upper	25
+	msa_init_upper	26
+	msa_init_upper	27
+	msa_init_upper	28
+	msa_init_upper	29
+	msa_init_upper	30
+	msa_init_upper	31
+	.set	pop
 	.endm
 
 #endif /* _ASM_ASMMACRO_H */

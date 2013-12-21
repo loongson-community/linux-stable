@@ -13,6 +13,7 @@
 #include <asm/asm-offsets.h>
 #include <asm/asmmacro.h>
 #include <asm/cacheops.h>
+#include <asm/eva.h>
 #include <asm/mipsregs.h>
 #include <asm/mipsmtregs.h>
 #include <asm/pm.h>
@@ -38,6 +39,7 @@
 	 mfc0	\dest, CP0_CONFIG, 3
 	andi	\dest, \dest, MIPS_CONF3_MT
 	beqz	\dest, \nomt
+	 nop
 	.endm
 
 .section .text.cps-vec
@@ -98,11 +100,11 @@ not_nmi:
 	xori	t2, t1, 0x7
 	beqz	t2, 1f
 	 li	t3, 32
-	addi	t1, t1, 1
+	addiu	t1, t1, 1
 	sllv	t1, t3, t1
 1:	/* At this point t1 == I-cache sets per way */
 	_EXT	t2, v0, MIPS_CONF1_IA_SHF, MIPS_CONF1_IA_SZ
-	addi	t2, t2, 1
+	addiu	t2, t2, 1
 	mul	t1, t1, t0
 	mul	t1, t1, t2
 
@@ -125,11 +127,11 @@ icache_done:
 	xori	t2, t1, 0x7
 	beqz	t2, 1f
 	 li	t3, 32
-	addi	t1, t1, 1
+	addiu	t1, t1, 1
 	sllv	t1, t3, t1
 1:	/* At this point t1 == D-cache sets per way */
 	_EXT	t2, v0, MIPS_CONF1_DA_SHF, MIPS_CONF1_DA_SZ
-	addi	t2, t2, 1
+	addiu	t2, t2, 1
 	mul	t1, t1, t0
 	mul	t1, t1, t2
 
@@ -165,6 +167,9 @@ dcache_done:
 	 */
 1:	jal	mips_cps_core_init
 	 nop
+
+	/* Do any EVA initialization if necessary */
+	eva_init
 
 	/*
 	 * Boot any other VPEs within this core that should be online, and
@@ -219,12 +224,12 @@ LEAF(excep_ejtag)
 	END(excep_ejtag)
 
 LEAF(mips_cps_core_init)
-#ifdef CONFIG_MIPS_MT
+#ifdef CONFIG_MIPS_MT_SMP
 	/* Check that the core implements the MT ASE */
 	has_mt	t0, 3f
-	 nop
 
 	.set	push
+	.set	MIPS_ISA_LEVEL_RAW
 	.set	mt
 
 	/* Only allow 1 TC per VPE to execute... */
@@ -245,7 +250,7 @@ LEAF(mips_cps_core_init)
 	mfc0	t0, CP0_MVPCONF0
 	srl	t0, t0, MVPCONF0_PVPE_SHIFT
 	andi	t0, t0, (MVPCONF0_PVPE >> MVPCONF0_PVPE_SHIFT)
-	addi	t7, t0, 1
+	addiu	t7, t0, 1
 
 	/* If there's only 1, we're done */
 	beqz	t0, 2f
@@ -275,7 +280,7 @@ LEAF(mips_cps_core_init)
 	mttc0	t0, CP0_TCHALT
 
 	/* Next VPE */
-	addi	t5, t5, 1
+	addiu	t5, t5, 1
 	slt	t0, t5, t7
 	bnez	t0, 1b
 	 nop
@@ -305,14 +310,15 @@ LEAF(mips_cps_boot_vpes)
 	addu	t0, t0, t1
 
 	/* Calculate this VPEs ID. If the core doesn't support MT use 0 */
+	li	t9, 0
+#ifdef CONFIG_MIPS_MT_SMP
 	has_mt	t6, 1f
-	 li	t9, 0
 
 	/* Find the number of VPEs present in the core */
 	mfc0	t1, CP0_MVPCONF0
 	srl	t1, t1, MVPCONF0_PVPE_SHIFT
 	andi	t1, t1, MVPCONF0_PVPE >> MVPCONF0_PVPE_SHIFT
-	addi	t1, t1, 1
+	addiu	t1, t1, 1
 
 	/* Calculate a mask for the VPE ID from EBase.CPUNum */
 	clz	t1, t1
@@ -325,6 +331,7 @@ LEAF(mips_cps_boot_vpes)
 	/* Retrieve the VPE ID from EBase.CPUNum */
 	mfc0	t9, $15, 1
 	and	t9, t9, t1
+#endif
 
 1:	/* Calculate a pointer to this VPEs struct vpe_boot_config */
 	li	t1, VPEBOOTCFG_SIZE
@@ -332,7 +339,7 @@ LEAF(mips_cps_boot_vpes)
 	lw	t7, COREBOOTCFG_VPECONFIG(t0)
 	addu	v0, v0, t7
 
-#ifdef CONFIG_MIPS_MT
+#ifdef CONFIG_MIPS_MT_SMP
 
 	/* If the core doesn't support MT then return */
 	bnez	t6, 1f
@@ -340,11 +347,13 @@ LEAF(mips_cps_boot_vpes)
 	jr	ra
 	 nop
 
-	.set	push
-	.set	mt
-
 1:	/* Enter VPE configuration state */
+	.set	push
+	.set	MIPS_ISA_LEVEL_RAW
+	.set	mt
 	dvpe
+	.set	pop
+
 	la	t1, 1f
 	jr.hb	t1
 	 nop
@@ -370,6 +379,10 @@ LEAF(mips_cps_boot_vpes)
 	or	t0, t0, t5
 	mtc0	t0, CP0_VPECONTROL
 	ehb
+
+	.set	push
+	.set	MIPS_ISA_LEVEL_RAW
+	.set	mt
 
 	/* Skip the VPE if its TC is not halted */
 	mftc0	t0, CP0_TCHALT
@@ -418,7 +431,7 @@ LEAF(mips_cps_boot_vpes)
 
 	/* Next VPE */
 2:	srl	t6, t6, 1
-	addi	t5, t5, 1
+	addiu	t5, t5, 1
 	bnez	t6, 1b
 	 nop
 
@@ -428,6 +441,8 @@ LEAF(mips_cps_boot_vpes)
 	mtc0	t1, CP0_MVPCONTROL
 	ehb
 	evpe
+
+	.set	pop
 
 	/* Check whether this VPE is meant to be running */
 	li	t0, 1
@@ -443,9 +458,9 @@ LEAF(mips_cps_boot_vpes)
 1:	jr.hb	t0
 	 nop
 
-2:	.set	pop
+2:
 
-#endif /* CONFIG_MIPS_MT */
+#endif /* CONFIG_MIPS_MT_SMP */
 
 	/* Return */
 	jr	ra

@@ -193,6 +193,12 @@ static inline struct proc_dir_entry *pde_get(struct proc_dir_entry *pde)
 }
 extern void pde_put(struct proc_dir_entry *);
 
+static inline bool is_empty_pde(const struct proc_dir_entry *pde)
+{
+	return S_ISDIR(pde->mode) && !pde->proc_iops;
+}
+struct proc_dir_entry *proc_create_mount_point(const char *name);
+
 /*
  * inode.c
  */
@@ -202,6 +208,7 @@ struct pde_opener {
 	int closing;
 	struct completion *c;
 };
+extern const struct inode_operations proc_link_inode_operations;
 
 extern const struct inode_operations proc_pid_link_inode_operations;
 

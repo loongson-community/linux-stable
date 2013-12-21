@@ -2,7 +2,7 @@
  * USB Attached SCSI
  * Note that this is not the same as the USB Mass Storage driver
  *
- * Copyright Hans de Goede <hdegoede@redhat.com> for Red Hat, Inc. 2013
+ * Copyright Hans de Goede <hdegoede@redhat.com> for Red Hat, Inc. 2013 - 2016
  * Copyright Matthew Wilcox for Intel Corp, 2010
  * Copyright Sarah Sharp for Intel Corp, 2010
  *
@@ -28,6 +28,9 @@
 #include <scsi/scsi_tcq.h>
 
 #include "uas-detect.h"
+#include "scsiglue.h"
+
+#define MAX_CMNDS 256
 
 /*
  * The r00-r01c specs define this version of the SENSE IU data structure.
@@ -49,6 +52,7 @@ struct uas_dev_info {
 	struct usb_anchor cmd_urbs;
 	struct usb_anchor sense_urbs;
 	struct usb_anchor data_urbs;
+	unsigned long flags;
 	int qdepth, resetting;
 	struct response_iu response;
 	unsigned cmd_pipe, status_pipe, data_in_pipe, data_out_pipe;
@@ -714,6 +718,15 @@ static int uas_queuecommand_lck(struct scsi_cmnd *cmnd,
 
 	BUILD_BUG_ON(sizeof(struct uas_cmd_info) > sizeof(struct scsi_pointer));
 
+	if ((devinfo->flags & US_FL_NO_ATA_1X) &&
+			(cmnd->cmnd[0] == ATA_12 || cmnd->cmnd[0] == ATA_16)) {
+		memcpy(cmnd->sense_buffer, usb_stor_sense_invalidCDB,
+		       sizeof(usb_stor_sense_invalidCDB));
+		cmnd->result = SAM_STAT_CHECK_CONDITION;
+		cmnd->scsi_done(cmnd);
+		return 0;
+	}
+
 	spin_lock_irqsave(&devinfo->lock, flags);
 
 	if (devinfo->resetting) {
@@ -915,7 +928,8 @@ static int uas_eh_bus_reset_handler(struct scsi_cmnd *cmnd)
 	usb_unlock_device(udev);
 
 	if (err) {
-		shost_printk(KERN_INFO, sdev->host, "%s FAILED\n", __func__);
+		shost_printk(KERN_INFO, sdev->host, "%s FAILED err %d\n",
+			     __func__, err);
 		return FAILED;
 	}
 
@@ -923,9 +937,23 @@ static int uas_eh_bus_reset_handler(struct scsi_cmnd *cmnd)
 	return SUCCESS;
 }
 
+static int uas_target_alloc(struct scsi_target *starget)
+{
+	struct uas_dev_info *devinfo = (struct uas_dev_info *)
+			dev_to_shost(starget->dev.parent)->hostdata;
+
+	if (devinfo->flags & US_FL_NO_REPORT_LUNS)
+		starget->no_report_luns = 1;
+
+	return 0;
+}
+
 static int uas_slave_alloc(struct scsi_device *sdev)
 {
-	sdev->hostdata = (void *)sdev->host->hostdata;
+	struct uas_dev_info *devinfo =
+		(struct uas_dev_info *)sdev->host->hostdata;
+
+	sdev->hostdata = devinfo;
 
 	/* USB has unusual DMA-alignment requirements: Although the
 	 * starting address of each scatter-gather element doesn't matter,
@@ -944,12 +972,25 @@ static int uas_slave_alloc(struct scsi_device *sdev)
 	 */
 	blk_queue_update_dma_alignment(sdev->request_queue, (512 - 1));
 
+	if (devinfo->flags & US_FL_MAX_SECTORS_64)
+		blk_queue_max_hw_sectors(sdev->request_queue, 64);
+	else if (devinfo->flags & US_FL_MAX_SECTORS_240)
+		blk_queue_max_hw_sectors(sdev->request_queue, 240);
+
 	return 0;
 }
 
 static int uas_slave_configure(struct scsi_device *sdev)
 {
 	struct uas_dev_info *devinfo = sdev->hostdata;
+
+	if (devinfo->flags & US_FL_NO_REPORT_OPCODES)
+		sdev->no_report_opcodes = 1;
+
+	/* A few buggy USB-ATA bridges don't understand FUA */
+	if (devinfo->flags & US_FL_BROKEN_FUA)
+		sdev->broken_fua = 1;
+
 	scsi_set_tag_type(sdev, MSG_ORDERED_TAG);
 	scsi_activate_tcq(sdev, devinfo->qdepth - 2);
 	return 0;
@@ -959,12 +1000,13 @@ static struct scsi_host_template uas_host_template = {
 	.module = THIS_MODULE,
 	.name = "uas",
 	.queuecommand = uas_queuecommand,
+	.target_alloc = uas_target_alloc,
 	.slave_alloc = uas_slave_alloc,
 	.slave_configure = uas_slave_configure,
 	.eh_abort_handler = uas_eh_abort_handler,
 	.eh_device_reset_handler = uas_eh_device_reset_handler,
 	.eh_bus_reset_handler = uas_eh_bus_reset_handler,
-	.can_queue = 65536,	/* Is there a limit on the _host_ ? */
+	.can_queue = MAX_CMNDS,
 	.this_id = -1,
 	.sg_tablesize = SG_NONE,
 	.cmd_per_lun = 1,	/* until we override it */
@@ -993,14 +1035,14 @@ MODULE_DEVICE_TABLE(usb, uas_usb_ids);
 static int uas_switch_interface(struct usb_device *udev,
 				struct usb_interface *intf)
 {
-	int alt;
+	struct usb_host_interface *alt;
 
 	alt = uas_find_uas_alt_setting(intf);
-	if (alt < 0)
-		return alt;
+	if (!alt)
+		return -ENODEV;
 
-	return usb_set_interface(udev,
-			intf->altsetting[0].desc.bInterfaceNumber, alt);
+	return usb_set_interface(udev, alt->desc.bInterfaceNumber,
+			alt->desc.bAlternateSetting);
 }
 
 static int uas_configure_endpoints(struct uas_dev_info *devinfo)
@@ -1026,11 +1068,11 @@ static int uas_configure_endpoints(struct uas_dev_info *devinfo)
 					    usb_endpoint_num(&eps[3]->desc));
 
 	if (udev->speed != USB_SPEED_SUPER) {
-		devinfo->qdepth = 256;
+		devinfo->qdepth = 32;
 		devinfo->use_streams = 0;
 	} else {
 		devinfo->qdepth = usb_alloc_streams(devinfo->intf, eps + 1,
-						    3, 256, GFP_NOIO);
+						    3, MAX_CMNDS, GFP_NOIO);
 		if (devinfo->qdepth < 0)
 			return devinfo->qdepth;
 		devinfo->use_streams = 1;
@@ -1056,8 +1098,9 @@ static int uas_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	struct Scsi_Host *shost = NULL;
 	struct uas_dev_info *devinfo;
 	struct usb_device *udev = interface_to_usbdev(intf);
+	unsigned long dev_flags;
 
-	if (!uas_use_uas_driver(intf, id))
+	if (!uas_use_uas_driver(intf, id, &dev_flags))
 		return -ENODEV;
 
 	if (uas_switch_interface(udev, intf))
@@ -1080,6 +1123,7 @@ static int uas_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	devinfo->resetting = 0;
 	devinfo->running_task = 0;
 	devinfo->shutdown = 0;
+	devinfo->flags = dev_flags;
 	init_usb_anchor(&devinfo->cmd_urbs);
 	init_usb_anchor(&devinfo->sense_urbs);
 	init_usb_anchor(&devinfo->data_urbs);
@@ -1145,23 +1189,25 @@ static int uas_post_reset(struct usb_interface *intf)
 	struct Scsi_Host *shost = usb_get_intfdata(intf);
 	struct uas_dev_info *devinfo = (struct uas_dev_info *)shost->hostdata;
 	unsigned long flags;
+	int err;
 
 	if (devinfo->shutdown)
 		return 0;
 
-	if (uas_configure_endpoints(devinfo) != 0) {
+	err = uas_configure_endpoints(devinfo);
+	if (err && err != -ENODEV)
 		shost_printk(KERN_ERR, shost,
-			     "%s: alloc streams error after reset", __func__);
-		return 1;
-	}
+			     "%s: alloc streams error %d after reset",
+			     __func__, err);
 
+	/* we must unblock the host in every case lest we deadlock */
 	spin_lock_irqsave(shost->host_lock, flags);
 	scsi_report_bus_reset(shost, 0);
 	spin_unlock_irqrestore(shost->host_lock, flags);
 
 	scsi_unblock_requests(shost);
 
-	return 0;
+	return err ? 1 : 0;
 }
 
 static int uas_suspend(struct usb_interface *intf, pm_message_t message)
@@ -1189,10 +1235,13 @@ static int uas_reset_resume(struct usb_interface *intf)
 	struct Scsi_Host *shost = usb_get_intfdata(intf);
 	struct uas_dev_info *devinfo = (struct uas_dev_info *)shost->hostdata;
 	unsigned long flags;
+	int err;
 
-	if (uas_configure_endpoints(devinfo) != 0) {
+	err = uas_configure_endpoints(devinfo);
+	if (err) {
 		shost_printk(KERN_ERR, shost,
-			     "%s: alloc streams error after reset", __func__);
+			     "%s: alloc streams error %d after reset",
+			     __func__, err);
 		return -EIO;
 	}
 

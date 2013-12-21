@@ -58,6 +58,7 @@
 #include <asm/alternative-asm.h>
 #include <asm/asm.h>
 #include <asm/smap.h>
+#include <asm/nospec-branch.h>
 
 /* Avoid __ASSEMBLER__'ifying <linux/audit.h> just for this.  */
 #include <linux/elf-em.h>
@@ -308,7 +309,8 @@ ENTRY(ret_from_kernel_thread)
 	pushl_cfi $0x0202		# Reset kernel eflags
 	popfl_cfi
 	movl PT_EBP(%esp),%eax
-	call *PT_EBX(%esp)
+	movl	PT_EBX(%esp), %edx
+	CALL_NOSPEC %edx
 	movl $0,PT_EAX(%esp)
 	jmp syscall_exit
 	CFI_ENDPROC
@@ -424,7 +426,14 @@ sysenter_past_esp:
 sysenter_do_call:
 	cmpl $(NR_syscalls), %eax
 	jae sysenter_badsys
+	sbb %edx, %edx				/* array_index_mask_nospec() */
+	and %edx, %eax
+#ifdef CONFIG_RETPOLINE
+	movl sys_call_table(,%eax,4),%eax
+	call __x86_indirect_thunk_eax
+#else
 	call *sys_call_table(,%eax,4)
+#endif
 sysenter_after_call:
 	movl %eax,PT_EAX(%esp)
 	LOCKDEP_SYS_EXIT
@@ -501,7 +510,14 @@ ENTRY(system_call)
 	cmpl $(NR_syscalls), %eax
 	jae syscall_badsys
 syscall_call:
+	sbb %edx, %edx				/* array_index_mask_nospec() */
+	and %edx, %eax
+#ifdef CONFIG_RETPOLINE
+	movl sys_call_table(,%eax,4),%eax
+	call __x86_indirect_thunk_eax
+#else
 	call *sys_call_table(,%eax,4)
+#endif
 syscall_after_call:
 	movl %eax,PT_EAX(%esp)		# store the return value
 syscall_exit:
@@ -821,7 +837,7 @@ ENTRY(simd_coprocessor_error)
 661:	pushl_cfi $do_general_protection
 662:
 .section .altinstructions,"a"
-	altinstruction_entry 661b, 663f, X86_FEATURE_XMM, 662b-661b, 664f-663f
+	altinstruction_entry 661b, 663f, X86_FEATURE_XMM, 662b-661b, 664f-663f, 0
 .previous
 .section .altinstr_replacement,"ax"
 663:	pushl $do_simd_coprocessor_error
@@ -1086,8 +1102,8 @@ ftrace_graph_call:
 	jmp ftrace_stub
 #endif
 
-.globl ftrace_stub
-ftrace_stub:
+/* This is weak to keep gas from relaxing the jumps */
+WEAK(ftrace_stub)
 	ret
 END(ftrace_caller)
 
@@ -1187,7 +1203,8 @@ trace:
 	movl 0x4(%ebp), %edx
 	subl $MCOUNT_INSN_SIZE, %eax
 
-	call *ftrace_trace_function
+	movl ftrace_trace_function, %ecx
+	CALL_NOSPEC %ecx
 
 	popl %edx
 	popl %ecx
@@ -1222,7 +1239,7 @@ return_to_handler:
 	movl %eax, %ecx
 	popl %edx
 	popl %eax
-	jmp *%ecx
+	JMP_NOSPEC %ecx
 #endif
 
 #ifdef CONFIG_TRACING
@@ -1277,7 +1294,7 @@ error_code:
 	movl %ecx, %es
 	TRACE_IRQS_OFF
 	movl %esp,%eax			# pt_regs pointer
-	call *%edi
+	CALL_NOSPEC %edi
 	jmp ret_from_exception
 	CFI_ENDPROC
 END(page_fault)

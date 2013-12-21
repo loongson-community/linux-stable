@@ -188,7 +188,7 @@ void symbols__fixup_end(struct rb_root *symbols)
 
 	/* Last entry */
 	if (curr->end == curr->start)
-		curr->end = roundup(curr->start, 4096);
+		curr->end = roundup(curr->start, 4096) + 4096;
 }
 
 void __map_groups__fixup_end(struct map_groups *mg, enum map_type type)
@@ -1176,8 +1176,8 @@ int dso__load_kallsyms(struct dso *dso, const char *filename,
 	if (kallsyms__delta(map, filename, &delta))
 		return -1;
 
-	symbols__fixup_duplicate(&dso->symbols[map->type]);
 	symbols__fixup_end(&dso->symbols[map->type]);
+	symbols__fixup_duplicate(&dso->symbols[map->type]);
 
 	if (dso->kernel == DSO_TYPE_GUEST_KERNEL)
 		dso->symtab_type = DSO_BINARY_TYPE__GUEST_KALLSYMS;
@@ -1786,6 +1786,8 @@ int setup_list(struct strlist **list, const char *list_str,
 		pr_err("problems parsing %s list\n", list_name);
 		return -1;
 	}
+
+	symbol_conf.has_filter = true;
 	return 0;
 }
 

@@ -198,6 +198,15 @@ static void fixup_boot_paca(void)
 
 static void cpu_ready_for_interrupts(void)
 {
+	/*
+	 * Fixup HFSCR:TM based on CPU features. The bit is set by our
+	 * early asm init because at that point we haven't updated our
+	 * CPU features from firmware and device-tree. Here we have,
+	 * so let's do it.
+	 */
+	if (cpu_has_feature(CPU_FTR_HVMODE) && !cpu_has_feature(CPU_FTR_TM_COMP))
+		mtspr(SPRN_HFSCR, mfspr(SPRN_HFSCR) & ~HFSCR_TM);
+
 	/* Set IR and DR in PACA MSR */
 	get_paca()->kernel_msr = MSR_KERNEL;
 
@@ -606,6 +615,23 @@ static void __init exc_lvl_early_init(void)
 #endif
 
 /*
+ * Emergency stacks are used for a range of things, from asynchronous
+ * NMIs (system reset, machine check) to synchronous, process context.
+ * We set preempt_count to zero, even though that isn't necessarily correct. To
+ * get the right value we'd need to copy it from the previous thread_info, but
+ * doing that might fault causing more problems.
+ * TODO: what to do with accounting?
+ */
+static void emerg_stack_init_thread_info(struct thread_info *ti, int cpu)
+{
+	ti->task = NULL;
+	ti->cpu = cpu;
+	ti->preempt_count = 0;
+	ti->local_flags = 0;
+	ti->flags = 0;
+}
+
+/*
  * Stack space used when we detect a bad kernel stack pointer, and
  * early in SMP boots before relocation is enabled. Exclusive emergency
  * stack for machine checks.
@@ -623,18 +649,29 @@ static void __init emergency_stack_init(void)
 	 * Since we use these as temporary stacks during secondary CPU
 	 * bringup, we need to get at them in real mode. This means they
 	 * must also be within the RMO region.
+	 *
+	 * The IRQ stacks allocated elsewhere in this file are zeroed and
+	 * initialized in kernel/irq.c. These are initialized here in order
+	 * to have emergency stacks available as early as possible.
 	 */
 	limit = min(safe_stack_limit(), ppc64_rma_size);
 
 	for_each_possible_cpu(i) {
 		unsigned long sp;
+		struct thread_info *ti;
 		sp  = memblock_alloc_base(THREAD_SIZE, THREAD_SIZE, limit);
+		ti = __va(sp);
+		memset(ti, 0, THREAD_SIZE);
+		emerg_stack_init_thread_info(ti, i);
 		sp += THREAD_SIZE;
 		paca[i].emergency_sp = __va(sp);
 
 #ifdef CONFIG_PPC_BOOK3S_64
 		/* emergency stack for machine check exception handling. */
 		sp  = memblock_alloc_base(THREAD_SIZE, THREAD_SIZE, limit);
+		ti = __va(sp);
+		memset(ti, 0, THREAD_SIZE);
+		emerg_stack_init_thread_info(ti, i);
 		sp += THREAD_SIZE;
 		paca[i].mc_emergency_sp = __va(sp);
 #endif
@@ -730,7 +767,7 @@ void ppc64_boot_msg(unsigned int src, const char *msg)
 
 static void * __init pcpu_fc_alloc(unsigned int cpu, size_t size, size_t align)
 {
-	return __alloc_bootmem_node(NODE_DATA(cpu_to_node(cpu)), size, align,
+	return __alloc_bootmem_node(NODE_DATA(early_cpu_to_node(cpu)), size, align,
 				    __pa(MAX_DMA_ADDRESS));
 }
 
@@ -741,7 +778,7 @@ static void __init pcpu_fc_free(void *ptr, size_t size)
 
 static int pcpu_cpu_distance(unsigned int from, unsigned int to)
 {
-	if (cpu_to_node(from) == cpu_to_node(to))
+	if (early_cpu_to_node(from) == early_cpu_to_node(to))
 		return LOCAL_DISTANCE;
 	else
 		return REMOTE_DISTANCE;

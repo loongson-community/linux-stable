@@ -29,6 +29,7 @@
 #include "radeon.h"
 #include "atom.h"
 #include <linux/backlight.h>
+#include <linux/dmi.h>
 
 extern int atom_debug;
 
@@ -119,6 +120,7 @@ atombios_set_backlight_level(struct radeon_encoder *radeon_encoder, u8 level)
 		case ENCODER_OBJECT_ID_INTERNAL_KLDSCP_LVTMA:
 		case ENCODER_OBJECT_ID_INTERNAL_UNIPHY1:
 		case ENCODER_OBJECT_ID_INTERNAL_UNIPHY2:
+		case ENCODER_OBJECT_ID_INTERNAL_UNIPHY3:
 			if (dig->backlight_level == 0)
 				atombios_dig_transmitter_setup(encoder, ATOM_TRANSMITTER_ACTION_LCD_BLOFF, 0, 0);
 			else {
@@ -236,6 +238,7 @@ void radeon_atom_backlight_init(struct radeon_encoder *radeon_encoder,
 	backlight_update_status(bd);
 
 	DRM_INFO("radeon atom DIG backlight initialized\n");
+	rdev->mode_info.bl_encoder = radeon_encoder;
 
 	return;
 
@@ -330,6 +333,10 @@ static bool radeon_atom_mode_fixup(struct drm_encoder *encoder,
 	if ((mode->flags & DRM_MODE_FLAG_INTERLACE)
 	    && (mode->crtc_vsync_start < (mode->crtc_vdisplay + 2)))
 		adjusted_mode->crtc_vsync_start = adjusted_mode->crtc_vdisplay + 2;
+
+	/* vertical FP must be at least 1 */
+	if (mode->crtc_vsync_start == mode->crtc_vdisplay)
+		adjusted_mode->crtc_vsync_start++;
 
 	/* get the native mode for LVDS */
 	if (radeon_encoder->active_device & (ATOM_DEVICE_LCD_SUPPORT))
@@ -895,8 +902,6 @@ atombios_dig_encoder_setup(struct drm_encoder *encoder, int action, int panel_mo
 			else
 				args.v1.ucLaneNum = 4;
 
-			if (ENCODER_MODE_IS_DP(args.v1.ucEncoderMode) && (dp_clock == 270000))
-				args.v1.ucConfig |= ATOM_ENCODER_CONFIG_DPLINKRATE_2_70GHZ;
 			switch (radeon_encoder->encoder_id) {
 			case ENCODER_OBJECT_ID_INTERNAL_UNIPHY:
 				args.v1.ucConfig = ATOM_ENCODER_CONFIG_V2_TRANSMITTER1;
@@ -913,6 +918,10 @@ atombios_dig_encoder_setup(struct drm_encoder *encoder, int action, int panel_mo
 				args.v1.ucConfig |= ATOM_ENCODER_CONFIG_LINKB;
 			else
 				args.v1.ucConfig |= ATOM_ENCODER_CONFIG_LINKA;
+
+			if (ENCODER_MODE_IS_DP(args.v1.ucEncoderMode) && (dp_clock == 270000))
+				args.v1.ucConfig |= ATOM_ENCODER_CONFIG_DPLINKRATE_2_70GHZ;
+
 			break;
 		case 2:
 		case 3:
@@ -1609,8 +1618,14 @@ radeon_atom_encoder_dpms_avivo(struct drm_encoder *encoder, int mode)
 		} else
 			atom_execute_table(rdev->mode_info.atom_context, index, (uint32_t *)&args);
 		if (radeon_encoder->devices & (ATOM_DEVICE_LCD_SUPPORT)) {
-			args.ucAction = ATOM_LCD_BLON;
-			atom_execute_table(rdev->mode_info.atom_context, index, (uint32_t *)&args);
+			if (rdev->mode_info.bl_encoder) {
+				struct radeon_encoder_atom_dig *dig = radeon_encoder->enc_priv;
+
+				atombios_set_backlight_level(radeon_encoder, dig->backlight_level);
+			} else {
+				args.ucAction = ATOM_LCD_BLON;
+				atom_execute_table(rdev->mode_info.atom_context, index, (uint32_t *)&args);
+			}
 		}
 		break;
 	case DRM_MODE_DPMS_STANDBY:
@@ -1690,9 +1705,13 @@ radeon_atom_encoder_dpms_dig(struct drm_encoder *encoder, int mode)
 			if (ASIC_IS_DCE4(rdev))
 				atombios_dig_encoder_setup(encoder, ATOM_ENCODER_CMD_DP_VIDEO_ON, 0);
 		}
-		if (radeon_encoder->devices & (ATOM_DEVICE_LCD_SUPPORT))
-			atombios_dig_transmitter_setup(encoder,
-						       ATOM_TRANSMITTER_ACTION_LCD_BLON, 0, 0);
+		if (radeon_encoder->devices & (ATOM_DEVICE_LCD_SUPPORT)) {
+			if (rdev->mode_info.bl_encoder)
+				atombios_set_backlight_level(radeon_encoder, dig->backlight_level);
+			else
+				atombios_dig_transmitter_setup(encoder,
+							       ATOM_TRANSMITTER_ACTION_LCD_BLON, 0, 0);
+		}
 		if (ext_encoder)
 			atombios_external_encoder_setup(encoder, ext_encoder, ATOM_ENABLE);
 		break;
@@ -2077,9 +2096,17 @@ static int radeon_atom_pick_dig_encoder(struct drm_encoder *encoder)
 		}
 	}
 
-	/* on DCE32 and encoder can driver any block so just crtc id */
+	/*
+	 * On DCE32 any encoder can drive any block so usually just use crtc id,
+	 * but Apple thinks different at least on iMac10,1, so there use linkb,
+	 * otherwise the internal eDP panel will stay dark.
+	 */
 	if (ASIC_IS_DCE32(rdev)) {
-		return radeon_crtc->crtc_id;
+		if (dmi_match(DMI_PRODUCT_NAME, "iMac10,1"))
+			return (dig->linkb) ? 1 : 0;
+		else
+			return radeon_crtc->crtc_id;
+
 	}
 
 	/* on DCE3 - LVTMA can only be driven by DIGB */

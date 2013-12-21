@@ -65,18 +65,12 @@ static size_t rng_buffer_size(void)
 
 static void add_early_randomness(struct hwrng *rng)
 {
-	unsigned char bytes[16];
 	int bytes_read;
+	size_t size = min_t(size_t, 16, rng_buffer_size());
 
-	/*
-	 * Currently only virtio-rng cannot return data during device
-	 * probe, and that's handled in virtio-rng.c itself.  If there
-	 * are more such devices, this call to rng_get_data can be
-	 * made conditional here instead of doing it per-device.
-	 */
-	bytes_read = rng_get_data(rng, bytes, sizeof(bytes), 1);
+	bytes_read = rng_get_data(rng, rng_buffer, size, 1);
 	if (bytes_read > 0)
-		add_device_randomness(bytes, bytes_read);
+		add_device_randomness(rng_buffer, bytes_read);
 }
 
 static inline int hwrng_init(struct hwrng *rng)

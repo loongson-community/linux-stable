@@ -137,9 +137,9 @@ static int mlx4_en_get_profile(struct mlx4_en_dev *mdev)
 		params->udp_rss = 0;
 	}
 	for (i = 1; i <= MLX4_MAX_PORTS; i++) {
-		params->prof[i].rx_pause = 1;
+		params->prof[i].rx_pause = !(pfcrx || pfctx);
 		params->prof[i].rx_ppp = pfcrx;
-		params->prof[i].tx_pause = 1;
+		params->prof[i].tx_pause = !(pfcrx || pfctx);
 		params->prof[i].tx_ppp = pfctx;
 		params->prof[i].tx_ring_size = MLX4_EN_DEF_TX_RING_SIZE;
 		params->prof[i].rx_ring_size = MLX4_EN_DEF_RX_RING_SIZE;
@@ -205,9 +205,6 @@ static void mlx4_en_remove(struct mlx4_dev *dev, void *endev_ptr)
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_ETH)
 		if (mdev->pndev[i])
 			mlx4_en_destroy_netdev(mdev->pndev[i]);
-
-	if (mdev->dev->caps.flags2 & MLX4_DEV_CAP_FLAG2_TS)
-		mlx4_en_remove_timestamp(mdev);
 
 	flush_workqueue(mdev->workqueue);
 	destroy_workqueue(mdev->workqueue);
@@ -275,10 +272,6 @@ static void *mlx4_en_add(struct mlx4_dev *dev)
 	mdev->port_cnt = 0;
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_ETH)
 		mdev->port_cnt++;
-
-	/* Initialize time stamp mechanism */
-	if (mdev->dev->caps.flags2 & MLX4_DEV_CAP_FLAG2_TS)
-		mlx4_en_init_timestamp(mdev);
 
 	/* Set default number of RX rings*/
 	mlx4_en_set_num_rx_rings(mdev);

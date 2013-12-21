@@ -1895,7 +1895,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 				reg_write32(hcd->regs, HC_PORTSC1,
 							temp | PORT_RESUME);
 				priv->reset_done = jiffies +
-					msecs_to_jiffies(20);
+					msecs_to_jiffies(USB_RESUME_TIMEOUT);
 			}
 			break;
 		case USB_PORT_FEAT_C_SUSPEND:
@@ -2246,6 +2246,9 @@ struct usb_hcd *isp1760_register(phys_addr_t res_start, resource_size_t res_len,
 	hcd->irq = irq;
 	hcd->rsrc_start = res_start;
 	hcd->rsrc_len = res_len;
+
+	/* This driver doesn't support wakeup requests */
+	hcd->cant_recv_wakeups = 1;
 
 	ret = usb_add_hcd(hcd, irq, irqflags);
 	if (ret)

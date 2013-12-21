@@ -176,7 +176,7 @@ async_gen_syndrome(struct page **blocks, unsigned int offset, int disks,
 	BUG_ON(disks > 255 || !(P(blocks, disks) || Q(blocks, disks)));
 
 	if (device)
-		unmap = dmaengine_get_unmap_data(device->dev, disks, GFP_NOIO);
+		unmap = dmaengine_get_unmap_data(device->dev, disks, GFP_NOWAIT);
 
 	if (unmap &&
 	    (src_cnt <= dma_maxpq(device, 0) ||
@@ -294,7 +294,7 @@ async_syndrome_val(struct page **blocks, unsigned int offset, int disks,
 	BUG_ON(disks < 4);
 
 	if (device)
-		unmap = dmaengine_get_unmap_data(device->dev, disks, GFP_NOIO);
+		unmap = dmaengine_get_unmap_data(device->dev, disks, GFP_NOWAIT);
 
 	if (unmap && disks <= dma_maxpq(device, 0) &&
 	    is_dma_pq_aligned(device, offset, 0, len)) {
@@ -355,8 +355,6 @@ async_syndrome_val(struct page **blocks, unsigned int offset, int disks,
 
 		dma_set_unmap(tx, unmap);
 		async_tx_submit(chan, tx, submit);
-
-		return tx;
 	} else {
 		struct page *p_src = P(blocks, disks);
 		struct page *q_src = Q(blocks, disks);
@@ -411,9 +409,11 @@ async_syndrome_val(struct page **blocks, unsigned int offset, int disks,
 		submit->cb_param = cb_param_orig;
 		submit->flags = flags_orig;
 		async_tx_sync_epilog(submit);
-
-		return NULL;
+		tx = NULL;
 	}
+	dmaengine_unmap_put(unmap);
+
+	return tx;
 }
 EXPORT_SYMBOL_GPL(async_syndrome_val);
 

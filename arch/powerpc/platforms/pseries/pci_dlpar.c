@@ -118,10 +118,10 @@ int remove_phb_dynamic(struct pci_controller *phb)
 		}
 	}
 
-	/* Unregister the bridge device from sysfs and remove the PCI bus */
-	device_unregister(b->bridge);
+	/* Remove the PCI bus and unregister the bridge device from sysfs */
 	phb->bus = NULL;
 	pci_remove_bus(b);
+	device_unregister(b->bridge);
 
 	/* Now release the IO resource */
 	if (res->flags & IORESOURCE_IO)
@@ -135,8 +135,11 @@ int remove_phb_dynamic(struct pci_controller *phb)
 		release_resource(res);
 	}
 
-	/* Free pci_controller data structure */
-	pcibios_free_controller(phb);
+	/*
+	 * The pci_controller data structure is freed by
+	 * the pcibios_free_controller_deferred() callback;
+	 * see pseries_root_bridge_prepare().
+	 */
 
 	return 0;
 }

@@ -137,6 +137,7 @@ static inline bool hctx_may_queue(struct blk_mq_hw_ctx *hctx,
 static int __bt_get_word(struct blk_align_bitmap *bm, unsigned int last_tag)
 {
 	int tag, org_last_tag, end;
+	bool wrap = last_tag != 0;
 
 	org_last_tag = last_tag;
 	end = bm->depth;
@@ -148,15 +149,16 @@ restart:
 			 * We started with an offset, start from 0 to
 			 * exhaust the map.
 			 */
-			if (org_last_tag && last_tag) {
-				end = last_tag;
+			if (wrap) {
+				wrap = false;
+				end = org_last_tag;
 				last_tag = 0;
 				goto restart;
 			}
 			return -1;
 		}
 		last_tag = tag + 1;
-	} while (test_and_set_bit_lock(tag, &bm->word));
+	} while (test_and_set_bit(tag, &bm->word));
 
 	return tag;
 }
@@ -338,28 +340,37 @@ static void bt_clear_tag(struct blk_mq_bitmap_tags *bt, unsigned int tag)
 {
 	const int index = TAG_TO_INDEX(bt, tag);
 	struct bt_wait_state *bs;
+	unsigned int wake_batch;
 	int wait_cnt;
 
-	/*
-	 * The unlock memory barrier need to order access to req in free
-	 * path and clearing tag bit
-	 */
-	clear_bit_unlock(TAG_TO_BIT(bt, tag), &bt->map[index].word);
+	clear_bit(TAG_TO_BIT(bt, tag), &bt->map[index].word);
+
+	/* Ensure that the wait list checks occur after clear_bit(). */
+	smp_mb();
 
 	bs = bt_wake_ptr(bt);
 	if (!bs)
 		return;
 
 	wait_cnt = atomic_dec_return(&bs->wait_cnt);
-	if (wait_cnt == 0) {
-wake:
-		atomic_add(bt->wake_cnt, &bs->wait_cnt);
+	if (wait_cnt <= 0) {
+		wake_batch = ACCESS_ONCE(bt->wake_cnt);
+		/*
+		 * Pairs with the memory barrier in bt_update_count() to
+		 * ensure that we see the batch size update before the wait
+		 * count is reset.
+		 */
+		smp_mb__before_atomic();
+		/*
+		 * If there are concurrent callers to bt_clear_tag(), the last
+		 * one to decrement the wait count below zero will bump it back
+		 * up. If there is a concurrent resize, the count reset will
+		 * either cause the cmpxchg to fail or overwrite after the
+		 * cmpxchg.
+		 */
+		atomic_cmpxchg(&bs->wait_cnt, wait_cnt, wait_cnt + wake_batch);
 		bt_index_atomic_inc(&bt->wake_index);
 		wake_up(&bs->wait);
-	} else if (wait_cnt < 0) {
-		wait_cnt = atomic_inc_return(&bs->wait_cnt);
-		if (!wait_cnt)
-			goto wake;
 	}
 }
 
@@ -452,20 +463,30 @@ static void bt_update_count(struct blk_mq_bitmap_tags *bt,
 {
 	unsigned int tags_per_word = 1U << bt->bits_per_word;
 	unsigned int map_depth = depth;
+	unsigned int wake_batch;
+	int i;
 
 	if (depth) {
-		int i;
-
 		for (i = 0; i < bt->map_nr; i++) {
 			bt->map[i].depth = min(map_depth, tags_per_word);
 			map_depth -= bt->map[i].depth;
 		}
 	}
 
-	bt->wake_cnt = BT_WAIT_BATCH;
-	if (bt->wake_cnt > depth / 4)
-		bt->wake_cnt = max(1U, depth / 4);
+	wake_batch = BT_WAIT_BATCH;
+	if (wake_batch > depth / BT_WAIT_QUEUES)
+		wake_batch = max(1U, depth / BT_WAIT_QUEUES);
 
+	if (bt->wake_cnt != wake_batch) {
+		ACCESS_ONCE(bt->wake_cnt) = wake_batch;
+		/*
+		 * Pairs with the memory barrier in bt_clear_tag() to ensure
+		 * that the batch size is updated before the wait counts.
+		 */
+		smp_mb__before_atomic();
+		for (i = 0; i < BT_WAIT_QUEUES; i++)
+			atomic_set(&bt->bs[i].wait_cnt, 1);
+	}
 	bt->depth = depth;
 }
 
@@ -510,6 +531,7 @@ static int bt_alloc(struct blk_mq_bitmap_tags *bt, unsigned int depth,
 	bt->bs = kzalloc(BT_WAIT_QUEUES * sizeof(*bt->bs), GFP_KERNEL);
 	if (!bt->bs) {
 		kfree(bt->map);
+		bt->map = NULL;
 		return -ENOMEM;
 	}
 

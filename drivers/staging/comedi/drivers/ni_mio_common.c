@@ -2959,7 +2959,15 @@ static int ni_ao_inttrig(struct comedi_device *dev,
 	int i;
 	static const int timeout = 1000;
 
-	if (trig_num != cmd->start_arg)
+	/*
+	 * Require trig_num == cmd->start_arg when cmd->start_src == TRIG_INT.
+	 * For backwards compatibility, also allow trig_num == 0 when
+	 * cmd->start_src != TRIG_INT (i.e. when cmd->start_src == TRIG_EXT);
+	 * in that case, the internal trigger is being used as a pre-trigger
+	 * before the external trigger.
+	 */
+	if (!(trig_num == cmd->start_arg ||
+	      (trig_num == 0 && cmd->start_src != TRIG_INT)))
 		return -EINVAL;
 
 	/* Null trig at beginning prevent ao start trigger from executing more than
@@ -4407,7 +4415,7 @@ static int ni_E_init(struct comedi_device *dev)
 		else
 			s->maxdata = 0xffffff;
 		s->insn_read = ni_tio_insn_read;
-		s->insn_write = ni_tio_insn_read;
+		s->insn_write = ni_tio_insn_write;
 		s->insn_config = ni_tio_insn_config;
 #ifdef PCIDMA
 		s->subdev_flags |= SDF_CMD_READ /* | SDF_CMD_WRITE */;

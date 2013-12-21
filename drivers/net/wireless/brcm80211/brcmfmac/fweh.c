@@ -26,50 +26,6 @@
 #include "fwil.h"
 
 /**
- * struct brcm_ethhdr - broadcom specific ether header.
- *
- * @subtype: subtype for this packet.
- * @length: TODO: length of appended data.
- * @version: version indication.
- * @oui: OUI of this packet.
- * @usr_subtype: subtype for this OUI.
- */
-struct brcm_ethhdr {
-	__be16 subtype;
-	__be16 length;
-	u8 version;
-	u8 oui[3];
-	__be16 usr_subtype;
-} __packed;
-
-struct brcmf_event_msg_be {
-	__be16 version;
-	__be16 flags;
-	__be32 event_type;
-	__be32 status;
-	__be32 reason;
-	__be32 auth_type;
-	__be32 datalen;
-	u8 addr[ETH_ALEN];
-	char ifname[IFNAMSIZ];
-	u8 ifidx;
-	u8 bsscfgidx;
-} __packed;
-
-/**
- * struct brcmf_event - contents of broadcom event packet.
- *
- * @eth: standard ether header.
- * @hdr: broadcom specific ether header.
- * @msg: common part of the actual event message.
- */
-struct brcmf_event {
-	struct ethhdr eth;
-	struct brcm_ethhdr hdr;
-	struct brcmf_event_msg_be msg;
-} __packed;
-
-/**
  * struct brcmf_fweh_queue_item - event item on event queue.
  *
  * @q: list element for queuing.
@@ -85,6 +41,7 @@ struct brcmf_fweh_queue_item {
 	u8 ifidx;
 	u8 ifaddr[ETH_ALEN];
 	struct brcmf_event_msg_be emsg;
+	u32 datalen;
 	u8 data[0];
 };
 
@@ -185,7 +142,13 @@ static void brcmf_fweh_handle_if_event(struct brcmf_pub *drvr,
 		  ifevent->action, ifevent->ifidx, ifevent->bssidx,
 		  ifevent->flags, ifevent->role);
 
-	if (ifevent->flags & BRCMF_E_IF_FLAG_NOIF) {
+	/* The P2P Device interface event must not be ignored
+	 * contrary to what firmware tells us. The only way to
+	 * distinguish the P2P Device is by looking at the ifidx
+	 * and bssidx received.
+	 */
+	if (!(ifevent->ifidx == 0 && ifevent->bssidx == 1) &&
+	    (ifevent->flags & BRCMF_E_IF_FLAG_NOIF)) {
 		brcmf_dbg(EVENT, "event can be ignored\n");
 		return;
 	}
@@ -210,12 +173,12 @@ static void brcmf_fweh_handle_if_event(struct brcmf_pub *drvr,
 				return;
 	}
 
-	if (ifevent->action == BRCMF_E_IF_CHANGE)
+	if (ifp && ifevent->action == BRCMF_E_IF_CHANGE)
 		brcmf_fws_reset_interface(ifp);
 
 	err = brcmf_fweh_call_event_handler(ifp, emsg->event_code, emsg, data);
 
-	if (ifevent->action == BRCMF_E_IF_DEL) {
+	if (ifp && ifevent->action == BRCMF_E_IF_DEL) {
 		brcmf_fws_del_interface(ifp);
 		brcmf_del_if(drvr, ifevent->bssidx);
 	}
@@ -286,6 +249,11 @@ static void brcmf_fweh_event_worker(struct work_struct *work)
 		brcmf_dbg_hex_dump(BRCMF_EVENT_ON(), event->data,
 				   min_t(u32, emsg.datalen, 64),
 				   "event payload, len=%d\n", emsg.datalen);
+		if (emsg.datalen > event->datalen) {
+			brcmf_err("event invalid length header=%d, msg=%d\n",
+				  event->datalen, emsg.datalen);
+			goto event_free;
+		}
 
 		/* special handling of interface event */
 		if (event->code == BRCMF_E_IF) {
@@ -417,7 +385,8 @@ int brcmf_fweh_activate_events(struct brcmf_if *ifp)
  * dispatch the event to a registered handler (using worker).
  */
 void brcmf_fweh_process_event(struct brcmf_pub *drvr,
-			      struct brcmf_event *event_packet)
+			      struct brcmf_event *event_packet,
+			      u32 packet_len)
 {
 	enum brcmf_fweh_event_code code;
 	struct brcmf_fweh_info *fweh = &drvr->fweh;
@@ -437,6 +406,10 @@ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
 	if (code != BRCMF_E_IF && !fweh->evt_handler[code])
 		return;
 
+	if (datalen > BRCMF_DCMD_MAXLEN ||
+	    datalen + sizeof(*event_packet) > packet_len)
+		return;
+
 	if (in_interrupt())
 		alloc_flag = GFP_ATOMIC;
 
@@ -450,6 +423,7 @@ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
 	/* use memcpy to get aligned event message */
 	memcpy(&event->emsg, &event_packet->msg, sizeof(event->emsg));
 	memcpy(event->data, data, datalen);
+	event->datalen = datalen;
 	memcpy(event->ifaddr, event_packet->eth.h_dest, ETH_ALEN);
 
 	brcmf_fweh_queue_event(fweh, event);

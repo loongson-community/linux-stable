@@ -146,6 +146,8 @@ static int pci_bus_alloc_from_region(struct pci_bus *bus, struct resource *res,
 	type_mask |= IORESOURCE_TYPE_BITS;
 
 	pci_bus_for_each_resource(bus, r, i) {
+		resource_size_t min_used = min;
+
 		if (!r)
 			continue;
 
@@ -169,12 +171,12 @@ static int pci_bus_alloc_from_region(struct pci_bus *bus, struct resource *res,
 		 * overrides "min".
 		 */
 		if (avail.start)
-			min = avail.start;
+			min_used = avail.start;
 
 		max = avail.end;
 
 		/* Ok, try it out.. */
-		ret = allocate_resource(r, res, size, min, max,
+		ret = allocate_resource(r, res, size, min_used, max,
 					align, alignf, alignf_data);
 		if (ret == 0)
 			return 0;
@@ -227,6 +229,49 @@ int pci_bus_alloc_resource(struct pci_bus *bus, struct resource *res,
 					 &pci_32_bit);
 }
 EXPORT_SYMBOL(pci_bus_alloc_resource);
+
+/*
+ * The @idx resource of @dev should be a PCI-PCI bridge window.  If this
+ * resource fits inside a window of an upstream bridge, do nothing.  If it
+ * overlaps an upstream window but extends outside it, clip the resource so
+ * it fits completely inside.
+ */
+bool pci_bus_clip_resource(struct pci_dev *dev, int idx)
+{
+	struct pci_bus *bus = dev->bus;
+	struct resource *res = &dev->resource[idx];
+	struct resource orig_res = *res;
+	struct resource *r;
+	int i;
+
+	pci_bus_for_each_resource(bus, r, i) {
+		resource_size_t start, end;
+
+		if (!r)
+			continue;
+
+		if (resource_type(res) != resource_type(r))
+			continue;
+
+		start = max(r->start, res->start);
+		end = min(r->end, res->end);
+
+		if (start > end)
+			continue;	/* no overlap */
+
+		if (res->start == start && res->end == end)
+			return false;	/* no change */
+
+		res->start = start;
+		res->end = end;
+		dev_printk(KERN_DEBUG, &dev->dev, "%pR clipped to %pR\n",
+				 &orig_res, res);
+
+		return true;
+	}
+
+	return false;
+}
 
 void __weak pcibios_resource_survey_bus(struct pci_bus *bus) { }
 

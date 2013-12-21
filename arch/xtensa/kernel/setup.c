@@ -133,6 +133,8 @@ static int __init parse_tag_initrd(const bp_tag_t* tag)
 
 __tagtable(BP_TAG_INITRD, parse_tag_initrd);
 
+#endif /* CONFIG_BLK_DEV_INITRD */
+
 #ifdef CONFIG_OF
 
 static int __init parse_tag_fdt(const bp_tag_t *tag)
@@ -144,8 +146,6 @@ static int __init parse_tag_fdt(const bp_tag_t *tag)
 __tagtable(BP_TAG_FDT, parse_tag_fdt);
 
 #endif /* CONFIG_OF */
-
-#endif /* CONFIG_BLK_DEV_INITRD */
 
 static int __init parse_tag_cmdline(const bp_tag_t* tag)
 {
@@ -334,7 +334,10 @@ extern char _Level5InterruptVector_text_end;
 extern char _Level6InterruptVector_text_start;
 extern char _Level6InterruptVector_text_end;
 #endif
-
+#ifdef CONFIG_SMP
+extern char _SecondaryResetVector_text_start;
+extern char _SecondaryResetVector_text_end;
+#endif
 
 
 #ifdef CONFIG_S32C1I_SELFTEST
@@ -506,6 +509,10 @@ void __init setup_arch(char **cmdline_p)
 		    __pa(&_Level6InterruptVector_text_end), 0);
 #endif
 
+#ifdef CONFIG_SMP
+	mem_reserve(__pa(&_SecondaryResetVector_text_start),
+		    __pa(&_SecondaryResetVector_text_end), 0);
+#endif
 	parse_early_param();
 	bootmem_init();
 

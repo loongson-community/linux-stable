@@ -29,6 +29,7 @@
 #include <linux/version.h>
 #include <linux/interrupt.h>
 #include <asm/hyperv.h>
+#include <asm/nospec-branch.h>
 #include "hyperv_vmbus.h"
 
 /* The one and only */
@@ -93,10 +94,13 @@ static u64 do_hypercall(u64 control, void *input, void *output)
 	u64 output_address = (output) ? virt_to_phys(output) : 0;
 	void *hypercall_page = hv_context.hypercall_page;
 
-	__asm__ __volatile__("mov %0, %%r8" : : "r" (output_address) : "r8");
-	__asm__ __volatile__("call *%3" : "=a" (hv_status) :
-			     "c" (control), "d" (input_address),
-			     "m" (hypercall_page));
+	__asm__ __volatile__("mov %4, %%r8\n"
+			     CALL_NOSPEC
+			     : "=a" (hv_status), ASM_CALL_CONSTRAINT,
+			       "+c" (control), "+d" (input_address)
+			     :  "r" (output_address),
+				THUNK_TARGET(hypercall_page)
+			     : "cc", "memory", "r8", "r9", "r10", "r11");
 
 	return hv_status;
 
@@ -114,11 +118,14 @@ static u64 do_hypercall(u64 control, void *input, void *output)
 	u32 output_address_lo = output_address & 0xFFFFFFFF;
 	void *hypercall_page = hv_context.hypercall_page;
 
-	__asm__ __volatile__ ("call *%8" : "=d"(hv_status_hi),
-			      "=a"(hv_status_lo) : "d" (control_hi),
-			      "a" (control_lo), "b" (input_address_hi),
-			      "c" (input_address_lo), "D"(output_address_hi),
-			      "S"(output_address_lo), "m" (hypercall_page));
+	__asm__ __volatile__(CALL_NOSPEC
+			     : "=d" (hv_status_hi), "=a" (hv_status_lo),
+			       "+c" (input_address_lo), ASM_CALL_CONSTRAINT
+			     : "d" (control_hi), "a" (control_lo),
+			       "b" (input_address_hi),
+			       "D"(output_address_hi), "S"(output_address_lo),
+			       THUNK_TARGET(hypercall_page)
+			     : "cc", "memory");
 
 	return hv_status_lo | ((u64)hv_status_hi << 32);
 #endif /* !x86_64 */
@@ -138,6 +145,8 @@ int hv_init(void)
 	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
 	memset(hv_context.synic_message_page, 0,
 	       sizeof(void *) * NR_CPUS);
+	memset(hv_context.post_msg_page, 0,
+	       sizeof(void *) * NR_CPUS);
 	memset(hv_context.vp_index, 0,
 	       sizeof(int) * NR_CPUS);
 	memset(hv_context.event_dpc, 0,
@@ -154,7 +163,7 @@ int hv_init(void)
 	/* See if the hypercall page is already set */
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
-	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
+	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);
 
 	if (!virtaddr)
 		goto cleanup;
@@ -217,26 +226,18 @@ int hv_post_message(union hv_connection_id connection_id,
 		  enum hv_message_type message_type,
 		  void *payload, size_t payload_size)
 {
-	struct aligned_input {
-		u64 alignment8;
-		struct hv_input_post_message msg;
-	};
 
 	struct hv_input_post_message *aligned_msg;
 	u16 status;
-	unsigned long addr;
 
 	if (payload_size > HV_MESSAGE_PAYLOAD_BYTE_COUNT)
 		return -EMSGSIZE;
 
-	addr = (unsigned long)kmalloc(sizeof(struct aligned_input), GFP_ATOMIC);
-	if (!addr)
-		return -ENOMEM;
-
 	aligned_msg = (struct hv_input_post_message *)
-			(ALIGN(addr, HV_HYPERCALL_PARAM_ALIGN));
+			hv_context.post_msg_page[get_cpu()];
 
 	aligned_msg->connectionid = connection_id;
+	aligned_msg->reserved = 0;
 	aligned_msg->message_type = message_type;
 	aligned_msg->payload_size = payload_size;
 	memcpy((void *)aligned_msg->payload, payload, payload_size);
@@ -244,8 +245,7 @@ int hv_post_message(union hv_connection_id connection_id,
 	status = do_hypercall(HVCALL_POST_MESSAGE, aligned_msg, NULL)
 		& 0xFFFF;
 
-	kfree((void *)addr);
-
+	put_cpu();
 	return status;
 }
 
@@ -271,7 +271,7 @@ int hv_synic_alloc(void)
 	size_t size = sizeof(struct tasklet_struct);
 	int cpu;
 
-	for_each_online_cpu(cpu) {
+	for_each_present_cpu(cpu) {
 		hv_context.event_dpc[cpu] = kmalloc(size, GFP_ATOMIC);
 		if (hv_context.event_dpc[cpu] == NULL) {
 			pr_err("Unable to allocate event dpc\n");
@@ -294,6 +294,16 @@ int hv_synic_alloc(void)
 			pr_err("Unable to allocate SYNIC event page\n");
 			goto err;
 		}
+
+		hv_context.post_msg_page[cpu] =
+			(void *)get_zeroed_page(GFP_ATOMIC);
+
+		if (hv_context.post_msg_page[cpu] == NULL) {
+			pr_err("Unable to allocate post msg page\n");
+			goto err;
+		}
+
+		INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
 	}
 
 	return 0;
@@ -308,13 +318,15 @@ static void hv_synic_free_cpu(int cpu)
 		free_page((unsigned long)hv_context.synic_event_page[cpu]);
 	if (hv_context.synic_message_page[cpu])
 		free_page((unsigned long)hv_context.synic_message_page[cpu]);
+	if (hv_context.post_msg_page[cpu])
+		free_page((unsigned long)hv_context.post_msg_page[cpu]);
 }
 
 void hv_synic_free(void)
 {
 	int cpu;
 
-	for_each_online_cpu(cpu)
+	for_each_present_cpu(cpu)
 		hv_synic_free_cpu(cpu);
 }
 
@@ -383,8 +395,6 @@ void hv_synic_init(void *arg)
 	 */
 	rdmsrl(HV_X64_MSR_VP_INDEX, vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
-
-	INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
 	return;
 }
 

@@ -9,8 +9,7 @@
  * we put the segment information here.
  */
 typedef struct {
-	void *ldt;
-	int size;
+	struct ldt_struct *ldt;
 
 #ifdef CONFIG_X86_64
 	/* True if mm supports a task running in 32 bit compatibility mode. */
@@ -21,12 +20,6 @@ typedef struct {
 	void __user *vdso;
 } mm_context_t;
 
-#ifdef CONFIG_SMP
 void leave_mm(int cpu);
-#else
-static inline void leave_mm(int cpu)
-{
-}
-#endif
 
 #endif /* _ASM_X86_MMU_H */

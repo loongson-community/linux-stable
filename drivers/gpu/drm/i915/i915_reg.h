@@ -74,6 +74,7 @@
 #define   I915_GC_RENDER_CLOCK_166_MHZ	(0 << 0)
 #define   I915_GC_RENDER_CLOCK_200_MHZ	(1 << 0)
 #define   I915_GC_RENDER_CLOCK_333_MHZ	(4 << 0)
+#define GCDGMBUS 0xcc
 #define PCI_LBPC 0xf4 /* legacy/combination backlight modes, also called LBB */
 
 
@@ -329,16 +330,20 @@
 #define GFX_OP_DESTBUFFER_INFO	 ((0x3<<29)|(0x1d<<24)|(0x8e<<16)|1)
 #define GFX_OP_DRAWRECT_INFO     ((0x3<<29)|(0x1d<<24)|(0x80<<16)|(0x3))
 #define GFX_OP_DRAWRECT_INFO_I965  ((0x7900<<16)|0x2)
-#define SRC_COPY_BLT_CMD                ((2<<29)|(0x43<<22)|4)
+
+#define COLOR_BLT_CMD			(2<<29 | 0x40<<22 | (5-2))
+#define SRC_COPY_BLT_CMD		((2<<29)|(0x43<<22)|4)
 #define XY_SRC_COPY_BLT_CMD		((2<<29)|(0x53<<22)|6)
 #define XY_MONO_SRC_COPY_IMM_BLT	((2<<29)|(0x71<<22)|5)
-#define XY_SRC_COPY_BLT_WRITE_ALPHA	(1<<21)
-#define XY_SRC_COPY_BLT_WRITE_RGB	(1<<20)
+#define   BLT_WRITE_A			(2<<20)
+#define   BLT_WRITE_RGB			(1<<20)
+#define   BLT_WRITE_RGBA		(BLT_WRITE_RGB | BLT_WRITE_A)
 #define   BLT_DEPTH_8			(0<<24)
 #define   BLT_DEPTH_16_565		(1<<24)
 #define   BLT_DEPTH_16_1555		(2<<24)
 #define   BLT_DEPTH_32			(3<<24)
-#define   BLT_ROP_GXCOPY		(0xcc<<16)
+#define   BLT_ROP_SRC_COPY		(0xcc<<16)
+#define   BLT_ROP_COLOR_COPY		(0xf0<<16)
 #define XY_SRC_COPY_BLT_SRC_TILED	(1<<15) /* 965+ only */
 #define XY_SRC_COPY_BLT_DST_TILED	(1<<11) /* 965+ only */
 #define CMD_OP_DISPLAYBUFFER_INFO ((0x0<<29)|(0x14<<23)|2)
@@ -351,6 +356,7 @@
 #define   PIPE_CONTROL_STORE_DATA_INDEX			(1<<21)
 #define   PIPE_CONTROL_CS_STALL				(1<<20)
 #define   PIPE_CONTROL_TLB_INVALIDATE			(1<<18)
+#define   PIPE_CONTROL_MEDIA_STATE_CLEAR		(1<<16)
 #define   PIPE_CONTROL_QW_WRITE				(1<<14)
 #define   PIPE_CONTROL_POST_SYNC_OP_MASK                (3<<14)
 #define   PIPE_CONTROL_DEPTH_STALL			(1<<13)
@@ -972,6 +978,7 @@ enum punit_power_well {
 #define GEN6_VERSYNC	(RING_SYNC_1(VEBOX_RING_BASE))
 #define GEN6_VEVSYNC	(RING_SYNC_2(VEBOX_RING_BASE))
 #define GEN6_NOSYNC 0
+#define RING_PSMI_CTL(base)	((base)+0x50)
 #define RING_MAX_IDLE(base)	((base)+0x54)
 #define RING_HWS_PGA(base)	((base)+0x80)
 #define RING_HWS_PGA_GEN6(base)	((base)+0x2080)
@@ -1295,6 +1302,7 @@ enum punit_power_well {
 #define   GEN6_BLITTER_FBC_NOTIFY			(1<<3)
 
 #define GEN6_RC_SLEEP_PSMI_CONTROL	0x2050
+#define   GEN6_PSMI_SLEEP_MSG_DISABLE	(1 << 0)
 #define   GEN8_RC_SEMA_IDLE_MSG_DISABLE	(1 << 12)
 #define   GEN8_FF_DOP_CLOCK_GATE_DISABLE	(1<<10)
 
@@ -1545,6 +1553,7 @@ enum punit_power_well {
 #define   GMBUS_CYCLE_INDEX	(2<<25)
 #define   GMBUS_CYCLE_STOP	(4<<25)
 #define   GMBUS_BYTE_COUNT_SHIFT 16
+#define   GMBUS_BYTE_COUNT_MAX   256U
 #define   GMBUS_SLAVE_INDEX_SHIFT 8
 #define   GMBUS_SLAVE_ADDR_SHIFT 1
 #define   GMBUS_SLAVE_READ	(1<<0)
@@ -2891,6 +2900,7 @@ enum punit_power_well {
 #define   BLM_POLARITY_PNV			(1 << 0) /* pnv only */
 
 #define BLC_HIST_CTL	(dev_priv->info.display_mmio_offset + 0x61260)
+#define  BLM_HISTOGRAM_ENABLE			(1 << 31)
 
 /* New registers for PCH-split platforms. Safe where new bits show up, the
  * register layout machtes with gen4 BLC_PWM_CTL[12]. */

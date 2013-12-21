@@ -123,6 +123,11 @@
 /*
  * Status Register Values
  */
+#define FPU_CSR_FS_S	24		/* flush denormalised results to 0 */
+#define FPU_CSR_FS	(_ULCAST_(1) << FPU_CSR_FS_S)
+
+#define FPU_CSR_CONDX_S	25					/* $fcc[7:1] */
+#define FPU_CSR_CONDX	(_ULCAST_(127) << FPU_CSR_CONDX_S)
 
 #define FPU_CSR_FLUSH	0x01000000	/* flush denormalised results to 0 */
 #define FPU_CSR_COND	0x00800000	/* $fcc0 */
@@ -136,10 +141,13 @@
 #define FPU_CSR_COND7	0x80000000	/* $fcc7 */
 
 /*
- * Bits 18 - 20 of the FPU Status Register will be read as 0,
+ * Bits 22:20 of the FPU Status Register will be read as 0,
  * and should be written as zero.
  */
-#define FPU_CSR_RSVD	0x001c0000
+#define FPU_CSR_RSVD	(_ULCAST_(7) << 20)
+
+#define FPU_CSR_ABS2008	(_ULCAST_(1) << 19)
+#define FPU_CSR_NAN2008	(_ULCAST_(1) << 18)
 
 /*
  * X the exception cause indicator
@@ -660,6 +668,8 @@
 #define MIPS_CONF6_SYND		(_ULCAST_(1) << 13)
 /* proAptiv FTLB on/off bit */
 #define MIPS_CONF6_FTLBEN	(_ULCAST_(1) << 15)
+/* FTLB probability bits */
+#define MIPS_CONF6_FTLBP_SHIFT	(16)
 
 #define MIPS_CONF7_WII		(_ULCAST_(1) << 31)
 
@@ -685,6 +695,8 @@
 #define MIPS_FPIR_W		(_ULCAST_(1) << 20)
 #define MIPS_FPIR_L		(_ULCAST_(1) << 21)
 #define MIPS_FPIR_F64		(_ULCAST_(1) << 22)
+#define MIPS_FPIR_HAS2008	(_ULCAST_(1) << 23)
+#define MIPS_FPIR_UFRP		(_ULCAST_(1) << 28)
 
 /*
  * Bits in the MIPS32 Memory Segmentation registers.
@@ -1268,7 +1280,7 @@ do {									\
 /*
  * Macros to access the floating point coprocessor control registers
  */
-#define read_32bit_cp1_register(source)					\
+#define _read_32bit_cp1_register(source, gas_hardfloat)			\
 ({									\
 	int __res;							\
 									\
@@ -1278,11 +1290,35 @@ do {									\
 	"	# gas fails to assemble cfc1 for some archs,	\n"	\
 	"	# like Octeon.					\n"	\
 	"	.set	mips1					\n"	\
+	"	"STR(gas_hardfloat)"				\n"	\
 	"	cfc1	%0,"STR(source)"			\n"	\
 	"	.set	pop					\n"	\
 	: "=r" (__res));						\
 	__res;								\
 })
+
+#define _write_32bit_cp1_register(dest, val, gas_hardfloat)		\
+do {									\
+	__asm__ __volatile__(						\
+	"	.set	push					\n"	\
+	"	.set	reorder					\n"	\
+	"	"STR(gas_hardfloat)"				\n"	\
+	"	ctc1	%0,"STR(dest)"				\n"	\
+	"	.set	pop					\n"	\
+	: : "r" (val));							\
+} while (0)
+
+#ifdef GAS_HAS_SET_HARDFLOAT
+#define read_32bit_cp1_register(source)					\
+	_read_32bit_cp1_register(source, .set hardfloat)
+#define write_32bit_cp1_register(dest, val)				\
+	_write_32bit_cp1_register(dest, val, .set hardfloat)
+#else
+#define read_32bit_cp1_register(source)					\
+	_read_32bit_cp1_register(source, )
+#define write_32bit_cp1_register(dest, val)				\
+	_write_32bit_cp1_register(dest, val, )
+#endif
 
 #ifdef HAVE_AS_DSP
 #define rddsp(mask)							\

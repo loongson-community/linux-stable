@@ -647,6 +647,19 @@ static void ar9003_hw_override_ini(struct ath_hw *ah)
 		ah->enabled_cals |= TX_CL_CAL;
 	else
 		ah->enabled_cals &= ~TX_CL_CAL;
+
+	if (AR_SREV_9340(ah) || AR_SREV_9531(ah) || AR_SREV_9550(ah)) {
+		if (ah->is_clk_25mhz) {
+			REG_WRITE(ah, AR_RTC_DERIVED_CLK, 0x17c << 1);
+			REG_WRITE(ah, AR_SLP32_MODE, 0x0010f3d7);
+			REG_WRITE(ah, AR_SLP32_INC, 0x0001e7ae);
+		} else {
+			REG_WRITE(ah, AR_RTC_DERIVED_CLK, 0x261 << 1);
+			REG_WRITE(ah, AR_SLP32_MODE, 0x0010f400);
+			REG_WRITE(ah, AR_SLP32_INC, 0x0001e800);
+		}
+		udelay(100);
+	}
 }
 
 static void ar9003_hw_prog_ini(struct ath_hw *ah,
@@ -1675,8 +1688,6 @@ static void ar9003_hw_spectral_scan_wait(struct ath_hw *ah)
 static void ar9003_hw_tx99_start(struct ath_hw *ah, u32 qnum)
 {
 	REG_SET_BIT(ah, AR_PHY_TEST, PHY_AGC_CLR);
-	REG_SET_BIT(ah, 0x9864, 0x7f000);
-	REG_SET_BIT(ah, 0x9924, 0x7f00fe);
 	REG_CLR_BIT(ah, AR_DIAG_SW, AR_DIAG_RX_DIS);
 	REG_WRITE(ah, AR_CR, AR_CR_RXD);
 	REG_WRITE(ah, AR_DLCL_IFS(qnum), 0);

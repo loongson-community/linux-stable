@@ -315,22 +315,16 @@ static void __init armada_370_coherency_init(struct device_node *np)
 }
 
 /*
- * This ioremap hook is used on Armada 375/38x to ensure that PCIe
- * memory areas are mapped as MT_UNCACHED instead of MT_DEVICE. This
- * is needed as a workaround for a deadlock issue between the PCIe
- * interface and the cache controller.
+ * This ioremap hook is used on Armada 375/38x to ensure that all MMIO
+ * areas are mapped as MT_UNCACHED instead of MT_DEVICE. This is
+ * needed for the HW I/O coherency mechanism to work properly without
+ * deadlock.
  */
 static void __iomem *
-armada_pcie_wa_ioremap_caller(phys_addr_t phys_addr, size_t size,
-			      unsigned int mtype, void *caller)
+armada_wa_ioremap_caller(phys_addr_t phys_addr, size_t size,
+			 unsigned int mtype, void *caller)
 {
-	struct resource pcie_mem;
-
-	mvebu_mbus_get_pcie_mem_aperture(&pcie_mem);
-
-	if (pcie_mem.start <= phys_addr && (phys_addr + size) <= pcie_mem.end)
-		mtype = MT_UNCACHED;
-
+	mtype = MT_UNCACHED;
 	return __arm_ioremap_caller(phys_addr, size, mtype, caller);
 }
 
@@ -339,7 +333,14 @@ static void __init armada_375_380_coherency_init(struct device_node *np)
 	struct device_node *cache_dn;
 
 	coherency_cpu_base = of_iomap(np, 0);
-	arch_ioremap_caller = armada_pcie_wa_ioremap_caller;
+	arch_ioremap_caller = armada_wa_ioremap_caller;
+
+	/*
+	 * We should switch the PL310 to I/O coherency mode only if
+	 * I/O coherency is actually enabled.
+	 */
+	if (!coherency_available())
+		return;
 
 	/*
 	 * Add the PL310 property "arm,io-coherent". This makes sure the
@@ -361,30 +362,51 @@ static int coherency_type(void)
 {
 	struct device_node *np;
 	const struct of_device_id *match;
+	int type;
+
+	/*
+	 * The coherency fabric is needed:
+	 * - For coherency between processors on Armada XP, so only
+	 *   when SMP is enabled.
+	 * - For coherency between the processor and I/O devices, but
+	 *   this coherency requires many pre-requisites (write
+	 *   allocate cache policy, shareable pages, SMP bit set) that
+	 *   are only meant in SMP situations.
+	 *
+	 * Note that this means that on Armada 370, there is currently
+	 * no way to use hardware I/O coherency, because even when
+	 * CONFIG_SMP is enabled, is_smp() returns false due to the
+	 * Armada 370 being a single-core processor. To lift this
+	 * limitation, we would have to find a way to make the cache
+	 * policy set to write-allocate (on all Armada SoCs), and to
+	 * set the shareable attribute in page tables (on all Armada
+	 * SoCs except the Armada 370). Unfortunately, such decisions
+	 * are taken very early in the kernel boot process, at a point
+	 * where we don't know yet on which SoC we are running.
+
+	 */
+	if (!is_smp())
+		return COHERENCY_FABRIC_TYPE_NONE;
 
 	np = of_find_matching_node_and_match(NULL, of_coherency_table, &match);
-	if (np) {
-		int type = (int) match->data;
+	if (!np)
+		return COHERENCY_FABRIC_TYPE_NONE;
 
-		/* Armada 370/XP coherency works in both UP and SMP */
-		if (type == COHERENCY_FABRIC_TYPE_ARMADA_370_XP)
-			return type;
+	type = (int) match->data;
 
-		/* Armada 375 coherency works only on SMP */
-		else if (type == COHERENCY_FABRIC_TYPE_ARMADA_375 && is_smp())
-			return type;
+	of_node_put(np);
 
-		/* Armada 380 coherency works only on SMP */
-		else if (type == COHERENCY_FABRIC_TYPE_ARMADA_380 && is_smp())
-			return type;
-	}
-
-	return COHERENCY_FABRIC_TYPE_NONE;
+	return type;
 }
 
+/*
+ * As a precaution, we currently completely disable hardware I/O
+ * coherency, until enough testing is done with automatic I/O
+ * synchronization barriers to validate that it is a proper solution.
+ */
 int coherency_available(void)
 {
-	return coherency_type() != COHERENCY_FABRIC_TYPE_NONE;
+	return false;
 }
 
 int __init coherency_init(void)
@@ -399,6 +421,8 @@ int __init coherency_init(void)
 	else if (type == COHERENCY_FABRIC_TYPE_ARMADA_375 ||
 		 type == COHERENCY_FABRIC_TYPE_ARMADA_380)
 		armada_375_380_coherency_init(np);
+
+	of_node_put(np);
 
 	return 0;
 }
@@ -418,8 +442,9 @@ static int __init coherency_late_init(void)
 			armada_375_coherency_init_wa();
 	}
 
-	bus_register_notifier(&platform_bus_type,
-			      &mvebu_hwcc_nb);
+	if (coherency_available())
+		bus_register_notifier(&platform_bus_type,
+				      &mvebu_hwcc_nb);
 
 	return 0;
 }

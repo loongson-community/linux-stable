@@ -41,12 +41,6 @@ struct netlink_sock {
 	int			(*netlink_bind)(int group);
 	void			(*netlink_unbind)(int group);
 	struct module		*module;
-#ifdef CONFIG_NETLINK_MMAP
-	struct mutex		pg_vec_lock;
-	struct netlink_ring	rx_ring;
-	struct netlink_ring	tx_ring;
-	atomic_t		mapped;
-#endif /* CONFIG_NETLINK_MMAP */
 };
 
 static inline struct netlink_sock *nlk_sk(struct sock *sk)

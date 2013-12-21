@@ -191,12 +191,6 @@ int cayman_dma_resume(struct radeon_device *rdev)
 	u32 reg_offset, wb_offset;
 	int i, r;
 
-	/* Reset dma */
-	WREG32(SRBM_SOFT_RESET, SOFT_RESET_DMA | SOFT_RESET_DMA1);
-	RREG32(SRBM_SOFT_RESET);
-	udelay(50);
-	WREG32(SRBM_SOFT_RESET, 0);
-
 	for (i = 0; i < 2; i++) {
 		if (i == 0) {
 			ring = &rdev->ring[R600_RING_TYPE_DMA_INDEX];
@@ -404,5 +398,11 @@ void cayman_dma_vm_flush(struct radeon_device *rdev, int ridx, struct radeon_vm 
 	radeon_ring_write(ring, DMA_PACKET(DMA_PACKET_SRBM_WRITE, 0, 0, 0));
 	radeon_ring_write(ring, (0xf << 16) | (VM_INVALIDATE_REQUEST >> 2));
 	radeon_ring_write(ring, 1 << vm->id);
+
+	/* wait for invalidate to complete */
+	radeon_ring_write(ring, DMA_SRBM_READ_PACKET);
+	radeon_ring_write(ring, (0xff << 20) | (VM_INVALIDATE_REQUEST >> 2));
+	radeon_ring_write(ring, 0); /* mask */
+	radeon_ring_write(ring, 0); /* value */
 }
 

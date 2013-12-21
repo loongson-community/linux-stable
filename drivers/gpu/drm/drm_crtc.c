@@ -369,8 +369,7 @@ EXPORT_SYMBOL(drm_get_format_name);
  * reference counted modeset objects like framebuffers.
  *
  * Returns:
- * New unique (relative to other objects in @dev) integer identifier for the
- * object.
+ * Zero on success, error code on failure.
  */
 int drm_mode_object_get(struct drm_device *dev,
 			struct drm_mode_object *obj, uint32_t obj_type)
@@ -492,7 +491,7 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb,
 out:
 	mutex_unlock(&dev->mode_config.fb_lock);
 
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(drm_framebuffer_init);
 
@@ -2382,8 +2381,11 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
 
-	/* For some reason crtc x/y offsets are signed internally. */
-	if (crtc_req->x > INT_MAX || crtc_req->y > INT_MAX)
+	/*
+	 * Universal plane src offsets are only 16.16, prevent havoc for
+	 * drivers using universal plane code internally.
+	 */
+	if (crtc_req->x & 0xffff0000 || crtc_req->y & 0xffff0000)
 		return -ERANGE;
 
 	drm_modeset_lock_all(dev);
@@ -4233,6 +4235,9 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 	struct drm_pending_vblank_event *e = NULL;
 	unsigned long flags;
 	int ret = -EINVAL;
+
+	if (!drm_core_check_feature(dev, DRIVER_MODESET))
+		return -EINVAL;
 
 	if (page_flip->flags & ~DRM_MODE_PAGE_FLIP_FLAGS ||
 	    page_flip->reserved != 0)

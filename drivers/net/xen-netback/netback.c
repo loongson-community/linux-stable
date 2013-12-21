@@ -221,18 +221,18 @@ static struct xenvif_rx_meta *get_next_rx_buffer(struct xenvif_queue *queue,
 						 struct netrx_pending_operations *npo)
 {
 	struct xenvif_rx_meta *meta;
-	struct xen_netif_rx_request *req;
+	struct xen_netif_rx_request req;
 
-	req = RING_GET_REQUEST(&queue->rx, queue->rx.req_cons++);
+	RING_COPY_REQUEST(&queue->rx, queue->rx.req_cons++, &req);
 
 	meta = npo->meta + npo->meta_prod++;
 	meta->gso_type = XEN_NETIF_GSO_TYPE_NONE;
 	meta->gso_size = 0;
 	meta->size = 0;
-	meta->id = req->id;
+	meta->id = req.id;
 
 	npo->copy_off = 0;
-	npo->copy_gref = req->gref;
+	npo->copy_gref = req.gref;
 
 	return meta;
 }
@@ -390,7 +390,7 @@ static int xenvif_gop_skb(struct sk_buff *skb,
 	struct xenvif *vif = netdev_priv(skb->dev);
 	int nr_frags = skb_shinfo(skb)->nr_frags;
 	int i;
-	struct xen_netif_rx_request *req;
+	struct xen_netif_rx_request req;
 	struct xenvif_rx_meta *meta;
 	unsigned char *data;
 	int head = 1;
@@ -411,15 +411,15 @@ static int xenvif_gop_skb(struct sk_buff *skb,
 
 	/* Set up a GSO prefix descriptor, if necessary */
 	if ((1 << gso_type) & vif->gso_prefix_mask) {
-		req = RING_GET_REQUEST(&queue->rx, queue->rx.req_cons++);
+		RING_COPY_REQUEST(&queue->rx, queue->rx.req_cons++, &req);
 		meta = npo->meta + npo->meta_prod++;
 		meta->gso_type = gso_type;
 		meta->gso_size = skb_shinfo(skb)->gso_size;
 		meta->size = 0;
-		meta->id = req->id;
+		meta->id = req.id;
 	}
 
-	req = RING_GET_REQUEST(&queue->rx, queue->rx.req_cons++);
+	RING_COPY_REQUEST(&queue->rx, queue->rx.req_cons++, &req);
 	meta = npo->meta + npo->meta_prod++;
 
 	if ((1 << gso_type) & vif->gso_mask) {
@@ -431,9 +431,9 @@ static int xenvif_gop_skb(struct sk_buff *skb,
 	}
 
 	meta->size = 0;
-	meta->id = req->id;
+	meta->id = req.id;
 	npo->copy_off = 0;
-	npo->copy_gref = req->gref;
+	npo->copy_gref = req.gref;
 
 	data = skb->data;
 	while (data < skb_tail_pointer(skb)) {
@@ -755,9 +755,7 @@ static void tx_add_credit(struct xenvif_queue *queue)
 	 * Allow a burst big enough to transmit a jumbo packet of up to 128kB.
 	 * Otherwise the interface can seize up due to insufficient credit.
 	 */
-	max_burst = RING_GET_REQUEST(&queue->tx, queue->tx.req_cons)->size;
-	max_burst = min(max_burst, 131072UL);
-	max_burst = max(max_burst, queue->credit_bytes);
+	max_burst = max(131072UL, queue->credit_bytes);
 
 	/* Take care that adding a new chunk of credit doesn't wrap to zero. */
 	max_credit = queue->remaining_credit + queue->credit_bytes;
@@ -786,7 +784,7 @@ static void xenvif_tx_err(struct xenvif_queue *queue,
 		spin_unlock_irqrestore(&queue->response_lock, flags);
 		if (cons == end)
 			break;
-		txp = RING_GET_REQUEST(&queue->tx, cons++);
+		RING_COPY_REQUEST(&queue->tx, cons++, txp);
 	} while (1);
 	queue->tx.req_cons = cons;
 }
@@ -853,8 +851,7 @@ static int xenvif_count_requests(struct xenvif_queue *queue,
 		if (drop_err)
 			txp = &dropped_tx;
 
-		memcpy(txp, RING_GET_REQUEST(&queue->tx, cons + slots),
-		       sizeof(*txp));
+		RING_COPY_REQUEST(&queue->tx, cons + slots, txp);
 
 		/* If the guest submitted a frame >= 64 KiB then
 		 * first->size overflowed and following slots will
@@ -1206,8 +1203,7 @@ static int xenvif_get_extras(struct xenvif_queue *queue,
 			return -EBADR;
 		}
 
-		memcpy(&extra, RING_GET_REQUEST(&queue->tx, cons),
-		       sizeof(extra));
+		RING_COPY_REQUEST(&queue->tx, cons, &extra);
 		if (unlikely(!extra.type ||
 			     extra.type >= XEN_NETIF_EXTRA_TYPE_MAX)) {
 			queue->tx.req_cons = ++cons;
@@ -1343,7 +1339,7 @@ static void xenvif_tx_build_gops(struct xenvif_queue *queue,
 
 		idx = queue->tx.req_cons;
 		rmb(); /* Ensure that we see the request before we copy it. */
-		memcpy(&txreq, RING_GET_REQUEST(&queue->tx, idx), sizeof(txreq));
+		RING_COPY_REQUEST(&queue->tx, idx, &txreq);
 
 		/* Credit-based scheduling. */
 		if (txreq.size > queue->remaining_credit &&
@@ -1703,13 +1699,13 @@ static inline void xenvif_tx_dealloc_action(struct xenvif_queue *queue)
 		smp_rmb();
 
 		while (dc != dp) {
-			BUG_ON(gop - queue->tx_unmap_ops > MAX_PENDING_REQS);
+			BUG_ON(gop - queue->tx_unmap_ops >= MAX_PENDING_REQS);
 			pending_idx =
 				queue->dealloc_ring[pending_index(dc++)];
 
-			pending_idx_release[gop-queue->tx_unmap_ops] =
+			pending_idx_release[gop - queue->tx_unmap_ops] =
 				pending_idx;
-			queue->pages_to_unmap[gop-queue->tx_unmap_ops] =
+			queue->pages_to_unmap[gop - queue->tx_unmap_ops] =
 				queue->mmap_pages[pending_idx];
 			gnttab_set_unmap_op(gop,
 					    idx_to_kaddr(queue, pending_idx),
@@ -2012,8 +2008,11 @@ static int __init netback_init(void)
 	if (!xen_domain())
 		return -ENODEV;
 
-	/* Allow as many queues as there are CPUs, by default */
-	xenvif_max_queues = num_online_cpus();
+	/* Allow as many queues as there are CPUs if user has not
+	 * specified a value.
+	 */
+	if (xenvif_max_queues == 0)
+		xenvif_max_queues = num_online_cpus();
 
 	if (fatal_skb_slots < XEN_NETBK_LEGACY_SLOTS_MAX) {
 		pr_info("fatal_skb_slots too small (%d), bump it to XEN_NETBK_LEGACY_SLOTS_MAX (%d)\n",

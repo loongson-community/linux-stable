@@ -66,7 +66,7 @@
 #define ST_ACCEL_1_BDU_MASK			0x80
 #define ST_ACCEL_1_DRDY_IRQ_ADDR		0x22
 #define ST_ACCEL_1_DRDY_IRQ_INT1_MASK		0x10
-#define ST_ACCEL_1_DRDY_IRQ_INT2_MASK		0x08
+#define ST_ACCEL_1_DRDY_IRQ_INT2_MASK		0x00
 #define ST_ACCEL_1_MULTIREAD_BIT		true
 
 /* CUSTOM VALUES FOR SENSOR 2 */
@@ -458,6 +458,7 @@ int st_accel_common_probe(struct iio_dev *indio_dev,
 
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->info = &accel_info;
+	mutex_init(&adata->tb.buf_lock);
 
 	st_sensors_power_enable(indio_dev);
 

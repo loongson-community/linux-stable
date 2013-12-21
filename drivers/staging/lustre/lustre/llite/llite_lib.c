@@ -704,7 +704,7 @@ void lustre_dump_dentry(struct dentry *dentry, int recur)
 		return;
 
 	list_for_each(tmp, &dentry->d_subdirs) {
-		struct dentry *d = list_entry(tmp, struct dentry, d_u.d_child);
+		struct dentry *d = list_entry(tmp, struct dentry, d_child);
 		lustre_dump_dentry(d, recur - 1);
 	}
 }
@@ -1386,7 +1386,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		attr->ia_valid |= ATTR_MTIME | ATTR_CTIME;
 	}
 
-	/* POSIX: check before ATTR_*TIME_SET set (from inode_change_ok) */
+	/* POSIX: check before ATTR_*TIME_SET set (from setattr_prepare) */
 	if (attr->ia_valid & TIMES_SET_FLAGS) {
 		if ((!uid_eq(current_fsuid(), inode->i_uid)) &&
 		    !capable(CFS_CAP_FOWNER))
@@ -1489,7 +1489,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 
 	if (attr->ia_valid & (ATTR_SIZE |
 			      ATTR_ATIME | ATTR_ATIME_SET |
-			      ATTR_MTIME | ATTR_MTIME_SET))
+			      ATTR_MTIME | ATTR_MTIME_SET)) {
 		/* For truncate and utimes sending attributes to OSTs, setting
 		 * mtime/atime to the past will be performed under PW [0:EOF]
 		 * extent lock (new_size:EOF for truncate).  It may seem
@@ -1501,6 +1501,7 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
 		rc = ll_setattr_ost(inode, attr);
 		if (attr->ia_valid & ATTR_SIZE)
 			up_write(&lli->lli_trunc_sem);
+	}
 out:
 	if (op_data) {
 		if (op_data->op_ioepoch) {

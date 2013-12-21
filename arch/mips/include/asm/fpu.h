@@ -21,6 +21,7 @@
 #include <asm/hazards.h>
 #include <asm/processor.h>
 #include <asm/current.h>
+#include <asm/msa.h>
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 #include <asm/mips_mt.h>
@@ -29,7 +30,7 @@
 struct sigcontext;
 struct sigcontext32;
 
-extern void _init_fpu(void);
+extern void _init_fpu(unsigned int);
 extern void _save_fp(struct task_struct *);
 extern void _restore_fp(struct task_struct *);
 
@@ -141,18 +142,28 @@ static inline int own_fpu(int restore)
 static inline void lose_fpu(int save)
 {
 	preempt_disable();
-	if (is_fpu_owner()) {
+	if (is_msa_enabled()) {
+		if (save) {
+			save_msa(current);
+			current->thread.fpu.fcr31 =
+					read_32bit_cp1_register(CP1_STATUS);
+		}
+		disable_msa();
+		clear_thread_flag(TIF_USEDMSA);
+		__disable_fpu();
+	} else if (is_fpu_owner()) {
 		if (save)
 			_save_fp(current);
-		KSTK_STATUS(current) &= ~ST0_CU1;
-		clear_thread_flag(TIF_USEDFPU);
 		__disable_fpu();
 	}
+	KSTK_STATUS(current) &= ~ST0_CU1;
+	clear_thread_flag(TIF_USEDFPU);
 	preempt_enable();
 }
 
 static inline int init_fpu(void)
 {
+	unsigned int fcr31 = current->thread.fpu.fcr31;
 	int ret = 0;
 
 	preempt_disable();
@@ -160,7 +171,7 @@ static inline int init_fpu(void)
 	if (cpu_has_fpu) {
 		ret = __own_fpu();
 		if (!ret)
-			_init_fpu();
+			_init_fpu(fcr31);
 	} else
 		fpu_emulator_init_fpu();
 

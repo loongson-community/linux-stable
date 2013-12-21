@@ -194,10 +194,6 @@ static void rbtree_debugfs_init(struct regmap *map)
 {
 	debugfs_create_file("rbtree", 0400, map->debugfs, map, &rbtree_fops);
 }
-#else
-static void rbtree_debugfs_init(struct regmap *map)
-{
-}
 #endif
 
 static int regcache_rbtree_init(struct regmap *map)
@@ -221,8 +217,6 @@ static int regcache_rbtree_init(struct regmap *map)
 		if (ret)
 			goto err;
 	}
-
-	rbtree_debugfs_init(map);
 
 	return 0;
 
@@ -302,18 +296,27 @@ static int regcache_rbtree_insert_to_block(struct regmap *map,
 	if (!blk)
 		return -ENOMEM;
 
-	present = krealloc(rbnode->cache_present,
-		    BITS_TO_LONGS(blklen) * sizeof(*present), GFP_KERNEL);
-	if (!present) {
-		kfree(blk);
-		return -ENOMEM;
+	if (BITS_TO_LONGS(blklen) > BITS_TO_LONGS(rbnode->blklen)) {
+		present = krealloc(rbnode->cache_present,
+				   BITS_TO_LONGS(blklen) * sizeof(*present),
+				   GFP_KERNEL);
+		if (!present) {
+			kfree(blk);
+			return -ENOMEM;
+		}
+
+		memset(present + BITS_TO_LONGS(rbnode->blklen), 0,
+		       (BITS_TO_LONGS(blklen) - BITS_TO_LONGS(rbnode->blklen))
+		       * sizeof(*present));
+	} else {
+		present = rbnode->cache_present;
 	}
 
 	/* insert the register value in the correct place in the rbnode block */
 	if (pos == 0) {
 		memmove(blk + offset * map->cache_word_size,
 			blk, rbnode->blklen * map->cache_word_size);
-		bitmap_shift_right(present, present, offset, blklen);
+		bitmap_shift_left(present, present, offset, blklen);
 	}
 
 	/* update the rbnode block, its size and the base register */
@@ -532,6 +535,9 @@ struct regcache_ops regcache_rbtree_ops = {
 	.name = "rbtree",
 	.init = regcache_rbtree_init,
 	.exit = regcache_rbtree_exit,
+#ifdef CONFIG_DEBUG_FS
+	.debugfs_init = rbtree_debugfs_init,
+#endif
 	.read = regcache_rbtree_read,
 	.write = regcache_rbtree_write,
 	.sync = regcache_rbtree_sync,

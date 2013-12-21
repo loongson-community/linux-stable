@@ -529,9 +529,9 @@ xfs_showargs(
 		seq_printf(m, "," MNTOPT_LOGBSIZE "=%dk", mp->m_logbsize >> 10);
 
 	if (mp->m_logname)
-		seq_printf(m, "," MNTOPT_LOGDEV "=%s", mp->m_logname);
+		seq_show_option(m, MNTOPT_LOGDEV, mp->m_logname);
 	if (mp->m_rtname)
-		seq_printf(m, "," MNTOPT_RTDEV "=%s", mp->m_rtname);
+		seq_show_option(m, MNTOPT_RTDEV, mp->m_rtname);
 
 	if (mp->m_dalign > 0)
 		seq_printf(m, "," MNTOPT_SUNIT "=%d",
@@ -597,8 +597,13 @@ xfs_max_file_offset(
 	return (((__uint64_t)pagefactor) << bitshift) - 1;
 }
 
+/*
+ * xfs_set_inode32() and xfs_set_inode64() are passed an agcount
+ * because in the growfs case, mp->m_sb.sb_agcount is not updated
+ * yet to the potentially higher ag count.
+ */
 xfs_agnumber_t
-xfs_set_inode32(struct xfs_mount *mp)
+xfs_set_inode32(struct xfs_mount *mp, xfs_agnumber_t agcount)
 {
 	xfs_agnumber_t	index = 0;
 	xfs_agnumber_t	maxagi = 0;
@@ -620,10 +625,10 @@ xfs_set_inode32(struct xfs_mount *mp)
 		do_div(icount, sbp->sb_agblocks);
 		max_metadata = icount;
 	} else {
-		max_metadata = sbp->sb_agcount;
+		max_metadata = agcount;
 	}
 
-	for (index = 0; index < sbp->sb_agcount; index++) {
+	for (index = 0; index < agcount; index++) {
 		ino = XFS_AGINO_TO_INO(mp, index, agino);
 
 		if (ino > XFS_MAXINUMBER_32) {
@@ -648,11 +653,11 @@ xfs_set_inode32(struct xfs_mount *mp)
 }
 
 xfs_agnumber_t
-xfs_set_inode64(struct xfs_mount *mp)
+xfs_set_inode64(struct xfs_mount *mp, xfs_agnumber_t agcount)
 {
 	xfs_agnumber_t index = 0;
 
-	for (index = 0; index < mp->m_sb.sb_agcount; index++) {
+	for (index = 0; index < agcount; index++) {
 		struct xfs_perag	*pag;
 
 		pag = xfs_perag_get(mp, index);
@@ -977,6 +982,8 @@ xfs_fs_inode_init_once(
 	atomic_set(&ip->i_pincount, 0);
 	spin_lock_init(&ip->i_flags_lock);
 
+	mrlock_init(&ip->i_mmaplock, MRLOCK_ALLOW_EQUAL_PRI|MRLOCK_BARRIER,
+		     "xfsino", ip->i_ino);
 	mrlock_init(&ip->i_lock, MRLOCK_ALLOW_EQUAL_PRI|MRLOCK_BARRIER,
 		     "xfsino", ip->i_ino);
 }
@@ -1188,6 +1195,7 @@ xfs_fs_remount(
 	char			*options)
 {
 	struct xfs_mount	*mp = XFS_M(sb);
+	xfs_sb_t		*sbp = &mp->m_sb;
 	substring_t		args[MAX_OPT_ARGS];
 	char			*p;
 	int			error;
@@ -1208,10 +1216,10 @@ xfs_fs_remount(
 			mp->m_flags &= ~XFS_MOUNT_BARRIER;
 			break;
 		case Opt_inode64:
-			mp->m_maxagi = xfs_set_inode64(mp);
+			mp->m_maxagi = xfs_set_inode64(mp, sbp->sb_agcount);
 			break;
 		case Opt_inode32:
-			mp->m_maxagi = xfs_set_inode32(mp);
+			mp->m_maxagi = xfs_set_inode32(mp, sbp->sb_agcount);
 			break;
 		default:
 			/*
@@ -1242,6 +1250,16 @@ xfs_fs_remount(
 
 	/* ro -> rw */
 	if ((mp->m_flags & XFS_MOUNT_RDONLY) && !(*flags & MS_RDONLY)) {
+		if (XFS_SB_VERSION_NUM(sbp) == XFS_SB_VERSION_5 &&
+		    xfs_sb_has_ro_compat_feature(sbp,
+					XFS_SB_FEAT_RO_COMPAT_UNKNOWN)) {
+			xfs_warn(mp,
+"ro->rw transition prohibited on unknown (0x%x) ro-compat filesystem",
+				(sbp->sb_features_ro_compat &
+					XFS_SB_FEAT_RO_COMPAT_UNKNOWN));
+			return -EINVAL;
+		}
+
 		mp->m_flags &= ~XFS_MOUNT_RDONLY;
 
 		/*

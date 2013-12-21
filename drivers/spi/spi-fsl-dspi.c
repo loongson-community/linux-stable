@@ -46,7 +46,7 @@
 
 #define SPI_TCR			0x08
 
-#define SPI_CTAR(x)		(0x0c + (x * 4))
+#define SPI_CTAR(x)		(0x0c + (((x) & 0x3) * 4))
 #define SPI_CTAR_FMSZ(x)	(((x) & 0x0000000f) << 27)
 #define SPI_CTAR_CPOL(x)	((x) << 26)
 #define SPI_CTAR_CPHA(x)	((x) << 25)
@@ -70,7 +70,7 @@
 
 #define SPI_PUSHR		0x34
 #define SPI_PUSHR_CONT		(1 << 31)
-#define SPI_PUSHR_CTAS(x)	(((x) & 0x00000007) << 28)
+#define SPI_PUSHR_CTAS(x)	(((x) & 0x00000003) << 28)
 #define SPI_PUSHR_EOQ		(1 << 27)
 #define SPI_PUSHR_CTCNT	(1 << 26)
 #define SPI_PUSHR_PCS(x)	(((1 << x) & 0x0000003f) << 16)
@@ -342,8 +342,7 @@ static int dspi_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 	/* Only alloc on first setup */
 	chip = spi_get_ctldata(spi);
 	if (chip == NULL) {
-		chip = devm_kzalloc(&spi->dev, sizeof(struct chip_data),
-				    GFP_KERNEL);
+		chip = kzalloc(sizeof(struct chip_data), GFP_KERNEL);
 		if (!chip)
 			return -ENOMEM;
 	}
@@ -380,6 +379,16 @@ static int dspi_setup(struct spi_device *spi)
 		return -EINVAL;
 
 	return dspi_setup_transfer(spi, NULL);
+}
+
+static void dspi_cleanup(struct spi_device *spi)
+{
+	struct chip_data *chip = spi_get_ctldata((struct spi_device *)spi);
+
+	dev_dbg(&spi->dev, "spi_device %u.%u cleanup\n",
+			spi->master->bus_num, spi->chip_select);
+
+	kfree(chip);
 }
 
 static irqreturn_t dspi_interrupt(int irq, void *dev_id)
@@ -467,6 +476,7 @@ static int dspi_probe(struct platform_device *pdev)
 	dspi->bitbang.master->setup = dspi_setup;
 	dspi->bitbang.master->dev.of_node = pdev->dev.of_node;
 
+	master->cleanup = dspi_cleanup;
 	master->mode_bits = SPI_CPOL | SPI_CPHA;
 	master->bits_per_word_mask = SPI_BPW_MASK(4) | SPI_BPW_MASK(8) |
 					SPI_BPW_MASK(16);

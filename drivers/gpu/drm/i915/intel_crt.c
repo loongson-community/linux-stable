@@ -285,8 +285,14 @@ static bool intel_crt_compute_config(struct intel_encoder *encoder,
 		pipe_config->has_pch_encoder = true;
 
 	/* LPT FDI RX only supports 8bpc. */
-	if (HAS_PCH_LPT(dev))
+	if (HAS_PCH_LPT(dev)) {
+		if (pipe_config->bw_constrained && pipe_config->pipe_bpp < 24) {
+			DRM_DEBUG_KMS("LPT only supports 24bpp\n");
+			return false;
+		}
+
 		pipe_config->pipe_bpp = 24;
+	}
 
 	/* FDI must always be 2.7 GHz */
 	if (HAS_DDI(dev))
@@ -471,6 +477,7 @@ static bool intel_crt_detect_ddc(struct drm_connector *connector)
 	struct drm_i915_private *dev_priv = crt->base.base.dev->dev_private;
 	struct edid *edid;
 	struct i2c_adapter *i2c;
+	bool ret = false;
 
 	BUG_ON(crt->base.type != INTEL_OUTPUT_ANALOG);
 
@@ -487,17 +494,17 @@ static bool intel_crt_detect_ddc(struct drm_connector *connector)
 		 */
 		if (!is_digital) {
 			DRM_DEBUG_KMS("CRT detected via DDC:0x50 [EDID]\n");
-			return true;
+			ret = true;
+		} else {
+			DRM_DEBUG_KMS("CRT not detected via DDC:0x50 [EDID reports a digital panel]\n");
 		}
-
-		DRM_DEBUG_KMS("CRT not detected via DDC:0x50 [EDID reports a digital panel]\n");
 	} else {
 		DRM_DEBUG_KMS("CRT not detected via DDC:0x50 [no valid EDID found]\n");
 	}
 
 	kfree(edid);
 
-	return false;
+	return ret;
 }
 
 static enum drm_connector_status
@@ -673,15 +680,20 @@ intel_crt_detect(struct drm_connector *connector, bool force)
 		goto out;
 	}
 
+	drm_modeset_acquire_init(&ctx, 0);
+
 	/* for pre-945g platforms use load detect */
 	if (intel_get_load_detect_pipe(connector, NULL, &tmp, &ctx)) {
 		if (intel_crt_detect_ddc(connector))
 			status = connector_status_connected;
 		else
 			status = intel_crt_load_detect(crt);
-		intel_release_load_detect_pipe(connector, &tmp, &ctx);
+		intel_release_load_detect_pipe(connector, &tmp);
 	} else
 		status = connector_status_unknown;
+
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
 
 out:
 	intel_display_power_put(dev_priv, power_domain);
@@ -731,11 +743,11 @@ static int intel_crt_set_property(struct drm_connector *connector,
 	return 0;
 }
 
-static void intel_crt_reset(struct drm_connector *connector)
+void intel_crt_reset(struct drm_encoder *encoder)
 {
-	struct drm_device *dev = connector->dev;
+	struct drm_device *dev = encoder->dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	struct intel_crt *crt = intel_attached_crt(connector);
+	struct intel_crt *crt = intel_encoder_to_crt(to_intel_encoder(encoder));
 
 	if (INTEL_INFO(dev)->gen >= 5) {
 		u32 adpa;
@@ -757,7 +769,6 @@ static void intel_crt_reset(struct drm_connector *connector)
  */
 
 static const struct drm_connector_funcs intel_crt_connector_funcs = {
-	.reset = intel_crt_reset,
 	.dpms = intel_crt_dpms,
 	.detect = intel_crt_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
@@ -772,10 +783,11 @@ static const struct drm_connector_helper_funcs intel_crt_connector_helper_funcs 
 };
 
 static const struct drm_encoder_funcs intel_crt_enc_funcs = {
+	.reset = intel_crt_reset,
 	.destroy = intel_encoder_destroy,
 };
 
-static int __init intel_no_crt_dmi_callback(const struct dmi_system_id *id)
+static int intel_no_crt_dmi_callback(const struct dmi_system_id *id)
 {
 	DRM_INFO("Skipping CRT initialization for %s\n", id->ident);
 	return 1;
@@ -891,5 +903,5 @@ void intel_crt_init(struct drm_device *dev)
 		dev_priv->fdi_rx_config = I915_READ(_FDI_RXA_CTL) & fdi_config;
 	}
 
-	intel_crt_reset(connector);
+	intel_crt_reset(&crt->base.base);
 }

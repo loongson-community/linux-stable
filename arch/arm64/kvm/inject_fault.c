@@ -29,12 +29,26 @@
 				 PSR_I_BIT | PSR_D_BIT)
 #define EL1_EXCEPT_SYNC_OFFSET	0x200
 
+/*
+ * Table taken from ARMv8 ARM DDI0487B-B, table G1-10.
+ */
+static const u8 return_offsets[8][2] = {
+	[0] = { 0, 0 },		/* Reset, unused */
+	[1] = { 4, 2 },		/* Undefined */
+	[2] = { 0, 0 },		/* SVC, unused */
+	[3] = { 4, 4 },		/* Prefetch abort */
+	[4] = { 8, 8 },		/* Data abort */
+	[5] = { 0, 0 },		/* HVC, unused */
+	[6] = { 4, 4 },		/* IRQ, unused */
+	[7] = { 4, 4 },		/* FIQ, unused */
+};
+
 static void prepare_fault32(struct kvm_vcpu *vcpu, u32 mode, u32 vect_offset)
 {
 	unsigned long cpsr;
 	unsigned long new_spsr_value = *vcpu_cpsr(vcpu);
 	bool is_thumb = (new_spsr_value & COMPAT_PSR_T_BIT);
-	u32 return_offset = (is_thumb) ? 4 : 0;
+	u32 return_offset = return_offsets[vect_offset >> 2][is_thumb];
 	u32 sctlr = vcpu_cp15(vcpu, c1_SCTLR);
 
 	cpsr = mode | COMPAT_PSR_I_BIT;
@@ -48,7 +62,7 @@ static void prepare_fault32(struct kvm_vcpu *vcpu, u32 mode, u32 vect_offset)
 
 	/* Note: These now point to the banked copies */
 	*vcpu_spsr(vcpu) = new_spsr_value;
-	*vcpu_reg(vcpu, 14) = *vcpu_pc(vcpu) + return_offset;
+	*vcpu_reg32(vcpu, 14) = *vcpu_pc(vcpu) + return_offset;
 
 	/* Branch to exception vector */
 	if (sctlr & (1 << 13))
@@ -168,8 +182,8 @@ void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr)
 {
 	if (!(vcpu->arch.hcr_el2 & HCR_RW))
 		inject_abt32(vcpu, false, addr);
-
-	inject_abt64(vcpu, false, addr);
+	else
+		inject_abt64(vcpu, false, addr);
 }
 
 /**
@@ -184,8 +198,8 @@ void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr)
 {
 	if (!(vcpu->arch.hcr_el2 & HCR_RW))
 		inject_abt32(vcpu, true, addr);
-
-	inject_abt64(vcpu, true, addr);
+	else
+		inject_abt64(vcpu, true, addr);
 }
 
 /**
@@ -198,6 +212,6 @@ void kvm_inject_undefined(struct kvm_vcpu *vcpu)
 {
 	if (!(vcpu->arch.hcr_el2 & HCR_RW))
 		inject_undef32(vcpu);
-
-	inject_undef64(vcpu);
+	else
+		inject_undef64(vcpu);
 }

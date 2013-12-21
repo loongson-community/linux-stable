@@ -485,12 +485,11 @@ static void iwl_mvm_mac_tx(struct ieee80211_hw *hw,
 	    !test_bit(IWL_MVM_STATUS_ROC_RUNNING, &mvm->status))
 		goto drop;
 
-	/* treat non-bufferable MMPDUs as broadcast if sta is sleeping */
-	if (unlikely(info->flags & IEEE80211_TX_CTL_NO_PS_BUFFER &&
-		     ieee80211_is_mgmt(hdr->frame_control) &&
-		     !ieee80211_is_deauth(hdr->frame_control) &&
-		     !ieee80211_is_disassoc(hdr->frame_control) &&
-		     !ieee80211_is_action(hdr->frame_control)))
+	/* treat non-bufferable MMPDUs on AP interfaces as broadcast */
+	if ((info->control.vif->type == NL80211_IFTYPE_AP ||
+	     info->control.vif->type == NL80211_IFTYPE_ADHOC) &&
+	    ieee80211_is_mgmt(hdr->frame_control) &&
+	    !ieee80211_is_bufferable_mmpdu(hdr->frame_control))
 		sta = NULL;
 
 	if (sta) {
@@ -627,9 +626,6 @@ static void iwl_mvm_cleanup_iterator(void *data, u8 *mac,
 	mvmvif->uploaded = false;
 	mvmvif->ap_sta_id = IWL_MVM_STATION_COUNT;
 
-	/* does this make sense at all? */
-	mvmvif->color++;
-
 	spin_lock_bh(&mvm->time_event_lock);
 	iwl_mvm_te_clear_data(mvm, &mvmvif->time_event_data);
 	spin_unlock_bh(&mvm->time_event_lock);
@@ -651,6 +647,7 @@ static void iwl_mvm_restart_cleanup(struct iwl_mvm *mvm)
 	iwl_trans_stop_device(mvm->trans);
 
 	mvm->scan_status = IWL_MVM_SCAN_NONE;
+	mvm->calibrating = false;
 
 	/* just in case one was running */
 	ieee80211_remain_on_channel_expired(mvm->hw);
@@ -834,7 +831,7 @@ static int iwl_mvm_mac_add_interface(struct ieee80211_hw *hw,
 
 	ret = iwl_mvm_power_update_mac(mvm);
 	if (ret)
-		goto out_release;
+		goto out_remove_mac;
 
 	/* beacon filtering */
 	ret = iwl_mvm_disable_beacon_filter(mvm, vif, 0);
@@ -1007,6 +1004,11 @@ static void iwl_mvm_mc_iface_iterator(void *_data, u8 *mac,
 	struct iwl_mvm_mc_iter_data *data = _data;
 	struct iwl_mvm *mvm = data->mvm;
 	struct iwl_mcast_filter_cmd *cmd = mvm->mcast_filter_cmd;
+	struct iwl_host_cmd hcmd = {
+		.id = MCAST_FILTER_CMD,
+		.flags = CMD_ASYNC,
+		.dataflags[0] = IWL_HCMD_DFL_NOCOPY,
+	};
 	int ret, len;
 
 	/* if we don't have free ports, mcast frames will be dropped */
@@ -1021,7 +1023,10 @@ static void iwl_mvm_mc_iface_iterator(void *_data, u8 *mac,
 	memcpy(cmd->bssid, vif->bss_conf.bssid, ETH_ALEN);
 	len = roundup(sizeof(*cmd) + cmd->count * ETH_ALEN, 4);
 
-	ret = iwl_mvm_send_cmd_pdu(mvm, MCAST_FILTER_CMD, CMD_ASYNC, len, cmd);
+	hcmd.len[0] = len;
+	hcmd.data[0] = cmd;
+
+	ret = iwl_mvm_send_cmd(mvm, &hcmd);
 	if (ret)
 		IWL_ERR(mvm, "mcast filter cmd error. ret=%d\n", ret);
 }
@@ -1317,14 +1322,32 @@ static void iwl_mvm_bss_info_changed_station(struct iwl_mvm *mvm,
 			WARN_ONCE(iwl_mvm_sf_update(mvm, vif, false),
 				  "Failed to update SF upon disassociation\n");
 
-			/* remove AP station now that the MAC is unassoc */
-			ret = iwl_mvm_rm_sta_id(mvm, vif, mvmvif->ap_sta_id);
-			if (ret)
-				IWL_ERR(mvm, "failed to remove AP station\n");
+			/*
+			 * If we get an assert during the connection (after the
+			 * station has been added, but before the vif is set
+			 * to associated), mac80211 will re-add the station and
+			 * then configure the vif. Since the vif is not
+			 * associated, we would remove the station here and
+			 * this would fail the recovery.
+			 */
+			if (!test_bit(IWL_MVM_STATUS_IN_HW_RESTART,
+				      &mvm->status)) {
+				/*
+				 * Remove AP station now that
+				 * the MAC is unassoc
+				 */
+				ret = iwl_mvm_rm_sta_id(mvm, vif,
+							mvmvif->ap_sta_id);
+				if (ret)
+					IWL_ERR(mvm,
+						"failed to remove AP station\n");
 
-			if (mvm->d0i3_ap_sta_id == mvmvif->ap_sta_id)
-				mvm->d0i3_ap_sta_id = IWL_MVM_STATION_COUNT;
-			mvmvif->ap_sta_id = IWL_MVM_STATION_COUNT;
+				if (mvm->d0i3_ap_sta_id == mvmvif->ap_sta_id)
+					mvm->d0i3_ap_sta_id =
+						IWL_MVM_STATION_COUNT;
+				mvmvif->ap_sta_id = IWL_MVM_STATION_COUNT;
+			}
+
 			/* remove quota for this interface */
 			ret = iwl_mvm_update_quotas(mvm, NULL);
 			if (ret)
@@ -2415,6 +2438,7 @@ static void iwl_mvm_mac_flush(struct ieee80211_hw *hw,
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	struct iwl_mvm_vif *mvmvif;
 	struct iwl_mvm_sta *mvmsta;
+	u32 msk;
 
 	if (!vif || vif->type != NL80211_IFTYPE_STATION)
 		return;
@@ -2426,13 +2450,14 @@ static void iwl_mvm_mac_flush(struct ieee80211_hw *hw,
 	if (WARN_ON_ONCE(!mvmsta))
 		goto done;
 
-	if (drop) {
-		if (iwl_mvm_flush_tx_path(mvm, mvmsta->tfd_queue_msk, true))
-			IWL_ERR(mvm, "flush request fail\n");
-	} else {
-		iwl_trans_wait_tx_queue_empty(mvm->trans,
-					      mvmsta->tfd_queue_msk);
-	}
+	msk = mvmsta->tfd_queue_msk;
+	msk &= ~BIT(vif->hw_queue[IEEE80211_AC_VO]);
+
+	if (iwl_mvm_flush_tx_path(mvm, msk, true))
+		IWL_ERR(mvm, "flush request fail\n");
+
+	msk |= BIT(vif->hw_queue[IEEE80211_AC_VO]);
+	iwl_trans_wait_tx_queue_empty(mvm->trans, msk);
 done:
 	mutex_unlock(&mvm->mutex);
 }

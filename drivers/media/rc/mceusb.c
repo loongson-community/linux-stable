@@ -765,6 +765,7 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 	} else if (urb_type == MCEUSB_RX) {
 		/* standard request */
 		async_urb = ir->urb_in;
+		async_buf = NULL;
 		ir->send_flags = RECV_FLAG_IN_PROGRESS;
 
 	} else {
@@ -780,6 +781,10 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 	res = usb_submit_urb(async_urb, GFP_ATOMIC);
 	if (res) {
 		dev_err(dev, "receive request FAILED! (res=%d)", res);
+		if (urb_type == MCEUSB_TX) {
+			kfree(async_buf);
+			usb_free_urb(async_urb);
+		}
 		return;
 	}
 	dev_dbg(dev, "receive request complete (res=%d)", res);
@@ -1299,8 +1304,8 @@ static int mceusb_dev_probe(struct usb_interface *intf,
 			}
 		}
 	}
-	if (ep_in == NULL) {
-		dev_dbg(&intf->dev, "inbound and/or endpoint not found");
+	if (!ep_in || !ep_out) {
+		dev_dbg(&intf->dev, "required endpoints not found\n");
 		return -ENODEV;
 	}
 

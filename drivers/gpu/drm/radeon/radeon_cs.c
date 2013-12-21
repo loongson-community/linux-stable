@@ -132,7 +132,8 @@ static int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 		 * the buffers used for read only, which doubles the range
 		 * to 0 to 31. 32 is reserved for the kernel driver.
 		 */
-		priority = (r->flags & 0xf) * 2 + !!r->write_domain;
+		priority = (r->flags & RADEON_RELOC_PRIO_MASK) * 2
+			   + !!r->write_domain;
 
 		/* the first reloc of an UVD job is the msg and that must be in
 		   VRAM, also but everything into VRAM on AGP cards to avoid
@@ -225,14 +226,11 @@ static int radeon_cs_get_ring(struct radeon_cs_parser *p, u32 ring, s32 priority
 
 static void radeon_cs_sync_rings(struct radeon_cs_parser *p)
 {
-	int i;
+	struct radeon_cs_reloc *reloc;
 
-	for (i = 0; i < p->nrelocs; i++) {
-		if (!p->relocs[i].robj)
-			continue;
-
+	list_for_each_entry(reloc, &p->validated, tv.head) {
 		radeon_semaphore_sync_to(p->ib.semaphore,
-					 p->relocs[i].robj->tbo.sync_obj);
+					 reloc->robj->tbo.sync_obj);
 	}
 }
 
@@ -245,11 +243,13 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 	u32 ring = RADEON_CS_RING_GFX;
 	s32 priority = 0;
 
+	INIT_LIST_HEAD(&p->validated);
+
 	if (!cs->num_chunks) {
 		return 0;
 	}
+
 	/* get chunks */
-	INIT_LIST_HEAD(&p->validated);
 	p->idx = 0;
 	p->ib.sa_bo = NULL;
 	p->ib.semaphore = NULL;
@@ -417,7 +417,7 @@ static void radeon_cs_parser_fini(struct radeon_cs_parser *parser, int error, bo
 	kfree(parser->track);
 	kfree(parser->relocs);
 	kfree(parser->relocs_ptr);
-	kfree(parser->vm_bos);
+	drm_free_large(parser->vm_bos);
 	for (i = 0; i < parser->nchunks; i++)
 		drm_free_large(parser->chunks[i].kdata);
 	kfree(parser->chunks);

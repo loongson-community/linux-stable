@@ -54,7 +54,7 @@ static inline void syscall_set_return_value(struct task_struct *task,
 					    struct pt_regs *regs,
 					    int error, long val)
 {
-	regs->gprs[2] = error ? -error : val;
+	regs->gprs[2] = error ? error : val;
 }
 
 static inline void syscall_get_arguments(struct task_struct *task,
@@ -63,6 +63,12 @@ static inline void syscall_get_arguments(struct task_struct *task,
 					 unsigned long *args)
 {
 	unsigned long mask = -1UL;
+
+	/*
+	 * No arguments for this syscall, there's nothing to do.
+	 */
+	if (!n)
+		return;
 
 	BUG_ON(i + n > 6);
 #ifdef CONFIG_COMPAT

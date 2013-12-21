@@ -2751,6 +2751,8 @@ static void ilk_pipe_wm_get_hw_state(struct drm_crtc *crtc)
 	if (IS_HASWELL(dev) || IS_BROADWELL(dev))
 		hw->wm_linetime[pipe] = I915_READ(PIPE_WM_LINETIME(pipe));
 
+	memset(active, 0, sizeof(*active));
+
 	active->pipe_enabled = intel_crtc_active(crtc);
 
 	if (active->pipe_enabled) {
@@ -4942,11 +4944,6 @@ static void gen6_init_clock_gating(struct drm_device *dev)
 	I915_WRITE(_3D_CHICKEN,
 		   _MASKED_BIT_ENABLE(_3D_CHICKEN_HIZ_PLANE_DISABLE_MSAA_4X_SNB));
 
-	/* WaSetupGtModeTdRowDispatch:snb */
-	if (IS_SNB_GT1(dev))
-		I915_WRITE(GEN6_GT_MODE,
-			   _MASKED_BIT_ENABLE(GEN6_TD_FOUR_ROW_DISPATCH_DISABLE));
-
 	/* WaDisable_RenderCache_OperationalFlush:snb */
 	I915_WRITE(CACHE_MODE_0, _MASKED_BIT_DISABLE(RC_OP_FLUSH_ENABLE));
 
@@ -5349,7 +5346,16 @@ static void valleyview_init_clock_gating(struct drm_device *dev)
 	DRM_DEBUG_DRIVER("Current CD clock rate: %d MHz",
 			 dev_priv->vlv_cdclk_freq);
 
-	I915_WRITE(DSPCLK_GATE_D, VRHUNIT_CLOCK_GATE_DISABLE);
+	/*
+	 * On driver load, a pipe may be active and driving a DSI display.
+	 * Preserve DPOUNIT_CLOCK_GATE_DISABLE to avoid the pipe getting stuck
+	 * (and never recovering) in this case. intel_dsi_post_disable() will
+	 * clear it when we turn off the display.
+	 */
+	val = I915_READ(DSPCLK_GATE_D);
+	val &= DPOUNIT_CLOCK_GATE_DISABLE;
+	val |= VRHUNIT_CLOCK_GATE_DISABLE;
+	I915_WRITE(DSPCLK_GATE_D, val);
 
 	/* WaDisableEarlyCull:vlv */
 	I915_WRITE(_3D_CHICKEN3,
@@ -5900,6 +5906,8 @@ static bool vlv_power_well_enabled(struct drm_i915_private *dev_priv,
 static void vlv_display_power_well_enable(struct drm_i915_private *dev_priv,
 					  struct i915_power_well *power_well)
 {
+	struct intel_encoder *encoder;
+
 	WARN_ON_ONCE(power_well->data != PUNIT_POWER_WELL_DISP2D);
 
 	vlv_set_power_well(dev_priv, power_well, true);
@@ -5916,6 +5924,13 @@ static void vlv_display_power_well_enable(struct drm_i915_private *dev_priv,
 		return;
 
 	intel_hpd_init(dev_priv->dev);
+
+	/* Re-enable the ADPA, if we have one */
+	list_for_each_entry(encoder, &dev_priv->dev->mode_config.encoder_list,
+			    base.head) {
+		if (encoder->type == INTEL_OUTPUT_ANALOG)
+			intel_crt_reset(&encoder->base);
+	}
 
 	i915_redisable_vga_power_on(dev_priv->dev);
 }

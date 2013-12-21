@@ -206,22 +206,30 @@ static int smsusb_start_streaming(struct smsusb_device_t *dev)
 static int smsusb_sendrequest(void *context, void *buffer, size_t size)
 {
 	struct smsusb_device_t *dev = (struct smsusb_device_t *) context;
-	struct sms_msg_hdr *phdr = (struct sms_msg_hdr *) buffer;
-	int dummy;
+	struct sms_msg_hdr *phdr;
+	int dummy, ret;
 
 	if (dev->state != SMSUSB_ACTIVE) {
 		sms_debug("Device not active yet");
 		return -ENOENT;
 	}
 
+	phdr = kmalloc(size, GFP_KERNEL);
+	if (!phdr)
+		return -ENOMEM;
+	memcpy(phdr, buffer, size);
+
 	sms_debug("sending %s(%d) size: %d",
 		  smscore_translate_msg(phdr->msg_type), phdr->msg_type,
 		  phdr->msg_length);
 
 	smsendian_handle_tx_message((struct sms_msg_data *) phdr);
-	smsendian_handle_message_header((struct sms_msg_hdr *)buffer);
-	return usb_bulk_msg(dev->udev, usb_sndbulkpipe(dev->udev, 2),
-			    buffer, size, &dummy, 1000);
+	smsendian_handle_message_header((struct sms_msg_hdr *)phdr);
+	ret = usb_bulk_msg(dev->udev, usb_sndbulkpipe(dev->udev, 2),
+			    phdr, size, &dummy, 1000);
+
+	kfree(phdr);
+	return ret;
 }
 
 static char *smsusb1_fw_lkup[] = {
@@ -655,6 +663,8 @@ static const struct usb_device_id smsusb_id_table[] = {
 		.driver_info = SMS1XXX_BOARD_ONDA_MDTV_DATA_CARD },
 	{ USB_DEVICE(0x3275, 0x0080),
 		.driver_info = SMS1XXX_BOARD_SIANO_RIO },
+	{ USB_DEVICE(0x2013, 0x0257),
+		.driver_info = SMS1XXX_BOARD_PCTV_77E },
 	{ } /* Terminating entry */
 	};
 

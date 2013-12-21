@@ -40,6 +40,7 @@ struct ip_tunnel_prl_entry {
 
 struct ip_tunnel_dst {
 	struct dst_entry __rcu 		*dst;
+	__be32				 saddr;
 };
 
 struct ip_tunnel {
@@ -165,12 +166,13 @@ static inline void iptunnel_xmit_stats(int err,
 				       struct pcpu_sw_netstats __percpu *stats)
 {
 	if (err > 0) {
-		struct pcpu_sw_netstats *tstats = this_cpu_ptr(stats);
+		struct pcpu_sw_netstats *tstats = get_cpu_ptr(stats);
 
 		u64_stats_update_begin(&tstats->syncp);
 		tstats->tx_bytes += err;
 		tstats->tx_packets++;
 		u64_stats_update_end(&tstats->syncp);
+		put_cpu_ptr(tstats);
 	} else if (err < 0) {
 		err_stats->tx_errors++;
 		err_stats->tx_aborted_errors++;

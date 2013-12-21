@@ -193,13 +193,13 @@ static void bch_data_insert_start(struct closure *cl)
 	struct data_insert_op *op = container_of(cl, struct data_insert_op, cl);
 	struct bio *bio = op->bio, *n;
 
+	if (op->bypass)
+		return bch_data_invalidate(cl);
+
 	if (atomic_sub_return(bio_sectors(bio), &op->c->sectors_to_gc) < 0) {
 		set_gc_sectors(op->c);
 		wake_up_gc(op->c);
 	}
-
-	if (op->bypass)
-		return bch_data_invalidate(cl);
 
 	/*
 	 * Journal writes are marked REQ_FLUSH; if the original write was a
@@ -393,12 +393,6 @@ static bool check_should_bypass(struct cached_dev *dc, struct bio *bio)
 	}
 
 	if (!congested && !dc->sequential_cutoff)
-		goto rescale;
-
-	if (!congested &&
-	    mode == CACHE_MODE_WRITEBACK &&
-	    (bio->bi_rw & REQ_WRITE) &&
-	    (bio->bi_rw & REQ_SYNC))
 		goto rescale;
 
 	spin_lock(&dc->io_lock);
@@ -705,7 +699,14 @@ static void cached_dev_read_error(struct closure *cl)
 	struct search *s = container_of(cl, struct search, cl);
 	struct bio *bio = &s->bio.bio;
 
-	if (s->recoverable) {
+	/*
+	 * If read request hit dirty data (s->read_dirty_data is true),
+	 * then recovery a failed read request from cached device may
+	 * get a stale data back. So read failure recovery is only
+	 * permitted when read request hit clean data in cache device,
+	 * or when cache read race happened.
+	 */
+	if (s->recoverable && !s->read_dirty_data) {
 		/* Retry from the backing device: */
 		trace_bcache_read_retry(s->orig_bio);
 

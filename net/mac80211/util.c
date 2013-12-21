@@ -2664,6 +2664,13 @@ ieee80211_extend_noa_desc(struct ieee80211_noa_data *data, u32 tsf, int i)
 	if (end > 0)
 		return false;
 
+	/* One shot NOA  */
+	if (data->count[i] == 1)
+		return false;
+
+	if (data->desc[i].interval == 0)
+		return false;
+
 	/* End time is in the past, check for repetitions */
 	skip = DIV_ROUND_UP(-end, data->desc[i].interval);
 	if (data->count[i] < 255) {
@@ -2896,7 +2903,7 @@ int ieee80211_check_combinations(struct ieee80211_sub_if_data *sdata,
 		wdev_iter = &sdata_iter->wdev;
 
 		if (sdata_iter == sdata ||
-		    rcu_access_pointer(sdata_iter->vif.chanctx_conf) == NULL ||
+		    !ieee80211_sdata_running(sdata_iter) ||
 		    local->hw.wiphy->software_iftypes & BIT(wdev_iter->iftype))
 			continue;
 

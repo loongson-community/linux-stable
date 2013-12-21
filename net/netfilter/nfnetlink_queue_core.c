@@ -284,7 +284,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 			   __be32 **packet_id_ptr)
 {
 	size_t size;
-	size_t data_len = 0, cap_len = 0;
+	size_t data_len = 0, cap_len = 0, rem_len = 0;
 	unsigned int hlen = 0;
 	struct sk_buff *skb;
 	struct nlattr *nla;
@@ -341,6 +341,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 		hlen = min_t(unsigned int, hlen, data_len);
 		size += sizeof(struct nlattr) + hlen;
 		cap_len = entskb->len;
+		rem_len = data_len - hlen;
 		break;
 	}
 
@@ -352,7 +353,7 @@ nfqnl_build_packet_message(struct net *net, struct nfqnl_instance *queue,
 			+ nla_total_size(sizeof(u_int32_t)));	/* gid */
 	}
 
-	skb = nfnetlink_alloc_skb(net, size, queue->peer_portid,
+	skb = __netlink_alloc_skb(net->nfnl, size, rem_len, queue->peer_portid,
 				  GFP_ATOMIC);
 	if (!skb) {
 		skb_tx_error(entskb);
@@ -665,7 +666,7 @@ nfqnl_enqueue_packet(struct nf_queue_entry *entry, unsigned int queuenum)
 	 * returned by nf_queue.  For instance, callers rely on -ECANCELED to
 	 * mean 'ignore this hook'.
 	 */
-	if (IS_ERR(segs))
+	if (IS_ERR_OR_NULL(segs))
 		goto out_err;
 	queued = 0;
 	err = 0;
@@ -815,6 +816,27 @@ static struct notifier_block nfqnl_dev_notifier = {
 	.notifier_call	= nfqnl_rcv_dev_event,
 };
 
+static int nf_hook_cmp(struct nf_queue_entry *entry, unsigned long ops_ptr)
+{
+	return entry->elem == (struct nf_hook_ops *)ops_ptr;
+}
+
+static void nfqnl_nf_hook_drop(struct net *net, struct nf_hook_ops *hook)
+{
+	struct nfnl_queue_net *q = nfnl_queue_pernet(net);
+	int i;
+
+	rcu_read_lock();
+	for (i = 0; i < INSTANCE_BUCKETS; i++) {
+		struct nfqnl_instance *inst;
+		struct hlist_head *head = &q->instance_table[i];
+
+		hlist_for_each_entry_rcu(inst, head, hlist)
+			nfqnl_flush(inst, nf_hook_cmp, (unsigned long)hook);
+	}
+	rcu_read_unlock();
+}
+
 static int
 nfqnl_rcv_nl_event(struct notifier_block *this,
 		   unsigned long event, void *ptr)
@@ -963,10 +985,8 @@ nfqnl_recv_verdict(struct sock *ctnl, struct sk_buff *skb,
 	struct net *net = sock_net(ctnl);
 	struct nfnl_queue_net *q = nfnl_queue_pernet(net);
 
-	queue = instance_lookup(q, queue_num);
-	if (!queue)
-		queue = verdict_instance_lookup(q, queue_num,
-						NETLINK_CB(skb).portid);
+	queue = verdict_instance_lookup(q, queue_num,
+					NETLINK_CB(skb).portid);
 	if (IS_ERR(queue))
 		return PTR_ERR(queue);
 
@@ -1022,7 +1042,8 @@ static const struct nla_policy nfqa_cfg_policy[NFQA_CFG_MAX+1] = {
 };
 
 static const struct nf_queue_handler nfqh = {
-	.outfn	= &nfqnl_enqueue_packet,
+	.outfn		= &nfqnl_enqueue_packet,
+	.nf_hook_drop	= &nfqnl_nf_hook_drop,
 };
 
 static int

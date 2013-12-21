@@ -240,6 +240,7 @@ static struct shash_alg alg = {
 		.cra_name		=	"crc32c",
 		.cra_driver_name	=	"crc32c-intel",
 		.cra_priority		=	200,
+		.cra_flags		=	CRYPTO_ALG_OPTIONAL_KEY,
 		.cra_blocksize		=	CHKSUM_BLOCK_SIZE,
 		.cra_ctxsize		=	sizeof(u32),
 		.cra_module		=	THIS_MODULE,
@@ -280,5 +281,5 @@ MODULE_AUTHOR("Austin Zhang <austin.zhang@intel.com>, Kent Liu <kent.liu@intel.c
 MODULE_DESCRIPTION("CRC32c (Castagnoli) optimization using Intel Hardware.");
 MODULE_LICENSE("GPL");
 
-MODULE_ALIAS("crc32c");
-MODULE_ALIAS("crc32c-intel");
+MODULE_ALIAS_CRYPTO("crc32c");
+MODULE_ALIAS_CRYPTO("crc32c-intel");

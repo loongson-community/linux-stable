@@ -402,8 +402,8 @@ int iser_send_command(struct iscsi_conn *conn,
 	if (scsi_prot_sg_count(sc)) {
 		prot_buf->buf  = scsi_prot_sglist(sc);
 		prot_buf->size = scsi_prot_sg_count(sc);
-		prot_buf->data_len = data_buf->data_len >>
-				     ilog2(sc->device->sector_size) * 8;
+		prot_buf->data_len = (data_buf->data_len >>
+				     ilog2(sc->device->sector_size)) * 8;
 	}
 
 	if (hdr->flags & ISCSI_FLAG_CMD_READ) {
@@ -702,19 +702,23 @@ void iser_task_rdma_finalize(struct iscsi_iser_task *iser_task)
 		device->iser_unreg_rdma_mem(iser_task, ISER_DIR_IN);
 		if (is_rdma_data_aligned)
 			iser_dma_unmap_task_data(iser_task,
-						 &iser_task->data[ISER_DIR_IN]);
+						 &iser_task->data[ISER_DIR_IN],
+						 DMA_FROM_DEVICE);
 		if (prot_count && is_rdma_prot_aligned)
 			iser_dma_unmap_task_data(iser_task,
-						 &iser_task->prot[ISER_DIR_IN]);
+						 &iser_task->prot[ISER_DIR_IN],
+						 DMA_FROM_DEVICE);
 	}
 
 	if (iser_task->dir[ISER_DIR_OUT]) {
 		device->iser_unreg_rdma_mem(iser_task, ISER_DIR_OUT);
 		if (is_rdma_data_aligned)
 			iser_dma_unmap_task_data(iser_task,
-						 &iser_task->data[ISER_DIR_OUT]);
+						 &iser_task->data[ISER_DIR_OUT],
+						 DMA_TO_DEVICE);
 		if (prot_count && is_rdma_prot_aligned)
 			iser_dma_unmap_task_data(iser_task,
-						 &iser_task->prot[ISER_DIR_OUT]);
+						 &iser_task->prot[ISER_DIR_OUT],
+						 DMA_TO_DEVICE);
 	}
 }

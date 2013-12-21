@@ -760,7 +760,7 @@ void rtl8821ae_set_hw_reg(struct ieee80211_hw *hw, u8 variable, u8 *val)
 
 		}
 	case HW_VAR_NAV_UPPER: {
-			u32	us_nav_upper = ((u32)*val);
+			u32	us_nav_upper = *(u32 *)val;
 
 			if(us_nav_upper > HAL_92C_NAV_UPPER_UNIT * 0xFF)
 			{
@@ -1098,7 +1098,7 @@ static u8 _rtl8821ae_dbi_read(struct rtl_priv *rtlpriv, u16 addr)
 	}
 	if (0 == tmp) {
 		read_addr = REG_DBI_RDATA + addr % 4;
-		ret = rtl_read_word(rtlpriv, read_addr);
+		ret = rtl_read_byte(rtlpriv, read_addr);
 	}
 	return ret;
 }

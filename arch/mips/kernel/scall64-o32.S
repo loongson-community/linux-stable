@@ -113,15 +113,19 @@ trace_a_syscall:
 	move	s0, t2			# Save syscall pointer
 	move	a0, sp
 	/*
-	 * syscall number is in v0 unless we called syscall(__NR_###)
+	 * absolute syscall number is in v0 unless we called syscall(__NR_###)
 	 * where the real syscall number is in a0
 	 * note: NR_syscall is the first O32 syscall but the macro is
 	 * only defined when compiling with -mabi=32 (CONFIG_32BIT)
 	 * therefore __NR_O32_Linux is used (4000)
 	 */
-	addiu	a1, v0,  __NR_O32_Linux
-	bnez	v0, 1f /* __NR_syscall at offset 0 */
-	lw	a1, PT_R4(sp)
+	.set	push
+	.set	reorder
+	subu	t1, v0,  __NR_O32_Linux
+	move	a1, v0
+	bnez	t1, 1f /* __NR_syscall at offset 0 */
+	lw	a1, PT_R4(sp) /* Arg1 for __NR_syscall case */
+	.set	pop
 
 1:	jal	syscall_trace_enter
 
@@ -354,7 +358,7 @@ EXPORT(sys32_call_table)
 	PTR	compat_sys_writev
 	PTR	sys_cacheflush
 	PTR	sys_cachectl
-	PTR	sys_sysmips
+	PTR	__sys_sysmips
 	PTR	sys_ni_syscall			/* 4150 */
 	PTR	sys_getsid
 	PTR	sys_fdatasync
@@ -487,7 +491,7 @@ EXPORT(sys32_call_table)
 	PTR	sys_ni_syscall			/* available, was setaltroot */
 	PTR	sys_add_key			/* 4280 */
 	PTR	sys_request_key
-	PTR	sys_keyctl
+	PTR	compat_sys_keyctl
 	PTR	sys_set_thread_area
 	PTR	sys_inotify_init
 	PTR	sys_inotify_add_watch		/* 4285 */

@@ -155,6 +155,11 @@ asmlinkage void secondary_start_kernel(void)
 		cpu_ops[cpu]->cpu_postboot();
 
 	/*
+	 * Log the CPU info before it is marked online and might get read.
+	 */
+	cpuinfo_store_cpu();
+
+	/*
 	 * Enable GIC and timers.
 	 */
 	notify_cpu_starting(cpu);
@@ -169,7 +174,6 @@ asmlinkage void secondary_start_kernel(void)
 	set_cpu_online(cpu, true);
 	complete(&cpu_running);
 
-	local_dbg_enable();
 	local_irq_enable();
 	local_async_enable();
 

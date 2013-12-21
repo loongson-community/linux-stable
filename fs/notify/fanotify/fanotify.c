@@ -67,11 +67,7 @@ static int fanotify_get_response(struct fsnotify_group *group,
 
 	pr_debug("%s: group=%p event=%p\n", __func__, group, event);
 
-	wait_event(group->fanotify_data.access_waitq, event->response ||
-				atomic_read(&group->fanotify_data.bypass_perm));
-
-	if (!event->response) /* bypass_perm set */
-		return 0;
+	wait_event(group->fanotify_data.access_waitq, event->response);
 
 	/* userspace responded, convert to something usable */
 	switch (event->response) {

@@ -213,6 +213,7 @@ struct acpi_table_list {
 
 #define ACPI_TABLE_INDEX_DSDT           (0)
 #define ACPI_TABLE_INDEX_FACS           (1)
+#define ACPI_TABLE_INDEX_X_FACS         (2)
 
 struct acpi_find_context {
 	char *search_for;
@@ -254,6 +255,7 @@ struct acpi_create_field_info {
 	u32 field_bit_position;
 	u32 field_bit_length;
 	u16 resource_length;
+	u16 pin_number_index;
 	u8 field_flags;
 	u8 attribute;
 	u8 field_type;

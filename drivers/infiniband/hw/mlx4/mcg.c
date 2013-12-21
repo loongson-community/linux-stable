@@ -206,15 +206,16 @@ static int send_mad_to_wire(struct mlx4_ib_demux_ctx *ctx, struct ib_mad *mad)
 {
 	struct mlx4_ib_dev *dev = ctx->dev;
 	struct ib_ah_attr	ah_attr;
+	unsigned long flags;
 
-	spin_lock(&dev->sm_lock);
+	spin_lock_irqsave(&dev->sm_lock, flags);
 	if (!dev->sm_ah[ctx->port - 1]) {
 		/* port is not yet Active, sm_ah not ready */
-		spin_unlock(&dev->sm_lock);
+		spin_unlock_irqrestore(&dev->sm_lock, flags);
 		return -EAGAIN;
 	}
 	mlx4_ib_query_ah(dev->sm_ah[ctx->port - 1], &ah_attr);
-	spin_unlock(&dev->sm_lock);
+	spin_unlock_irqrestore(&dev->sm_lock, flags);
 	return mlx4_ib_send_to_wire(dev, mlx4_master_func_num(dev->dev),
 				    ctx->port, IB_QPT_GSI, 0, 1, IB_QP1_QKEY,
 				    &ah_attr, NULL, mad);
@@ -484,7 +485,7 @@ static u8 get_leave_state(struct mcast_group *group)
 		if (!group->members[i])
 			leave_state |= (1 << i);
 
-	return leave_state & (group->rec.scope_join_state & 7);
+	return leave_state & (group->rec.scope_join_state & 0xf);
 }
 
 static int join_group(struct mcast_group *group, int slave, u8 join_mask)
@@ -559,8 +560,8 @@ static void mlx4_ib_mcg_timeout_handler(struct work_struct *work)
 		} else
 			mcg_warn_group(group, "DRIVER BUG\n");
 	} else if (group->state == MCAST_LEAVE_SENT) {
-		if (group->rec.scope_join_state & 7)
-			group->rec.scope_join_state &= 0xf8;
+		if (group->rec.scope_join_state & 0xf)
+			group->rec.scope_join_state &= 0xf0;
 		group->state = MCAST_IDLE;
 		mutex_unlock(&group->lock);
 		if (release_group(group, 1))
@@ -600,7 +601,7 @@ static int handle_leave_req(struct mcast_group *group, u8 leave_mask,
 static int handle_join_req(struct mcast_group *group, u8 join_mask,
 			   struct mcast_req *req)
 {
-	u8 group_join_state = group->rec.scope_join_state & 7;
+	u8 group_join_state = group->rec.scope_join_state & 0xf;
 	int ref = 0;
 	u16 status;
 	struct ib_sa_mcmember_data *sa_data = (struct ib_sa_mcmember_data *)req->sa_mad.data;
@@ -685,8 +686,8 @@ static void mlx4_ib_mcg_work_handler(struct work_struct *work)
 			u8 cur_join_state;
 
 			resp_join_state = ((struct ib_sa_mcmember_data *)
-						group->response_sa_mad.data)->scope_join_state & 7;
-			cur_join_state = group->rec.scope_join_state & 7;
+						group->response_sa_mad.data)->scope_join_state & 0xf;
+			cur_join_state = group->rec.scope_join_state & 0xf;
 
 			if (method == IB_MGMT_METHOD_GET_RESP) {
 				/* successfull join */
@@ -705,7 +706,7 @@ process_requests:
 		req = list_first_entry(&group->pending_list, struct mcast_req,
 				       group_list);
 		sa_data = (struct ib_sa_mcmember_data *)req->sa_mad.data;
-		req_join_state = sa_data->scope_join_state & 0x7;
+		req_join_state = sa_data->scope_join_state & 0xf;
 
 		/* For a leave request, we will immediately answer the VF, and
 		 * update our internal counters. The actual leave will be sent

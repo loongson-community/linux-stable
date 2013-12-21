@@ -451,12 +451,6 @@ int ufs_truncate(struct inode *inode, loff_t old_i_size)
 	     inode->i_ino, (unsigned long long)i_size_read(inode),
 	     (unsigned long long)old_i_size);
 
-	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
-	      S_ISLNK(inode->i_mode)))
-		return -EINVAL;
-	if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
-		return -EPERM;
-
 	err = ufs_alloc_lastblock(inode);
 
 	if (err) {
@@ -496,7 +490,7 @@ int ufs_setattr(struct dentry *dentry, struct iattr *attr)
 	unsigned int ia_valid = attr->ia_valid;
 	int error;
 
-	error = inode_change_ok(inode, attr);
+	error = setattr_prepare(dentry, attr);
 	if (error)
 		return error;
 

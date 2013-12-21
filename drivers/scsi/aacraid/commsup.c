@@ -83,9 +83,20 @@ static int fib_map_alloc(struct aac_dev *dev)
 
 void aac_fib_map_free(struct aac_dev *dev)
 {
-	pci_free_consistent(dev->pdev,
-	  dev->max_fib_size * (dev->scsi_host_ptr->can_queue + AAC_NUM_MGT_FIB),
-	  dev->hw_fib_va, dev->hw_fib_pa);
+	size_t alloc_size;
+	size_t fib_size;
+	int num_fibs;
+
+	if(!dev->hw_fib_va || !dev->max_fib_size)
+		return;
+
+	num_fibs = dev->scsi_host_ptr->can_queue + AAC_NUM_MGT_FIB;
+	fib_size = dev->max_fib_size + sizeof(struct aac_fib_xporthdr);
+	alloc_size = fib_size * num_fibs + ALIGN32 - 1;
+
+	pci_free_consistent(dev->pdev, alloc_size, dev->hw_fib_va,
+							dev->hw_fib_pa);
+
 	dev->hw_fib_va = NULL;
 	dev->hw_fib_pa = 0;
 }
@@ -113,22 +124,20 @@ int aac_fib_setup(struct aac_dev * dev)
 	if (i<0)
 		return -ENOMEM;
 
-	/* 32 byte alignment for PMC */
-	hw_fib_pa = (dev->hw_fib_pa + (ALIGN32 - 1)) & ~(ALIGN32 - 1);
-	dev->hw_fib_va = (struct hw_fib *)((unsigned char *)dev->hw_fib_va +
-		(hw_fib_pa - dev->hw_fib_pa));
-	dev->hw_fib_pa = hw_fib_pa;
 	memset(dev->hw_fib_va, 0,
 		(dev->max_fib_size + sizeof(struct aac_fib_xporthdr)) *
 		(dev->scsi_host_ptr->can_queue + AAC_NUM_MGT_FIB));
 
-	/* add Xport header */
-	dev->hw_fib_va = (struct hw_fib *)((unsigned char *)dev->hw_fib_va +
-		sizeof(struct aac_fib_xporthdr));
-	dev->hw_fib_pa += sizeof(struct aac_fib_xporthdr);
+	/* 32 byte alignment for PMC */
+	hw_fib_pa = (dev->hw_fib_pa + (ALIGN32 - 1)) & ~(ALIGN32 - 1);
+	hw_fib    = (struct hw_fib *)((unsigned char *)dev->hw_fib_va +
+					(hw_fib_pa - dev->hw_fib_pa));
 
-	hw_fib = dev->hw_fib_va;
-	hw_fib_pa = dev->hw_fib_pa;
+	/* add Xport header */
+	hw_fib = (struct hw_fib *)((unsigned char *)hw_fib +
+		sizeof(struct aac_fib_xporthdr));
+	hw_fib_pa += sizeof(struct aac_fib_xporthdr);
+
 	/*
 	 *	Initialise the fibs
 	 */
@@ -587,10 +596,10 @@ int aac_fib_send(u16 command, struct fib *fibptr, unsigned long size,
 					}
 					return -EFAULT;
 				}
-				/* We used to udelay() here but that absorbed
-				 * a CPU when a timeout occured. Not very
-				 * useful. */
-				cpu_relax();
+				/*
+				 * Allow other processes / CPUS to use core
+				 */
+				schedule();
 			}
 		} else if (down_interruptible(&fibptr->event_wait)) {
 			/* Do nothing ... satisfy
@@ -1918,6 +1927,10 @@ int aac_command_thread(void *data)
 		if (difference <= 0)
 			difference = 1;
 		set_current_state(TASK_INTERRUPTIBLE);
+
+		if (kthread_should_stop())
+			break;
+
 		schedule_timeout(difference);
 
 		if (kthread_should_stop())

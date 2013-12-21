@@ -41,21 +41,25 @@ static int __init setup_noreplace_smp(char *str)
 }
 __setup("noreplace-smp", setup_noreplace_smp);
 
-#ifdef CONFIG_PARAVIRT
-static int __initdata_or_module noreplace_paravirt = 0;
+#define DPRINTK(fmt, args...)						\
+do {									\
+	if (debug_alternative)						\
+		printk(KERN_DEBUG "%s: " fmt "\n", __func__, ##args);	\
+} while (0)
 
-static int __init setup_noreplace_paravirt(char *str)
-{
-	noreplace_paravirt = 1;
-	return 1;
-}
-__setup("noreplace-paravirt", setup_noreplace_paravirt);
-#endif
-
-#define DPRINTK(fmt, ...)				\
-do {							\
-	if (debug_alternative)				\
-		printk(KERN_DEBUG fmt, ##__VA_ARGS__);	\
+#define DUMP_BYTES(buf, len, fmt, args...)				\
+do {									\
+	if (unlikely(debug_alternative)) {				\
+		int j;							\
+									\
+		if (!(len))						\
+			break;						\
+									\
+		printk(KERN_DEBUG fmt, ##args);				\
+		for (j = 0; j < (len) - 1; j++)				\
+			printk(KERN_CONT "%02hhx ", buf[j]);		\
+		printk(KERN_CONT "%02hhx\n", buf[j]);			\
+	}								\
 } while (0)
 
 /*
@@ -243,12 +247,97 @@ extern struct alt_instr __alt_instructions[], __alt_instructions_end[];
 extern s32 __smp_locks[], __smp_locks_end[];
 void *text_poke_early(void *addr, const void *opcode, size_t len);
 
-/* Replace instructions with better alternatives for this CPU type.
-   This runs before SMP is initialized to avoid SMP problems with
-   self modifying code. This implies that asymmetric systems where
-   APs have less capabilities than the boot processor are not handled.
-   Tough. Make sure you disable such features by hand. */
+/*
+ * Are we looking at a near JMP with a 1 or 4-byte displacement.
+ */
+static inline bool is_jmp(const u8 opcode)
+{
+	return opcode == 0xeb || opcode == 0xe9;
+}
 
+static void __init_or_module
+recompute_jump(struct alt_instr *a, u8 *orig_insn, u8 *repl_insn, u8 *insnbuf)
+{
+	u8 *next_rip, *tgt_rip;
+	s32 n_dspl, o_dspl;
+	int repl_len;
+
+	if (a->replacementlen != 5)
+		return;
+
+	o_dspl = *(s32 *)(insnbuf + 1);
+
+	/* next_rip of the replacement JMP */
+	next_rip = repl_insn + a->replacementlen;
+	/* target rip of the replacement JMP */
+	tgt_rip  = next_rip + o_dspl;
+	n_dspl = tgt_rip - orig_insn;
+
+	DPRINTK("target RIP: %p, new_displ: 0x%x", tgt_rip, n_dspl);
+
+	if (tgt_rip - orig_insn >= 0) {
+		if (n_dspl - 2 <= 127)
+			goto two_byte_jmp;
+		else
+			goto five_byte_jmp;
+	/* negative offset */
+	} else {
+		if (((n_dspl - 2) & 0xff) == (n_dspl - 2))
+			goto two_byte_jmp;
+		else
+			goto five_byte_jmp;
+	}
+
+two_byte_jmp:
+	n_dspl -= 2;
+
+	insnbuf[0] = 0xeb;
+	insnbuf[1] = (s8)n_dspl;
+	add_nops(insnbuf + 2, 3);
+
+	repl_len = 2;
+	goto done;
+
+five_byte_jmp:
+	n_dspl -= 5;
+
+	insnbuf[0] = 0xe9;
+	*(s32 *)&insnbuf[1] = n_dspl;
+
+	repl_len = 5;
+
+done:
+
+	DPRINTK("final displ: 0x%08x, JMP 0x%lx",
+		n_dspl, (unsigned long)orig_insn + n_dspl + repl_len);
+}
+
+static void __init_or_module optimize_nops(struct alt_instr *a, u8 *instr)
+{
+	unsigned long flags;
+	int i;
+
+	for (i = 0; i < a->padlen; i++) {
+		if (instr[i] != 0x90)
+			return;
+	}
+
+	local_irq_save(flags);
+	add_nops(instr + (a->instrlen - a->padlen), a->padlen);
+	sync_core();
+	local_irq_restore(flags);
+
+	DUMP_BYTES(instr, a->instrlen, "%p: [%d:%d) optimized NOPs: ",
+		   instr, a->instrlen - a->padlen, a->padlen);
+}
+
+/*
+ * Replace instructions with better alternatives for this CPU type. This runs
+ * before SMP is initialized to avoid SMP problems with self modifying code.
+ * This implies that asymmetric systems where APs have less capabilities than
+ * the boot processor are not handled. Tough. Make sure you disable such
+ * features by hand.
+ */
 void __init_or_module apply_alternatives(struct alt_instr *start,
 					 struct alt_instr *end)
 {
@@ -256,10 +345,10 @@ void __init_or_module apply_alternatives(struct alt_instr *start,
 	u8 *instr, *replacement;
 	u8 insnbuf[MAX_PATCH_LEN];
 
-	DPRINTK("%s: alt table %p -> %p\n", __func__, start, end);
+	DPRINTK("alt table %p -> %p", start, end);
 	/*
 	 * The scan order should be from start to end. A later scanned
-	 * alternative code can overwrite a previous scanned alternative code.
+	 * alternative code can overwrite previously scanned alternative code.
 	 * Some kernel functions (e.g. memcpy, memset, etc) use this order to
 	 * patch code.
 	 *
@@ -267,35 +356,59 @@ void __init_or_module apply_alternatives(struct alt_instr *start,
 	 * order.
 	 */
 	for (a = start; a < end; a++) {
+		int insnbuf_sz = 0;
+
 		instr = (u8 *)&a->instr_offset + a->instr_offset;
 		replacement = (u8 *)&a->repl_offset + a->repl_offset;
-		BUG_ON(a->replacementlen > a->instrlen);
 		BUG_ON(a->instrlen > sizeof(insnbuf));
 		BUG_ON(a->cpuid >= (NCAPINTS + NBUGINTS) * 32);
-		if (!boot_cpu_has(a->cpuid))
+		if (!boot_cpu_has(a->cpuid)) {
+			if (a->padlen > 1)
+				optimize_nops(a, instr);
+
 			continue;
+		}
+
+		DPRINTK("feat: %d*32+%d, old: (%p, len: %d), repl: (%p, len: %d), pad: %d",
+			a->cpuid >> 5,
+			a->cpuid & 0x1f,
+			instr, a->instrlen,
+			replacement, a->replacementlen, a->padlen);
+
+		DUMP_BYTES(instr, a->instrlen, "%p: old_insn: ", instr);
+		DUMP_BYTES(replacement, a->replacementlen, "%p: rpl_insn: ", replacement);
 
 		memcpy(insnbuf, replacement, a->replacementlen);
+		insnbuf_sz = a->replacementlen;
 
 		/* 0xe8 is a relative jump; fix the offset. */
-		if (*insnbuf == 0xe8 && a->replacementlen == 5)
-		    *(s32 *)(insnbuf + 1) += replacement - instr;
+		if (*insnbuf == 0xe8 && a->replacementlen == 5) {
+			*(s32 *)(insnbuf + 1) += replacement - instr;
+			DPRINTK("Fix CALL offset: 0x%x, CALL 0x%lx",
+				*(s32 *)(insnbuf + 1),
+				(unsigned long)instr + *(s32 *)(insnbuf + 1) + 5);
+		}
 
-		add_nops(insnbuf + a->replacementlen,
-			 a->instrlen - a->replacementlen);
+		if (a->replacementlen && is_jmp(replacement[0]))
+			recompute_jump(a, instr, replacement, insnbuf);
 
-		text_poke_early(instr, insnbuf, a->instrlen);
+		if (a->instrlen > a->replacementlen) {
+			add_nops(insnbuf + a->replacementlen,
+				 a->instrlen - a->replacementlen);
+			insnbuf_sz += a->instrlen - a->replacementlen;
+		}
+		DUMP_BYTES(insnbuf, insnbuf_sz, "%p: final_insn: ", instr);
+
+		text_poke_early(instr, insnbuf, insnbuf_sz);
 	}
 }
 
 #ifdef CONFIG_SMP
-
 static void alternatives_smp_lock(const s32 *start, const s32 *end,
 				  u8 *text, u8 *text_end)
 {
 	const s32 *poff;
 
-	mutex_lock(&text_mutex);
 	for (poff = start; poff < end; poff++) {
 		u8 *ptr = (u8 *)poff + *poff;
 
@@ -305,7 +418,6 @@ static void alternatives_smp_lock(const s32 *start, const s32 *end,
 		if (*ptr == 0x3e)
 			text_poke(ptr, ((unsigned char []){0xf0}), 1);
 	}
-	mutex_unlock(&text_mutex);
 }
 
 static void alternatives_smp_unlock(const s32 *start, const s32 *end,
@@ -313,7 +425,6 @@ static void alternatives_smp_unlock(const s32 *start, const s32 *end,
 {
 	const s32 *poff;
 
-	mutex_lock(&text_mutex);
 	for (poff = start; poff < end; poff++) {
 		u8 *ptr = (u8 *)poff + *poff;
 
@@ -323,7 +434,6 @@ static void alternatives_smp_unlock(const s32 *start, const s32 *end,
 		if (*ptr == 0xf0)
 			text_poke(ptr, ((unsigned char []){0x3E}), 1);
 	}
-	mutex_unlock(&text_mutex);
 }
 
 struct smp_alt_module {
@@ -342,8 +452,7 @@ struct smp_alt_module {
 	struct list_head next;
 };
 static LIST_HEAD(smp_alt_modules);
-static DEFINE_MUTEX(smp_alt);
-static bool uniproc_patched = false;	/* protected by smp_alt */
+static bool uniproc_patched = false;	/* protected by text_mutex */
 
 void __init_or_module alternatives_smp_module_add(struct module *mod,
 						  char *name,
@@ -352,7 +461,7 @@ void __init_or_module alternatives_smp_module_add(struct module *mod,
 {
 	struct smp_alt_module *smp;
 
-	mutex_lock(&smp_alt);
+	mutex_lock(&text_mutex);
 	if (!uniproc_patched)
 		goto unlock;
 
@@ -371,22 +480,22 @@ void __init_or_module alternatives_smp_module_add(struct module *mod,
 	smp->locks_end	= locks_end;
 	smp->text	= text;
 	smp->text_end	= text_end;
-	DPRINTK("%s: locks %p -> %p, text %p -> %p, name %s\n",
-		__func__, smp->locks, smp->locks_end,
+	DPRINTK("locks %p -> %p, text %p -> %p, name %s\n",
+		smp->locks, smp->locks_end,
 		smp->text, smp->text_end, smp->name);
 
 	list_add_tail(&smp->next, &smp_alt_modules);
 smp_unlock:
 	alternatives_smp_unlock(locks, locks_end, text, text_end);
 unlock:
-	mutex_unlock(&smp_alt);
+	mutex_unlock(&text_mutex);
 }
 
 void __init_or_module alternatives_smp_module_del(struct module *mod)
 {
 	struct smp_alt_module *item;
 
-	mutex_lock(&smp_alt);
+	mutex_lock(&text_mutex);
 	list_for_each_entry(item, &smp_alt_modules, next) {
 		if (mod != item->mod)
 			continue;
@@ -394,7 +503,7 @@ void __init_or_module alternatives_smp_module_del(struct module *mod)
 		kfree(item);
 		break;
 	}
-	mutex_unlock(&smp_alt);
+	mutex_unlock(&text_mutex);
 }
 
 void alternatives_enable_smp(void)
@@ -404,7 +513,7 @@ void alternatives_enable_smp(void)
 	/* Why bother if there are no other CPUs? */
 	BUG_ON(num_possible_cpus() == 1);
 
-	mutex_lock(&smp_alt);
+	mutex_lock(&text_mutex);
 
 	if (uniproc_patched) {
 		pr_info("switching to SMP code\n");
@@ -416,16 +525,21 @@ void alternatives_enable_smp(void)
 					      mod->text, mod->text_end);
 		uniproc_patched = false;
 	}
-	mutex_unlock(&smp_alt);
+	mutex_unlock(&text_mutex);
 }
 
-/* Return 1 if the address range is reserved for smp-alternatives */
+/*
+ * Return 1 if the address range is reserved for SMP-alternatives.
+ * Must hold text_mutex.
+ */
 int alternatives_text_reserved(void *start, void *end)
 {
 	struct smp_alt_module *mod;
 	const s32 *poff;
 	u8 *text_start = start;
 	u8 *text_end = end;
+
+	lockdep_assert_held(&text_mutex);
 
 	list_for_each_entry(mod, &smp_alt_modules, next) {
 		if (mod->text > text_end || mod->text_end < text_start)
@@ -440,7 +554,7 @@ int alternatives_text_reserved(void *start, void *end)
 
 	return 0;
 }
-#endif
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_PARAVIRT
 void __init_or_module apply_paravirt(struct paravirt_patch_site *start,
@@ -448,9 +562,6 @@ void __init_or_module apply_paravirt(struct paravirt_patch_site *start,
 {
 	struct paravirt_patch_site *p;
 	char insnbuf[MAX_PATCH_LEN];
-
-	if (noreplace_paravirt)
-		return;
 
 	for (p = start; p < end; p++) {
 		unsigned int used;

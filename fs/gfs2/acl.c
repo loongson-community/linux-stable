@@ -73,23 +73,17 @@ int gfs2_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 
 	BUG_ON(name == NULL);
 
-	if (acl->a_count > GFS2_ACL_MAX_ENTRIES(GFS2_SB(inode)))
+	if (acl && acl->a_count > GFS2_ACL_MAX_ENTRIES(GFS2_SB(inode)))
 		return -E2BIG;
 
 	if (type == ACL_TYPE_ACCESS) {
 		umode_t mode = inode->i_mode;
 
-		error = posix_acl_equiv_mode(acl, &mode);
-		if (error < 0)
+		error = posix_acl_update_mode(inode, &inode->i_mode, &acl);
+		if (error)
 			return error;
-
-		if (error == 0)
-			acl = NULL;
-
-		if (mode != inode->i_mode) {
-			inode->i_mode = mode;
+		if (mode != inode->i_mode)
 			mark_inode_dirty(inode);
-		}
 	}
 
 	if (acl) {

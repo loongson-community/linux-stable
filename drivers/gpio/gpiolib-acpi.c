@@ -130,7 +130,7 @@ static acpi_status acpi_gpiochip_request_interrupt(struct acpi_resource *ares,
 
 	if (pin <= 255) {
 		char ev_name[5];
-		sprintf(ev_name, "_%c%02X",
+		sprintf(ev_name, "_%c%02hhX",
 			agpio->triggering == ACPI_EDGE_SENSITIVE ? 'E' : 'L',
 			pin);
 		if (ACPI_SUCCESS(acpi_get_handle(handle, ev_name, &evt_handle)))
@@ -357,8 +357,10 @@ acpi_gpio_adr_space_handler(u32 function, acpi_physical_address address,
 	struct gpio_chip *chip = achip->chip;
 	struct acpi_resource_gpio *agpio;
 	struct acpi_resource *ares;
+	int pin_index = (int)address;
 	acpi_status status;
 	bool pull_up;
+	int length;
 	int i;
 
 	status = acpi_buffer_to_resource(achip->conn_info.connection,
@@ -380,7 +382,8 @@ acpi_gpio_adr_space_handler(u32 function, acpi_physical_address address,
 		return AE_BAD_PARAMETER;
 	}
 
-	for (i = 0; i < agpio->pin_table_length; i++) {
+	length = min(agpio->pin_table_length, (u16)(pin_index + bits));
+	for (i = pin_index; i < length; ++i) {
 		unsigned pin = agpio->pin_table[i];
 		struct acpi_gpio_connection *conn;
 		struct gpio_desc *desc;

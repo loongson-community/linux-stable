@@ -125,11 +125,14 @@ struct amdtp_stream {
 	unsigned int pcm_buffer_pointer;
 	unsigned int pcm_period_pointer;
 	bool pointer_flush;
+	bool double_pcm_frames;
 
 	struct snd_rawmidi_substream *midi[AMDTP_MAX_CHANNELS_FOR_MIDI * 8];
 
 	/* quirk: fixed interval of dbc between previos/current packets. */
 	unsigned int tx_dbc_interval;
+	/* quirk: indicate the value of dbc field in a first packet. */
+	unsigned int tx_first_dbc;
 
 	/* quirk: the first count of data blocks in an rx packet for MIDI */
 	unsigned int rx_blocks_for_midi;

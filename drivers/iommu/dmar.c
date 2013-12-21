@@ -299,7 +299,9 @@ static int dmar_pci_bus_notifier(struct notifier_block *nb,
 	struct pci_dev *pdev = to_pci_dev(data);
 	struct dmar_pci_notify_info *info;
 
-	/* Only care about add/remove events for physical functions */
+	/* Only care about add/remove events for physical functions.
+	 * For VFs we actually do the lookup based on the corresponding
+	 * PF in device_to_iommu() anyway. */
 	if (pdev->is_virtfn)
 		return NOTIFY_DONE;
 	if (action != BUS_NOTIFY_ADD_DEVICE && action != BUS_NOTIFY_DEL_DEVICE)
@@ -677,8 +679,7 @@ static int __init dmar_acpi_dev_scope_init(void)
 				       andd->object_name);
 				continue;
 			}
-			acpi_bus_get_device(h, &adev);
-			if (!adev) {
+			if (acpi_bus_get_device(h, &adev)) {
 				pr_err("Failed to get device for ACPI object %s\n",
 				       andd->object_name);
 				continue;
@@ -717,11 +718,14 @@ int __init dmar_dev_scope_init(void)
 				dmar_free_pci_notify_info(info);
 			}
 		}
-
-		bus_register_notifier(&pci_bus_type, &dmar_pci_bus_nb);
 	}
 
 	return dmar_dev_scope_status;
+}
+
+void dmar_register_bus_notifier(void)
+{
+	bus_register_notifier(&pci_bus_type, &dmar_pci_bus_nb);
 }
 
 
@@ -1247,7 +1251,7 @@ void dmar_disable_qi(struct intel_iommu *iommu)
 
 	raw_spin_lock_irqsave(&iommu->register_lock, flags);
 
-	sts =  dmar_readq(iommu->reg + DMAR_GSTS_REG);
+	sts =  readl(iommu->reg + DMAR_GSTS_REG);
 	if (!(sts & DMA_GSTS_QIES))
 		goto end;
 
@@ -1460,18 +1464,14 @@ static int dmar_fault_do_one(struct intel_iommu *iommu, int type,
 	reason = dmar_get_fault_reason(fault_reason, &fault_type);
 
 	if (fault_type == INTR_REMAP)
-		pr_err("INTR-REMAP: Request device [[%02x:%02x.%d] "
-		       "fault index %llx\n"
-			"INTR-REMAP:[fault reason %02d] %s\n",
-			(source_id >> 8), PCI_SLOT(source_id & 0xFF),
+		pr_err("[INTR-REMAP] Request device [%02x:%02x.%d] fault index %llx [fault reason %02d] %s\n",
+			source_id >> 8, PCI_SLOT(source_id & 0xFF),
 			PCI_FUNC(source_id & 0xFF), addr >> 48,
 			fault_reason, reason);
 	else
-		pr_err("DMAR:[%s] Request device [%02x:%02x.%d] "
-		       "fault addr %llx \n"
-		       "DMAR:[fault reason %02d] %s\n",
-		       (type ? "DMA Read" : "DMA Write"),
-		       (source_id >> 8), PCI_SLOT(source_id & 0xFF),
+		pr_err("[%s] Request device [%02x:%02x.%d] fault addr %llx [fault reason %02d] %s\n",
+		       type ? "DMA Read" : "DMA Write",
+		       source_id >> 8, PCI_SLOT(source_id & 0xFF),
 		       PCI_FUNC(source_id & 0xFF), addr, fault_reason, reason);
 	return 0;
 }
@@ -1483,10 +1483,17 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
 	int reg, fault_index;
 	u32 fault_status;
 	unsigned long flag;
+	bool ratelimited;
+	static DEFINE_RATELIMIT_STATE(rs,
+				      DEFAULT_RATELIMIT_INTERVAL,
+				      DEFAULT_RATELIMIT_BURST);
+
+	/* Disable printing, simply clear the fault when ratelimited */
+	ratelimited = !__ratelimit(&rs);
 
 	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	fault_status = readl(iommu->reg + DMAR_FSTS_REG);
-	if (fault_status)
+	if (fault_status && !ratelimited)
 		pr_err("DRHD: handling fault status reg %x\n", fault_status);
 
 	/* TBD: ignore advanced fault log currently */
@@ -1508,24 +1515,28 @@ irqreturn_t dmar_fault(int irq, void *dev_id)
 		if (!(data & DMA_FRCD_F))
 			break;
 
-		fault_reason = dma_frcd_fault_reason(data);
-		type = dma_frcd_type(data);
+		if (!ratelimited) {
+			fault_reason = dma_frcd_fault_reason(data);
+			type = dma_frcd_type(data);
 
-		data = readl(iommu->reg + reg +
-				fault_index * PRIMARY_FAULT_REG_LEN + 8);
-		source_id = dma_frcd_source_id(data);
+			data = readl(iommu->reg + reg +
+				     fault_index * PRIMARY_FAULT_REG_LEN + 8);
+			source_id = dma_frcd_source_id(data);
 
-		guest_addr = dmar_readq(iommu->reg + reg +
-				fault_index * PRIMARY_FAULT_REG_LEN);
-		guest_addr = dma_frcd_page_addr(guest_addr);
+			guest_addr = dmar_readq(iommu->reg + reg +
+					fault_index * PRIMARY_FAULT_REG_LEN);
+			guest_addr = dma_frcd_page_addr(guest_addr);
+		}
+
 		/* clear the fault */
 		writel(DMA_FRCD_F, iommu->reg + reg +
 			fault_index * PRIMARY_FAULT_REG_LEN + 12);
 
 		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 
-		dmar_fault_do_one(iommu, type, fault_reason,
-				source_id, guest_addr);
+		if (!ratelimited)
+			dmar_fault_do_one(iommu, type, fault_reason,
+					  source_id, guest_addr);
 
 		fault_index++;
 		if (fault_index >= cap_num_fault_regs(iommu->cap))

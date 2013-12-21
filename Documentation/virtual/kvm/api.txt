@@ -1869,7 +1869,8 @@ registers, find a list below:
   PPC   | KVM_REG_PPC_PID	| 64
   PPC   | KVM_REG_PPC_ACOP	| 64
   PPC   | KVM_REG_PPC_VRSAVE	| 32
-  PPC   | KVM_REG_PPC_LPCR	| 64
+  PPC   | KVM_REG_PPC_LPCR	| 32
+  PPC   | KVM_REG_PPC_LPCR_64	| 64
   PPC   | KVM_REG_PPC_PPR	| 64
   PPC   | KVM_REG_PPC_ARCH_COMPAT 32
   PPC   | KVM_REG_PPC_DABRX     | 32
@@ -1890,6 +1891,7 @@ registers, find a list below:
   PPC   | KVM_REG_PPC_TM_VSCR	| 32
   PPC   | KVM_REG_PPC_TM_DSCR	| 64
   PPC   | KVM_REG_PPC_TM_TAR	| 64
+  PPC   | KVM_REG_PPC_TM_XER   | 64
 
 ARM registers are mapped using the lower 32 bits.  The upper 16 of that
 is the register group type, or coprocessor number:
@@ -2381,7 +2383,8 @@ should be created before this ioctl is invoked.
 
 Possible features:
 	- KVM_ARM_VCPU_POWER_OFF: Starts the CPU in a power-off state.
-	  Depends on KVM_CAP_ARM_PSCI.
+	  Depends on KVM_CAP_ARM_PSCI.  If not set, the CPU will be powered on
+	  and execute guest code when KVM_RUN is called.
 	- KVM_ARM_VCPU_EL1_32BIT: Starts the CPU in a 32bit mode.
 	  Depends on KVM_CAP_ARM_EL1_32BIT (arm64 only).
 	- KVM_ARM_VCPU_PSCI_0_2: Emulate PSCI v0.2 for the CPU.

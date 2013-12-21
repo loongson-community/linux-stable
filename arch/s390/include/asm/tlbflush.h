@@ -88,7 +88,8 @@ static inline void __tlb_flush_full(struct mm_struct *mm)
 }
 
 /*
- * Flush TLB entries for a specific ASCE on all CPUs.
+ * Flush TLB entries for a specific ASCE on all CPUs. Should never be used
+ * when more than one asce (e.g. gmap) ran on this mm.
  */
 static inline void __tlb_flush_asce(struct mm_struct *mm, unsigned long asce)
 {
@@ -163,10 +164,12 @@ static inline void __tlb_flush_mm(struct mm_struct * mm)
 
 static inline void __tlb_flush_mm_lazy(struct mm_struct * mm)
 {
+	spin_lock(&mm->context.lock);
 	if (mm->context.flush_mm) {
-		__tlb_flush_mm(mm);
 		mm->context.flush_mm = 0;
+		__tlb_flush_mm(mm);
 	}
+	spin_unlock(&mm->context.lock);
 }
 
 /*

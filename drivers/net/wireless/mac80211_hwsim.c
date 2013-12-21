@@ -685,11 +685,16 @@ static void mac80211_hwsim_set_tsf(struct ieee80211_hw *hw,
 	struct mac80211_hwsim_data *data = hw->priv;
 	u64 now = mac80211_hwsim_get_tsf(hw, vif);
 	u32 bcn_int = data->beacon_int;
-	s64 delta = tsf - now;
+	u64 delta = abs64(tsf - now);
 
-	data->tsf_offset += delta;
 	/* adjust after beaconing with new timestamp at old TBTT */
-	data->bcn_delta = do_div(delta, bcn_int);
+	if (tsf > now) {
+		data->tsf_offset += delta;
+		data->bcn_delta = do_div(delta, bcn_int);
+	} else {
+		data->tsf_offset -= delta;
+		data->bcn_delta = -do_div(delta, bcn_int);
+	}
 }
 
 static void mac80211_hwsim_monitor_rx(struct ieee80211_hw *hw,
@@ -1122,7 +1127,6 @@ static void mac80211_hwsim_tx(struct ieee80211_hw *hw,
 				       txi->control.rates,
 				       ARRAY_SIZE(txi->control.rates));
 
-	txi->rate_driver_data[0] = channel;
 	mac80211_hwsim_monitor_rx(hw, skb, channel);
 
 	/* wmediumd mode check */
@@ -1985,7 +1989,7 @@ static int mac80211_hwsim_create_radio(int channels, const char *reg_alpha2,
 	if (err != 0) {
 		printk(KERN_DEBUG "mac80211_hwsim: device_bind_driver failed (%d)\n",
 		       err);
-		goto failed_hw;
+		goto failed_bind;
 	}
 
 	skb_queue_head_init(&data->pending);
@@ -2181,6 +2185,8 @@ static int mac80211_hwsim_create_radio(int channels, const char *reg_alpha2,
 	return idx;
 
 failed_hw:
+	device_release_driver(data->dev);
+failed_bind:
 	device_unregister(data->dev);
 failed_drvdata:
 	ieee80211_free_hw(hw);
@@ -2273,6 +2279,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	if (!info->attrs[HWSIM_ATTR_ADDR_TRANSMITTER] ||
 	    !info->attrs[HWSIM_ATTR_FLAGS] ||
 	    !info->attrs[HWSIM_ATTR_COOKIE] ||
+	    !info->attrs[HWSIM_ATTR_SIGNAL] ||
 	    !info->attrs[HWSIM_ATTR_TX_INFO])
 		goto out;
 
@@ -2436,6 +2443,9 @@ static int hwsim_create_radio_nl(struct sk_buff *msg, struct genl_info *info)
 
 	if (info->attrs[HWSIM_ATTR_CHANNELS])
 		chans = nla_get_u32(info->attrs[HWSIM_ATTR_CHANNELS]);
+
+	if (chans > CFG80211_MAX_NUM_DIFFERENT_CHANNELS)
+		return -EINVAL;
 
 	if (info->attrs[HWSIM_ATTR_USE_CHANCTX])
 		use_chanctx = true;

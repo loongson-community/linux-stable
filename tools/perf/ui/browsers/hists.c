@@ -42,7 +42,7 @@ static struct rb_node *hists__filter_entries(struct rb_node *nd,
 
 static bool hist_browser__has_filter(struct hist_browser *hb)
 {
-	return hists__has_filter(hb->hists) || hb->min_pcnt;
+	return hists__has_filter(hb->hists) || hb->min_pcnt || symbol_conf.has_filter;
 }
 
 static u32 hist_browser__nr_entries(struct hist_browser *hb)
@@ -1305,7 +1305,7 @@ static int switch_data_file(void)
 		return ret;
 
 	memset(options, 0, sizeof(options));
-	memset(options, 0, sizeof(abs_path));
+	memset(abs_path, 0, sizeof(abs_path));
 
 	while ((dent = readdir(pwd_dir))) {
 		char path[PATH_MAX];

@@ -210,6 +210,18 @@ static void dwc3_omap_write_irq0_set(struct dwc3_omap *omap, u32 value)
 						omap->irq0_offset, value);
 }
 
+static void dwc3_omap_write_irqmisc_clr(struct dwc3_omap *omap, u32 value)
+{
+	dwc3_omap_writel(omap->base, USBOTGSS_IRQENABLE_CLR_MISC +
+						omap->irqmisc_offset, value);
+}
+
+static void dwc3_omap_write_irq0_clr(struct dwc3_omap *omap, u32 value)
+{
+	dwc3_omap_writel(omap->base, USBOTGSS_IRQENABLE_CLR_0 -
+						omap->irq0_offset, value);
+}
+
 static void dwc3_omap_set_mailbox(struct dwc3_omap *omap,
 	enum omap_dwc3_vbus_id_status status)
 {
@@ -350,9 +362,23 @@ static void dwc3_omap_enable_irqs(struct dwc3_omap *omap)
 
 static void dwc3_omap_disable_irqs(struct dwc3_omap *omap)
 {
+	u32			reg;
+
 	/* disable all IRQs */
-	dwc3_omap_write_irqmisc_set(omap, 0x00);
-	dwc3_omap_write_irq0_set(omap, 0x00);
+	reg = USBOTGSS_IRQO_COREIRQ_ST;
+	dwc3_omap_write_irq0_clr(omap, reg);
+
+	reg = (USBOTGSS_IRQMISC_OEVT |
+			USBOTGSS_IRQMISC_DRVVBUS_RISE |
+			USBOTGSS_IRQMISC_CHRGVBUS_RISE |
+			USBOTGSS_IRQMISC_DISCHRGVBUS_RISE |
+			USBOTGSS_IRQMISC_IDPULLUP_RISE |
+			USBOTGSS_IRQMISC_DRVVBUS_FALL |
+			USBOTGSS_IRQMISC_CHRGVBUS_FALL |
+			USBOTGSS_IRQMISC_DISCHRGVBUS_FALL |
+			USBOTGSS_IRQMISC_IDPULLUP_FALL);
+
+	dwc3_omap_write_irqmisc_clr(omap, reg);
 }
 
 static u64 dwc3_omap_dma_mask = DMA_BIT_MASK(32);
@@ -576,9 +602,9 @@ static int dwc3_omap_remove(struct platform_device *pdev)
 	if (omap->extcon_id_dev.edev)
 		extcon_unregister_interest(&omap->extcon_id_dev);
 	dwc3_omap_disable_irqs(omap);
+	device_for_each_child(&pdev->dev, NULL, dwc3_omap_remove_core);
 	pm_runtime_put_sync(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
-	device_for_each_child(&pdev->dev, NULL, dwc3_omap_remove_core);
 
 	return 0;
 }
@@ -599,7 +625,7 @@ static int dwc3_omap_prepare(struct device *dev)
 {
 	struct dwc3_omap	*omap = dev_get_drvdata(dev);
 
-	dwc3_omap_write_irqmisc_set(omap, 0x00);
+	dwc3_omap_disable_irqs(omap);
 
 	return 0;
 }
@@ -607,19 +633,8 @@ static int dwc3_omap_prepare(struct device *dev)
 static void dwc3_omap_complete(struct device *dev)
 {
 	struct dwc3_omap	*omap = dev_get_drvdata(dev);
-	u32			reg;
 
-	reg = (USBOTGSS_IRQMISC_OEVT |
-			USBOTGSS_IRQMISC_DRVVBUS_RISE |
-			USBOTGSS_IRQMISC_CHRGVBUS_RISE |
-			USBOTGSS_IRQMISC_DISCHRGVBUS_RISE |
-			USBOTGSS_IRQMISC_IDPULLUP_RISE |
-			USBOTGSS_IRQMISC_DRVVBUS_FALL |
-			USBOTGSS_IRQMISC_CHRGVBUS_FALL |
-			USBOTGSS_IRQMISC_DISCHRGVBUS_FALL |
-			USBOTGSS_IRQMISC_IDPULLUP_FALL);
-
-	dwc3_omap_write_irqmisc_set(omap, reg);
+	dwc3_omap_enable_irqs(omap);
 }
 
 static int dwc3_omap_suspend(struct device *dev)

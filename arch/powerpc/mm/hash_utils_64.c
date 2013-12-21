@@ -433,7 +433,7 @@ static int __init htab_dt_scan_hugepage_blocks(unsigned long node,
 	printk(KERN_INFO "Huge page(16GB) memory: "
 			"addr = 0x%lX size = 0x%lX pages = %d\n",
 			phys_addr, block_size, expected_pages);
-	if (phys_addr + (16 * GB) <= memblock_end_of_DRAM()) {
+	if (phys_addr + block_size * expected_pages <= memblock_end_of_DRAM()) {
 		memblock_reserve(phys_addr, block_size * expected_pages);
 		add_gpage(phys_addr, block_size, expected_pages);
 	}
@@ -1196,6 +1196,30 @@ bail:
 }
 EXPORT_SYMBOL_GPL(hash_page);
 
+#ifdef CONFIG_PPC_MM_SLICES
+static bool should_hash_preload(struct mm_struct *mm, unsigned long ea)
+{
+	int psize = get_slice_psize(mm, ea);
+
+	/* We only prefault standard pages for now */
+	if (unlikely(psize != mm->context.user_psize))
+		return false;
+
+	/*
+	 * Don't prefault if subpage protection is enabled for the EA.
+	 */
+	if (unlikely((psize == MMU_PAGE_4K) && subpage_protection(mm, ea)))
+		return false;
+
+	return true;
+}
+#else
+static bool should_hash_preload(struct mm_struct *mm, unsigned long ea)
+{
+	return true;
+}
+#endif
+
 void hash_preload(struct mm_struct *mm, unsigned long ea,
 		  unsigned long access, unsigned long trap)
 {
@@ -1208,11 +1232,8 @@ void hash_preload(struct mm_struct *mm, unsigned long ea,
 
 	BUG_ON(REGION_ID(ea) != USER_REGION_ID);
 
-#ifdef CONFIG_PPC_MM_SLICES
-	/* We only prefault standard pages for now */
-	if (unlikely(get_slice_psize(mm, ea) != mm->context.user_psize))
+	if (!should_hash_preload(mm, ea))
 		return;
-#endif
 
 	DBG_LOW("hash_preload(mm=%p, mm->pgdir=%p, ea=%016lx, access=%lx,"
 		" trap=%lx\n", mm, mm->pgd, ea, access, trap);

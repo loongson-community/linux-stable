@@ -31,6 +31,8 @@
 #include <asm/nmi.h>
 #include <asm/smp.h>
 #include <asm/alternative.h>
+#include <asm/tlbflush.h>
+#include <asm/mmu_context.h>
 #include <asm/timer.h>
 #include <asm/desc.h>
 #include <asm/ldt.h>
@@ -63,7 +65,7 @@ u64 x86_perf_event_update(struct perf_event *event)
 	int shift = 64 - x86_pmu.cntval_bits;
 	u64 prev_raw_count, new_raw_count;
 	int idx = hwc->idx;
-	s64 delta;
+	u64 delta;
 
 	if (idx == INTEL_PMC_IDX_FIXED_BTS)
 		return 0;
@@ -503,6 +505,19 @@ void x86_pmu_disable_all(void)
 	}
 }
 
+/*
+ * There may be PMI landing after enabled=0. The PMI hitting could be before or
+ * after disable_all.
+ *
+ * If PMI hits before disable_all, the PMU will be disabled in the NMI handler.
+ * It will not be re-enabled in the NMI handler again, because enabled=0. After
+ * handling the NMI, disable_all will be called, which will not change the
+ * state either. If PMI hits after disable_all, the PMU is already disabled
+ * before entering NMI handler. The NMI handler will not change the state
+ * either.
+ *
+ * So either situation is harmless.
+ */
 static void x86_pmu_disable(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
@@ -1326,7 +1341,7 @@ x86_pmu_notifier(struct notifier_block *self, unsigned long action, void *hcpu)
 
 	case CPU_STARTING:
 		if (x86_pmu.attr_rdpmc)
-			set_in_cr4(X86_CR4_PCE);
+			cr4_set_bits(X86_CR4_PCE);
 		if (x86_pmu.cpu_starting)
 			x86_pmu.cpu_starting(cpu);
 		break;
@@ -1385,6 +1400,7 @@ static void __init filter_events(struct attribute **attrs)
 {
 	struct device_attribute *d;
 	struct perf_pmu_events_attr *pmu_attr;
+	int offset = 0;
 	int i, j;
 
 	for (i = 0; attrs[i]; i++) {
@@ -1393,7 +1409,7 @@ static void __init filter_events(struct attribute **attrs)
 		/* str trumps id */
 		if (pmu_attr->event_str)
 			continue;
-		if (x86_pmu.event_map(i))
+		if (x86_pmu.event_map(i + offset))
 			continue;
 
 		for (j = i; attrs[j]; j++)
@@ -1401,6 +1417,14 @@ static void __init filter_events(struct attribute **attrs)
 
 		/* Check the shifted attr. */
 		i--;
+
+		/*
+		 * event_map() is index based, the attrs array is organized
+		 * by increasing event index. If we shift the events, then
+		 * we need to compensate for the event_map(), otherwise
+		 * we are looking up the wrong event in the map
+		 */
+		offset++;
 	}
 }
 
@@ -1832,9 +1856,9 @@ static void change_rdpmc(void *info)
 	bool enable = !!(unsigned long)info;
 
 	if (enable)
-		set_in_cr4(X86_CR4_PCE);
+		cr4_set_bits(X86_CR4_PCE);
 	else
-		clear_in_cr4(X86_CR4_PCE);
+		cr4_clear_bits(X86_CR4_PCE);
 }
 
 static ssize_t set_attr_rdpmc(struct device *cdev,
@@ -1984,21 +2008,22 @@ static unsigned long get_segment_base(unsigned int segment)
 	int idx = segment >> 3;
 
 	if ((segment & SEGMENT_TI_MASK) == SEGMENT_LDT) {
-		if (idx > LDT_ENTRIES)
+		struct ldt_struct *ldt;
+
+		/* IRQs are off, so this synchronizes with smp_store_release */
+		ldt = lockless_dereference(current->active_mm->context.ldt);
+		if (!ldt || idx >= ldt->size)
 			return 0;
 
-		if (idx > current->active_mm->context.size)
-			return 0;
-
-		desc = current->active_mm->context.ldt;
+		desc = &ldt->entries[idx];
 	} else {
-		if (idx > GDT_ENTRIES)
+		if (idx >= GDT_ENTRIES)
 			return 0;
 
-		desc = __this_cpu_ptr(&gdt_page.gdt[0]);
+		desc = __this_cpu_ptr(&gdt_page.gdt[0]) + idx;
 	}
 
-	return get_desc_base(desc + idx);
+	return get_desc_base(desc);
 }
 
 #ifdef CONFIG_COMPAT

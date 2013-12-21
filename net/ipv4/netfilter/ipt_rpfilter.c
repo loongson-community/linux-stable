@@ -61,15 +61,13 @@ static bool rpfilter_lookup_reverse(struct flowi4 *fl4,
 	if (FIB_RES_DEV(res) == dev)
 		dev_match = true;
 #endif
-	if (dev_match || flags & XT_RPFILTER_LOOSE)
-		return FIB_RES_NH(res).nh_scope <= RT_SCOPE_HOST;
-	return dev_match;
+	return dev_match || flags & XT_RPFILTER_LOOSE;
 }
 
-static bool rpfilter_is_local(const struct sk_buff *skb)
+static bool
+rpfilter_is_loopback(const struct sk_buff *skb, const struct net_device *in)
 {
-	const struct rtable *rt = skb_rtable(skb);
-	return rt && (rt->rt_flags & RTCF_LOCAL);
+	return skb->pkt_type == PACKET_LOOPBACK || in->flags & IFF_LOOPBACK;
 }
 
 static bool rpfilter_mt(const struct sk_buff *skb, struct xt_action_param *par)
@@ -82,7 +80,7 @@ static bool rpfilter_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	info = par->matchinfo;
 	invert = info->flags & XT_RPFILTER_INVERT;
 
-	if (rpfilter_is_local(skb))
+	if (rpfilter_is_loopback(skb, par->in))
 		return true ^ invert;
 
 	iph = ip_hdr(skb);

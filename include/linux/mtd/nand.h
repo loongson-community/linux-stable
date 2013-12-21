@@ -176,17 +176,17 @@ typedef enum {
 /* Chip may not exist, so silence any errors in scan */
 #define NAND_SCAN_SILENT_NODEV	0x00040000
 /*
- * This option could be defined by controller drivers to protect against
- * kmap'ed, vmalloc'ed highmem buffers being passed from upper layers
- */
-#define NAND_USE_BOUNCE_BUFFER	0x00080000
-/*
  * Autodetect nand buswidth with readid/onfi.
  * This suppose the driver will configure the hardware in 8 bits mode
  * when calling nand_scan_ident, and update its configuration
  * before calling nand_scan_tail.
  */
 #define NAND_BUSWIDTH_AUTO      0x00080000
+/*
+ * This option could be defined by controller drivers to protect against
+ * kmap'ed, vmalloc'ed highmem buffers being passed from upper layers
+ */
+#define NAND_USE_BOUNCE_BUFFER	0x00100000
 
 /* Options set by nand scan */
 /* Nand scan has allocated controller struct */
@@ -274,7 +274,7 @@ struct nand_onfi_params {
 	__le16 t_r;
 	__le16 t_ccs;
 	__le16 src_sync_timing_mode;
-	__le16 src_ssync_features;
+	u8 src_ssync_features;
 	__le16 clk_pin_capacitance_typ;
 	__le16 io_pin_capacitance_typ;
 	__le16 input_pin_capacitance_typ;
@@ -282,7 +282,7 @@ struct nand_onfi_params {
 	u8 driver_strength_support;
 	__le16 t_int_r;
 	__le16 t_ald;
-	u8 reserved4[7];
+	u8 reserved4[8];
 
 	/* vendor */
 	__le16 vendor_revision;
@@ -881,15 +881,6 @@ struct platform_nand_data {
 	struct platform_nand_chip chip;
 	struct platform_nand_ctrl ctrl;
 };
-
-/* Some helpers to access the data structures */
-static inline
-struct platform_nand_chip *get_platform_nandchip(struct mtd_info *mtd)
-{
-	struct nand_chip *chip = mtd->priv;
-
-	return chip->priv;
-}
 
 /* return the supported features. */
 static inline int onfi_feature(struct nand_chip *chip)

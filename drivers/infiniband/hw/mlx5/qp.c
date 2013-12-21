@@ -169,6 +169,8 @@ static int set_rq_size(struct mlx5_ib_dev *dev, struct ib_qp_cap *cap,
 		qp->rq.max_gs = 0;
 		qp->rq.wqe_cnt = 0;
 		qp->rq.wqe_shift = 0;
+		cap->max_recv_wr = 0;
+		cap->max_recv_sge = 0;
 	} else {
 		if (ucmd) {
 			qp->rq.wqe_cnt = ucmd->rq_wqe_count;
@@ -207,8 +209,10 @@ static int sq_overhead(enum ib_qp_type qp_type)
 		/* fall through */
 	case IB_QPT_RC:
 		size += sizeof(struct mlx5_wqe_ctrl_seg) +
-			sizeof(struct mlx5_wqe_atomic_seg) +
-			sizeof(struct mlx5_wqe_raddr_seg);
+			max(sizeof(struct mlx5_wqe_atomic_seg) +
+			    sizeof(struct mlx5_wqe_raddr_seg),
+			    sizeof(struct mlx5_wqe_umr_ctrl_seg) +
+			    sizeof(struct mlx5_mkey_seg));
 		break;
 
 	case IB_QPT_XRC_TGT:
@@ -216,9 +220,9 @@ static int sq_overhead(enum ib_qp_type qp_type)
 
 	case IB_QPT_UC:
 		size += sizeof(struct mlx5_wqe_ctrl_seg) +
-			sizeof(struct mlx5_wqe_raddr_seg) +
-			sizeof(struct mlx5_wqe_umr_ctrl_seg) +
-			sizeof(struct mlx5_mkey_seg);
+			max(sizeof(struct mlx5_wqe_raddr_seg),
+			    sizeof(struct mlx5_wqe_umr_ctrl_seg) +
+			    sizeof(struct mlx5_mkey_seg));
 		break;
 
 	case IB_QPT_UD:
@@ -363,12 +367,21 @@ static int next_uuar(int n)
 	return n;
 }
 
+enum {
+	/* this is the first blue flame register in the array of bfregs assigned
+	 * to a processes. Since we do not use it for blue flame but rather
+	 * regular 64 bit doorbells, we do not need a lock for maintaiing
+	 * "odd/even" order
+	 */
+	NUM_NON_BLUE_FLAME_BFREGS = 1,
+};
+
 static int num_med_uuar(struct mlx5_uuar_info *uuari)
 {
 	int n;
 
 	n = uuari->num_uars * MLX5_NON_FP_BF_REGS_PER_PAGE -
-		uuari->num_low_latency_uuars - 1;
+		uuari->num_low_latency_uuars - NUM_NON_BLUE_FLAME_BFREGS;
 
 	return n >= 0 ? n : 0;
 }
@@ -381,17 +394,9 @@ static int max_uuari(struct mlx5_uuar_info *uuari)
 static int first_hi_uuar(struct mlx5_uuar_info *uuari)
 {
 	int med;
-	int i;
-	int t;
 
 	med = num_med_uuar(uuari);
-	for (t = 0, i = first_med_uuar();; i = next_uuar(i)) {
-		t++;
-		if (t == med)
-			return next_uuar(i);
-	}
-
-	return 0;
+	return next_uuar(med);
 }
 
 static int alloc_high_class_uuar(struct mlx5_uuar_info *uuari)
@@ -417,6 +422,8 @@ static int alloc_med_class_uuar(struct mlx5_uuar_info *uuari)
 	for (i = first_med_uuar(); i < first_hi_uuar(uuari); i = next_uuar(i)) {
 		if (uuari->count[i] < uuari->count[minidx])
 			minidx = i;
+		if (!uuari->count[minidx])
+			break;
 	}
 
 	uuari->count[minidx]++;
@@ -431,6 +438,7 @@ static int alloc_uuar(struct mlx5_uuar_info *uuari,
 	mutex_lock(&uuari->lock);
 	switch (lat) {
 	case MLX5_IB_LATENCY_CLASS_LOW:
+		BUILD_BUG_ON(NUM_NON_BLUE_FLAME_BFREGS != 1);
 		uuarn = 0;
 		uuari->count[uuarn]++;
 		break;
@@ -1201,8 +1209,9 @@ struct ib_qp *mlx5_ib_create_qp(struct ib_pd *pd,
 			qp->ibqp.qp_num = qp->mqp.qpn;
 
 		mlx5_ib_dbg(dev, "ib qpnum 0x%x, mlx qpn 0x%x, rcqn 0x%x, scqn 0x%x\n",
-			    qp->ibqp.qp_num, qp->mqp.qpn, to_mcq(init_attr->recv_cq)->mcq.cqn,
-			    to_mcq(init_attr->send_cq)->mcq.cqn);
+			    qp->ibqp.qp_num, qp->mqp.qpn,
+			    init_attr->recv_cq ? to_mcq(init_attr->recv_cq)->mcq.cqn : -1,
+			    init_attr->send_cq ? to_mcq(init_attr->send_cq)->mcq.cqn : -1);
 
 		qp->xrcdn = xrcdn;
 
@@ -2327,8 +2336,9 @@ static int set_psv_wr(struct ib_sig_domain *domain,
 		break;
 
 	default:
-		pr_err("Bad signature type given.\n");
-		return 1;
+		pr_err("Bad signature type (%d) is given.\n",
+		       domain->sig_type);
+		return -EINVAL;
 	}
 
 	return 0;
@@ -2415,10 +2425,11 @@ static u8 get_fence(u8 fence, struct ib_send_wr *wr)
 			return MLX5_FENCE_MODE_SMALL_AND_FENCE;
 		else
 			return fence;
-
-	} else {
-		return 0;
+	} else if (unlikely(wr->send_flags & IB_SEND_FENCE)) {
+		return MLX5_FENCE_MODE_FENCE;
 	}
+
+	return 0;
 }
 
 static int begin_wqe(struct mlx5_ib_qp *qp, void **seg,
@@ -2977,17 +2988,19 @@ int mlx5_ib_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr
 	qp_attr->cap.max_recv_sge    = qp->rq.max_gs;
 
 	if (!ibqp->uobject) {
-		qp_attr->cap.max_send_wr  = qp->sq.wqe_cnt;
+		qp_attr->cap.max_send_wr  = qp->sq.max_post;
 		qp_attr->cap.max_send_sge = qp->sq.max_gs;
+		qp_init_attr->qp_context = ibqp->qp_context;
 	} else {
 		qp_attr->cap.max_send_wr  = 0;
 		qp_attr->cap.max_send_sge = 0;
 	}
 
-	/* We don't support inline sends for kernel QPs (yet), and we
-	 * don't know what userspace's value should be.
-	 */
-	qp_attr->cap.max_inline_data = 0;
+	qp_init_attr->qp_type = ibqp->qp_type;
+	qp_init_attr->recv_cq = ibqp->recv_cq;
+	qp_init_attr->send_cq = ibqp->send_cq;
+	qp_init_attr->srq = ibqp->srq;
+	qp_attr->cap.max_inline_data = qp->max_inline_data;
 
 	qp_init_attr->cap	     = qp_attr->cap;
 
@@ -3037,12 +3050,9 @@ int mlx5_ib_dealloc_xrcd(struct ib_xrcd *xrcd)
 	int err;
 
 	err = mlx5_core_xrcd_dealloc(&dev->mdev, xrcdn);
-	if (err) {
+	if (err)
 		mlx5_ib_warn(dev, "failed to dealloc xrcdn 0x%x\n", xrcdn);
-		return err;
-	}
 
 	kfree(xrcd);
-
 	return 0;
 }

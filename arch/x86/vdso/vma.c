@@ -11,6 +11,7 @@
 #include <linux/random.h>
 #include <linux/elf.h>
 #include <asm/vsyscall.h>
+#include <asm/pvclock.h>
 #include <asm/vgtod.h>
 #include <asm/proto.h>
 #include <asm/vdso.h>
@@ -54,12 +55,17 @@ subsys_initcall(init_vdso);
 
 struct linux_binprm;
 
-/* Put the vdso above the (randomized) stack with another randomized offset.
-   This way there is no hole in the middle of address space.
-   To save memory make sure it is still in the same PTE as the stack top.
-   This doesn't give that many random bits.
-
-   Only used for the 64-bit and x32 vdsos. */
+/*
+ * Put the vdso above the (randomized) stack with another randomized
+ * offset.  This way there is no hole in the middle of address space.
+ * To save memory make sure it is still in the same PTE as the stack
+ * top.  This doesn't give that many random bits.
+ *
+ * Note that this algorithm is imperfect: the distribution of the vdso
+ * start address within a PMD is biased toward the end.
+ *
+ * Only used for the 64-bit and x32 vdsos.
+ */
 static unsigned long vdso_addr(unsigned long start, unsigned len)
 {
 #ifdef CONFIG_X86_32
@@ -67,22 +73,30 @@ static unsigned long vdso_addr(unsigned long start, unsigned len)
 #else
 	unsigned long addr, end;
 	unsigned offset;
-	end = (start + PMD_SIZE - 1) & PMD_MASK;
+
+	/*
+	 * Round up the start address.  It can start out unaligned as a result
+	 * of stack start randomization.
+	 */
+	start = PAGE_ALIGN(start);
+
+	/* Round the lowest possible end address up to a PMD boundary. */
+	end = (start + len + PMD_SIZE - 1) & PMD_MASK;
 	if (end >= TASK_SIZE_MAX)
 		end = TASK_SIZE_MAX;
 	end -= len;
-	/* This loses some more bits than a modulo, but is cheaper */
-	offset = get_random_int() & (PTRS_PER_PTE - 1);
-	addr = start + (offset << PAGE_SHIFT);
-	if (addr >= end)
-		addr = end;
+
+	if (end > start) {
+		offset = get_random_int() % (((end - start) >> PAGE_SHIFT) + 1);
+		addr = start + (offset << PAGE_SHIFT);
+	} else {
+		addr = start;
+	}
 
 	/*
-	 * page-align it here so that get_unmapped_area doesn't
-	 * align it wrongfully again to the next page. addr can come in 4K
-	 * unaligned here as a result of stack start randomization.
+	 * Forcibly align the final address in case we have a hardware
+	 * issue that requires alignment for performance reasons.
 	 */
-	addr = PAGE_ALIGN(addr);
 	addr = align_vdso_addr(addr);
 
 	return addr;
@@ -93,36 +107,39 @@ static int map_vdso(const struct vdso_image *image, bool calculate_addr)
 {
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma;
-	unsigned long addr;
+	unsigned long addr, text_start;
 	int ret = 0;
 	static struct page *no_pages[] = {NULL};
 	static struct vm_special_mapping vvar_mapping = {
 		.name = "[vvar]",
 		.pages = no_pages,
 	};
+	struct pvclock_vsyscall_time_info *pvti;
 
 	if (calculate_addr) {
 		addr = vdso_addr(current->mm->start_stack,
-				 image->sym_end_mapping);
+				 image->size - image->sym_vvar_start);
 	} else {
 		addr = 0;
 	}
 
 	down_write(&mm->mmap_sem);
 
-	addr = get_unmapped_area(NULL, addr, image->sym_end_mapping, 0, 0);
+	addr = get_unmapped_area(NULL, addr,
+				 image->size - image->sym_vvar_start, 0, 0);
 	if (IS_ERR_VALUE(addr)) {
 		ret = addr;
 		goto up_fail;
 	}
 
-	current->mm->context.vdso = (void __user *)addr;
+	text_start = addr - image->sym_vvar_start;
+	current->mm->context.vdso = (void __user *)text_start;
 
 	/*
 	 * MAYWRITE to allow gdb to COW and set breakpoints
 	 */
 	vma = _install_special_mapping(mm,
-				       addr,
+				       text_start,
 				       image->size,
 				       VM_READ|VM_EXEC|
 				       VM_MAYREAD|VM_MAYWRITE|VM_MAYEXEC,
@@ -134,8 +151,8 @@ static int map_vdso(const struct vdso_image *image, bool calculate_addr)
 	}
 
 	vma = _install_special_mapping(mm,
-				       addr + image->size,
-				       image->sym_end_mapping - image->size,
+				       addr,
+				       -image->sym_vvar_start,
 				       VM_READ,
 				       &vvar_mapping);
 
@@ -146,7 +163,7 @@ static int map_vdso(const struct vdso_image *image, bool calculate_addr)
 
 	if (image->sym_vvar_page)
 		ret = remap_pfn_range(vma,
-				      addr + image->sym_vvar_page,
+				      text_start + image->sym_vvar_page,
 				      __pa_symbol(&__vvar_page) >> PAGE_SHIFT,
 				      PAGE_SIZE,
 				      PAGE_READONLY);
@@ -157,7 +174,7 @@ static int map_vdso(const struct vdso_image *image, bool calculate_addr)
 #ifdef CONFIG_HPET_TIMER
 	if (hpet_address && image->sym_hpet_page) {
 		ret = io_remap_pfn_range(vma,
-			addr + image->sym_hpet_page,
+			text_start + image->sym_hpet_page,
 			hpet_address >> PAGE_SHIFT,
 			PAGE_SIZE,
 			pgprot_noncached(PAGE_READONLY));
@@ -166,6 +183,18 @@ static int map_vdso(const struct vdso_image *image, bool calculate_addr)
 			goto up_fail;
 	}
 #endif
+
+	pvti = pvclock_pvti_cpu0_va();
+	if (pvti && image->sym_pvclock_page) {
+		ret = remap_pfn_range(vma,
+				      text_start + image->sym_pvclock_page,
+				      __pa(pvti) >> PAGE_SHIFT,
+				      PAGE_SIZE,
+				      PAGE_READONLY);
+
+		if (ret)
+			goto up_fail;
+	}
 
 up_fail:
 	if (ret)
