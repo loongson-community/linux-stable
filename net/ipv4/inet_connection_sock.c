@@ -412,8 +412,10 @@ struct dst_entry *inet_csk_route_req(const struct sock *sk,
 {
 	const struct inet_request_sock *ireq = inet_rsk(req);
 	struct net *net = read_pnet(&ireq->ireq_net);
-	struct ip_options_rcu *opt = ireq->opt;
+	struct ip_options_rcu *opt;
 	struct rtable *rt;
+
+	opt = ireq_opt_deref(ireq);
 
 	flowi4_init_output(fl4, ireq->ir_iif, ireq->ir_mark,
 			   RT_CONN_FLAGS(sk), RT_SCOPE_UNIVERSE,
@@ -448,10 +450,9 @@ struct dst_entry *inet_csk_route_child_sock(const struct sock *sk,
 	struct flowi4 *fl4;
 	struct rtable *rt;
 
+	opt = rcu_dereference(ireq->ireq_opt);
 	fl4 = &newinet->cork.fl.u.ip4;
 
-	rcu_read_lock();
-	opt = rcu_dereference(newinet->inet_opt);
 	flowi4_init_output(fl4, ireq->ir_iif, ireq->ir_mark,
 			   RT_CONN_FLAGS(sk), RT_SCOPE_UNIVERSE,
 			   sk->sk_protocol, inet_sk_flowi_flags(sk),
@@ -464,13 +465,11 @@ struct dst_entry *inet_csk_route_child_sock(const struct sock *sk,
 		goto no_route;
 	if (opt && opt->opt.is_strictroute && rt->rt_uses_gateway)
 		goto route_err;
-	rcu_read_unlock();
 	return &rt->dst;
 
 route_err:
 	ip_rt_put(rt);
 no_route:
-	rcu_read_unlock();
 	IP_INC_STATS_BH(net, IPSTATS_MIB_OUTNOROUTES);
 	return NULL;
 }
@@ -669,6 +668,8 @@ struct sock *inet_csk_clone_lock(const struct sock *sk,
 		inet_sk(newsk)->inet_sport = htons(inet_rsk(req)->ir_num);
 		newsk->sk_write_space = sk_stream_write_space;
 
+		inet_sk(newsk)->mc_list = NULL;
+
 		newsk->sk_mark = inet_rsk(req)->ir_mark;
 		atomic64_set(&newsk->sk_cookie,
 			     atomic64_read(&inet_rsk(req)->ir_cookie));
@@ -789,14 +790,16 @@ static void inet_child_forget(struct sock *sk, struct request_sock *req,
 	reqsk_put(req);
 }
 
-void inet_csk_reqsk_queue_add(struct sock *sk, struct request_sock *req,
-			      struct sock *child)
+struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
+				      struct request_sock *req,
+				      struct sock *child)
 {
 	struct request_sock_queue *queue = &inet_csk(sk)->icsk_accept_queue;
 
 	spin_lock(&queue->rskq_lock);
 	if (unlikely(sk->sk_state != TCP_LISTEN)) {
 		inet_child_forget(sk, req, child);
+		child = NULL;
 	} else {
 		req->sk = child;
 		req->dl_next = NULL;
@@ -808,6 +811,7 @@ void inet_csk_reqsk_queue_add(struct sock *sk, struct request_sock *req,
 		sk_acceptq_added(sk);
 	}
 	spin_unlock(&queue->rskq_lock);
+	return child;
 }
 EXPORT_SYMBOL(inet_csk_reqsk_queue_add);
 
@@ -817,11 +821,8 @@ struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
 	if (own_req) {
 		inet_csk_reqsk_queue_drop(sk, req);
 		reqsk_queue_removed(&inet_csk(sk)->icsk_accept_queue, req);
-		inet_csk_reqsk_queue_add(sk, req, child);
-		/* Warning: caller must not call reqsk_put(req);
-		 * child stole last reference on it.
-		 */
-		return child;
+		if (inet_csk_reqsk_queue_add(sk, req, child))
+			return child;
 	}
 	/* Too bad, another child took ownership of the request, undo. */
 	bh_unlock_sock(child);

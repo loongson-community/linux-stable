@@ -84,7 +84,6 @@ static void kvm_timer_inject_irq_work(struct work_struct *work)
 	struct kvm_vcpu *vcpu;
 
 	vcpu = container_of(work, struct kvm_vcpu, arch.timer_cpu.expired);
-	vcpu->arch.timer_cpu.armed = false;
 
 	/*
 	 * If the vcpu is blocked we want to wake it up so that it will see
@@ -93,10 +92,46 @@ static void kvm_timer_inject_irq_work(struct work_struct *work)
 	kvm_vcpu_kick(vcpu);
 }
 
+static u64 kvm_timer_compute_delta(struct kvm_vcpu *vcpu)
+{
+	cycle_t cval, now;
+
+	cval = vcpu->arch.timer_cpu.cntv_cval;
+	now = kvm_phys_timer_read() - vcpu->kvm->arch.timer.cntvoff;
+
+	if (now < cval) {
+		u64 ns;
+
+		ns = cyclecounter_cyc2ns(timecounter->cc,
+					 cval - now,
+					 timecounter->mask,
+					 &timecounter->frac);
+		return ns;
+	}
+
+	return 0;
+}
+
 static enum hrtimer_restart kvm_timer_expire(struct hrtimer *hrt)
 {
 	struct arch_timer_cpu *timer;
+	struct kvm_vcpu *vcpu;
+	u64 ns;
+
 	timer = container_of(hrt, struct arch_timer_cpu, timer);
+	vcpu = container_of(timer, struct kvm_vcpu, arch.timer_cpu);
+
+	/*
+	 * Check that the timer has really expired from the guest's
+	 * PoV (NTP on the host may have forced it to expire
+	 * early). If we should have slept longer, restart it.
+	 */
+	ns = kvm_timer_compute_delta(vcpu);
+	if (unlikely(ns)) {
+		hrtimer_forward_now(hrt, ns_to_ktime(ns));
+		return HRTIMER_RESTART;
+	}
+
 	queue_work(wqueue, &timer->expired);
 	return HRTIMER_NORESTART;
 }
@@ -143,7 +178,7 @@ static void kvm_timer_update_irq(struct kvm_vcpu *vcpu, bool new_level)
  * Check if there was a change in the timer state (should we raise or lower
  * the line level to the GIC).
  */
-static void kvm_timer_update_state(struct kvm_vcpu *vcpu)
+static int kvm_timer_update_state(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 
@@ -154,10 +189,12 @@ static void kvm_timer_update_state(struct kvm_vcpu *vcpu)
 	 * until we call this function from kvm_timer_flush_hwstate.
 	 */
 	if (!vgic_initialized(vcpu->kvm))
-	    return;
+		return -ENODEV;
 
 	if (kvm_timer_should_fire(vcpu) != timer->irq.level)
 		kvm_timer_update_irq(vcpu, !timer->irq.level);
+
+	return 0;
 }
 
 /*
@@ -168,8 +205,6 @@ static void kvm_timer_update_state(struct kvm_vcpu *vcpu)
 void kvm_timer_schedule(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
-	u64 ns;
-	cycle_t cval, now;
 
 	BUG_ON(timer_is_armed(timer));
 
@@ -189,14 +224,7 @@ void kvm_timer_schedule(struct kvm_vcpu *vcpu)
 		return;
 
 	/*  The timer has not yet expired, schedule a background timer */
-	cval = timer->cntv_cval;
-	now = kvm_phys_timer_read() - vcpu->kvm->arch.timer.cntvoff;
-
-	ns = cyclecounter_cyc2ns(timecounter->cc,
-				 cval - now,
-				 timecounter->mask,
-				 &timecounter->frac);
-	timer_arm(timer, ns);
+	timer_arm(timer, kvm_timer_compute_delta(vcpu));
 }
 
 void kvm_timer_unschedule(struct kvm_vcpu *vcpu)
@@ -218,7 +246,8 @@ void kvm_timer_flush_hwstate(struct kvm_vcpu *vcpu)
 	bool phys_active;
 	int ret;
 
-	kvm_timer_update_state(vcpu);
+	if (kvm_timer_update_state(vcpu))
+		return;
 
 	/*
 	* If we enter the guest with the virtual input level to the VGIC

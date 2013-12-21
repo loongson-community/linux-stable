@@ -14,6 +14,7 @@
 #include <linux/slab.h>
 #include <linux/circ_buf.h>
 #include <linux/poll.h>
+#include <linux/nospec.h>
 
 #include "internal.h"
 
@@ -347,6 +348,7 @@ void perf_aux_output_end(struct perf_output_handle *handle, unsigned long size,
 			 bool truncated)
 {
 	struct ring_buffer *rb = handle->rb;
+	bool wakeup = truncated;
 	unsigned long aux_head;
 	u64 flags = 0;
 
@@ -375,9 +377,16 @@ void perf_aux_output_end(struct perf_output_handle *handle, unsigned long size,
 	aux_head = rb->user_page->aux_head = local_read(&rb->aux_head);
 
 	if (aux_head - local_read(&rb->aux_wakeup) >= rb->aux_watermark) {
-		perf_output_wakeup(handle);
+		wakeup = true;
 		local_add(rb->aux_watermark, &rb->aux_wakeup);
 	}
+
+	if (wakeup) {
+		if (truncated)
+			handle->event->pending_disable = 1;
+		perf_output_wakeup(handle);
+	}
+
 	handle->event = NULL;
 
 	local_set(&rb->aux_nest, 0);
@@ -771,8 +780,10 @@ perf_mmap_to_page(struct ring_buffer *rb, unsigned long pgoff)
 			return NULL;
 
 		/* AUX space */
-		if (pgoff >= rb->aux_pgoff)
-			return virt_to_page(rb->aux_pages[pgoff - rb->aux_pgoff]);
+		if (pgoff >= rb->aux_pgoff) {
+			int aux_pgoff = array_index_nospec(pgoff - rb->aux_pgoff, rb->aux_nr_pages);
+			return virt_to_page(rb->aux_pages[aux_pgoff]);
+		}
 	}
 
 	return __perf_mmap_to_page(rb, pgoff);

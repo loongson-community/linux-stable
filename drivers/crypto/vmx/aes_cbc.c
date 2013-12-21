@@ -55,8 +55,6 @@ static int p8_aes_cbc_init(struct crypto_tfm *tfm)
 		       alg, PTR_ERR(fallback));
 		return PTR_ERR(fallback);
 	}
-	printk(KERN_INFO "Using '%s' as fallback implementation.\n",
-	       crypto_tfm_alg_driver_name((struct crypto_tfm *) fallback));
 
 	crypto_blkcipher_set_flags(
 		fallback,
@@ -182,7 +180,7 @@ struct crypto_alg p8_aes_cbc_alg = {
 	.cra_name = "cbc(aes)",
 	.cra_driver_name = "p8_aes_cbc",
 	.cra_module = THIS_MODULE,
-	.cra_priority = 1000,
+	.cra_priority = 2000,
 	.cra_type = &crypto_blkcipher_type,
 	.cra_flags = CRYPTO_ALG_TYPE_BLKCIPHER | CRYPTO_ALG_NEED_FALLBACK,
 	.cra_alignmask = 0,
@@ -191,7 +189,7 @@ struct crypto_alg p8_aes_cbc_alg = {
 	.cra_init = p8_aes_cbc_init,
 	.cra_exit = p8_aes_cbc_exit,
 	.cra_blkcipher = {
-			  .ivsize = 0,
+			  .ivsize = AES_BLOCK_SIZE,
 			  .min_keysize = AES_MIN_KEY_SIZE,
 			  .max_keysize = AES_MAX_KEY_SIZE,
 			  .setkey = p8_aes_cbc_setkey,

@@ -543,6 +543,7 @@ noinline void slc_op(phys_addr_t paddr, unsigned long sz, const int op)
 	static DEFINE_SPINLOCK(lock);
 	unsigned long flags;
 	unsigned int ctrl;
+	phys_addr_t end;
 
 	spin_lock_irqsave(&lock, flags);
 
@@ -572,8 +573,16 @@ noinline void slc_op(phys_addr_t paddr, unsigned long sz, const int op)
 	 * END needs to be setup before START (latter triggers the operation)
 	 * END can't be same as START, so add (l2_line_sz - 1) to sz
 	 */
-	write_aux_reg(ARC_REG_SLC_RGN_END, (paddr + sz + l2_line_sz - 1));
-	write_aux_reg(ARC_REG_SLC_RGN_START, paddr);
+	end = paddr + sz + l2_line_sz - 1;
+	if (is_pae40_enabled())
+		write_aux_reg(ARC_REG_SLC_RGN_END1, upper_32_bits(end));
+
+	write_aux_reg(ARC_REG_SLC_RGN_END, lower_32_bits(end));
+
+	if (is_pae40_enabled())
+		write_aux_reg(ARC_REG_SLC_RGN_START1, upper_32_bits(paddr));
+
+	write_aux_reg(ARC_REG_SLC_RGN_START, lower_32_bits(paddr));
 
 	while (read_aux_reg(ARC_REG_SLC_CTRL) & SLC_CTRL_BUSY);
 
@@ -914,6 +923,15 @@ void arc_cache_init(void)
 
 	printk(arc_cache_mumbojumbo(0, str, sizeof(str)));
 
+	/*
+	 * Only master CPU needs to execute rest of function:
+	 *  - Assume SMP so all cores will have same cache config so
+	 *    any geomtry checks will be same for all
+	 *  - IOC setup / dma callbacks only need to be setup once
+	 */
+	if (cpu)
+		return;
+
 	if (IS_ENABLED(CONFIG_ARC_HAS_ICACHE)) {
 		struct cpuinfo_arc_cache *ic = &cpuinfo_arc700[cpu].icache;
 
@@ -951,11 +969,16 @@ void arc_cache_init(void)
 		/* check for D-Cache aliasing on ARCompact: ARCv2 has PIPT */
 		if (is_isa_arcompact()) {
 			int handled = IS_ENABLED(CONFIG_ARC_CACHE_VIPT_ALIASING);
+			int num_colors = dc->sz_k/dc->assoc/TO_KB(PAGE_SIZE);
 
-			if (dc->alias && !handled)
-				panic("Enable CONFIG_ARC_CACHE_VIPT_ALIASING\n");
-			else if (!dc->alias && handled)
+			if (dc->alias) {
+				if (!handled)
+					panic("Enable CONFIG_ARC_CACHE_VIPT_ALIASING\n");
+				if (CACHE_COLORS_NUM != num_colors)
+					panic("CACHE_COLORS_NUM not optimized for config\n");
+			} else if (!dc->alias && handled) {
 				panic("Disable CONFIG_ARC_CACHE_VIPT_ALIASING\n");
+			}
 		}
 	}
 

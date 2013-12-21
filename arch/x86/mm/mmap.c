@@ -94,18 +94,6 @@ static unsigned long mmap_base(unsigned long rnd)
 }
 
 /*
- * Bottom-up (legacy) layout on X86_32 did not support randomization, X86_64
- * does, but not when emulating X86_32
- */
-static unsigned long mmap_legacy_base(unsigned long rnd)
-{
-	if (mmap_is_ia32())
-		return TASK_UNMAPPED_BASE;
-	else
-		return TASK_UNMAPPED_BASE + rnd;
-}
-
-/*
  * This function, called very early during the creation of a new
  * process VM image, sets up which VM layout function to use:
  */
@@ -116,7 +104,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	if (current->flags & PF_RANDOMIZE)
 		random_factor = arch_mmap_rnd();
 
-	mm->mmap_legacy_base = mmap_legacy_base(random_factor);
+	mm->mmap_legacy_base = TASK_UNMAPPED_BASE + random_factor;
 
 	if (mmap_is_legacy()) {
 		mm->mmap_base = mm->mmap_legacy_base;
@@ -132,4 +120,25 @@ const char *arch_vma_name(struct vm_area_struct *vma)
 	if (vma->vm_flags & VM_MPX)
 		return "[mpx]";
 	return NULL;
+}
+
+/*
+ * Only allow root to set high MMIO mappings to PROT_NONE.
+ * This prevents an unpriv. user to set them to PROT_NONE and invert
+ * them, then pointing to valid memory for L1TF speculation.
+ *
+ * Note: for locked down kernels may want to disable the root override.
+ */
+bool pfn_modify_allowed(unsigned long pfn, pgprot_t prot)
+{
+	if (!boot_cpu_has_bug(X86_BUG_L1TF))
+		return true;
+	if (!__pte_needs_invert(pgprot_val(prot)))
+		return true;
+	/* If it's real memory always allow */
+	if (pfn_valid(pfn))
+		return true;
+	if (pfn > l1tf_pfn_limit() && !capable(CAP_SYS_ADMIN))
+		return false;
+	return true;
 }
