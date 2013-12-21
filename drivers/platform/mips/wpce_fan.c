@@ -74,7 +74,7 @@ static void notify_temp(struct work_struct *work)
 	struct loongson_fan_policy *policy;
 
 	policy = fan1_ops.fan_policy;
-	temp =  policy->depend_temp() / 1000;
+	temp =  policy->depend_temp(policy->depend_data) / 1000;
 
 	ec_write_noindex(0x4d, temp);
 
