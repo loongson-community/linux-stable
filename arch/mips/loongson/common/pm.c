@@ -21,6 +21,7 @@
 #include <loongson.h>
 #include <mc146818rtc.h>
 
+extern enum loongson_cpu_type cputype;
 static unsigned int __maybe_unused cached_master_mask;	/* i8259A */
 static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
@@ -102,7 +103,16 @@ int __weak wakeup_loongson(void)
 static void wait_for_wakeup_events(void)
 {
 	while (!wakeup_loongson())
-		LOONGSON_CHIPCFG0 &= ~0x7;
+		switch(cputype) {
+		case Loongson_2F:
+		case Loongson_3A:
+		default:
+			LOONGSON_CHIPCFG(0) &= ~0x7;
+			break;
+		case Loongson_3B:
+			LOONGSON_FREQCTRL(0) &= ~0x7;
+			break;
+		}
 }
 
 /*
@@ -130,15 +140,26 @@ static void loongson_suspend_enter(void)
 
 	stop_perf_counters();
 
-	cached_cpu_freq = LOONGSON_CHIPCFG0;
-
-	/* Put CPU into wait mode */
-	LOONGSON_CHIPCFG0 &= ~0x7;
-
-	/* wait for the given events to wakeup cpu from wait mode */
-	wait_for_wakeup_events();
-
-	LOONGSON_CHIPCFG0 = cached_cpu_freq;
+	switch(cputype) {
+	case Loongson_2F:
+	case Loongson_3A:
+	default:
+		cached_cpu_freq = LOONGSON_CHIPCFG(0);
+		/* Put CPU into wait mode */
+		LOONGSON_CHIPCFG(0) &= ~0x7;
+		/* wait for the given events to wakeup cpu from wait mode */
+		wait_for_wakeup_events();
+		LOONGSON_CHIPCFG(0) = cached_cpu_freq;
+		break;
+	case Loongson_3B:
+		cached_cpu_freq = LOONGSON_FREQCTRL(0);
+		/* Put CPU into wait mode */
+		LOONGSON_FREQCTRL(0) &= ~0x7;
+		/* wait for the given events to wakeup cpu from wait mode */
+		wait_for_wakeup_events();
+		LOONGSON_FREQCTRL(0) = cached_cpu_freq;
+		break;
+	}
 	mmiowb();
 }
 
