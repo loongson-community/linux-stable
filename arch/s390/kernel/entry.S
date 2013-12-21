@@ -229,12 +229,17 @@ ENTRY(sie64a)
 	lctlg	%c1,%c1,__LC_USER_ASCE		# load primary asce
 .Lsie_done:
 # some program checks are suppressing. C code (e.g. do_protection_exception)
-# will rewind the PSW by the ILC, which is 4 bytes in case of SIE. Other
-# instructions between sie64a and .Lsie_done should not cause program
-# interrupts. So lets use a nop (47 00 00 00) as a landing pad.
+# will rewind the PSW by the ILC, which is often 4 bytes in case of SIE. There
+# are some corner cases (e.g. runtime instrumentation) where ILC is unpredictable.
+# Other instructions between sie64a and .Lsie_done should not cause program
+# interrupts. So lets use 3 nops as a landing pad for all possible rewinds.
 # See also .Lcleanup_sie
-.Lrewind_pad:
-	nop	0
+.Lrewind_pad6:
+	nopr	7
+.Lrewind_pad4:
+	nopr	7
+.Lrewind_pad2:
+	nopr	7
 	.globl sie_exit
 sie_exit:
 	lg	%r14,__SF_EMPTY+8(%r15)		# load guest register save area
@@ -247,7 +252,9 @@ sie_exit:
 	stg	%r14,__SF_EMPTY+16(%r15)	# set exit reason code
 	j	sie_exit
 
-	EX_TABLE(.Lrewind_pad,.Lsie_fault)
+	EX_TABLE(.Lrewind_pad6,.Lsie_fault)
+	EX_TABLE(.Lrewind_pad4,.Lsie_fault)
+	EX_TABLE(.Lrewind_pad2,.Lsie_fault)
 	EX_TABLE(sie_exit,.Lsie_fault)
 #endif
 
@@ -308,6 +315,7 @@ ENTRY(system_call)
 	lg	%r14,__LC_VDSO_PER_CPU
 	lmg	%r0,%r10,__PT_R0(%r11)
 	mvc	__LC_RETURN_PSW(16),__PT_PSW(%r11)
+.Lsysc_exit_timer:
 	stpt	__LC_EXIT_TIMER
 	mvc	__VDSO_ECTG_BASE(16,%r14),__LC_EXIT_TIMER
 	lmg	%r11,%r15,__PT_R11(%r11)
@@ -593,6 +601,7 @@ ENTRY(io_int_handler)
 	lg	%r14,__LC_VDSO_PER_CPU
 	lmg	%r0,%r10,__PT_R0(%r11)
 	mvc	__LC_RETURN_PSW(16),__PT_PSW(%r11)
+.Lio_exit_timer:
 	stpt	__LC_EXIT_TIMER
 	mvc	__VDSO_ECTG_BASE(16,%r14),__LC_EXIT_TIMER
 	lmg	%r11,%r15,__PT_R11(%r11)
@@ -1118,15 +1127,23 @@ cleanup_critical:
 	br	%r14
 
 .Lcleanup_sysc_restore:
+	# check if stpt has been executed
 	clg	%r9,BASED(.Lcleanup_sysc_restore_insn)
+	jh	0f
+	mvc	__LC_EXIT_TIMER(8),__LC_ASYNC_ENTER_TIMER
+	cghi	%r11,__LC_SAVE_AREA_ASYNC
 	je	0f
+	mvc	__LC_EXIT_TIMER(8),__LC_MCCK_ENTER_TIMER
+0:	clg	%r9,BASED(.Lcleanup_sysc_restore_insn+8)
+	je	1f
 	lg	%r9,24(%r11)		# get saved pointer to pt_regs
 	mvc	__LC_RETURN_PSW(16),__PT_PSW(%r9)
 	mvc	0(64,%r11),__PT_R8(%r9)
 	lmg	%r0,%r7,__PT_R0(%r9)
-0:	lmg	%r8,%r9,__LC_RETURN_PSW
+1:	lmg	%r8,%r9,__LC_RETURN_PSW
 	br	%r14
 .Lcleanup_sysc_restore_insn:
+	.quad	.Lsysc_exit_timer
 	.quad	.Lsysc_done - 4
 
 .Lcleanup_io_tif:
@@ -1134,15 +1151,20 @@ cleanup_critical:
 	br	%r14
 
 .Lcleanup_io_restore:
+	# check if stpt has been executed
 	clg	%r9,BASED(.Lcleanup_io_restore_insn)
-	je	0f
+	jh	0f
+	mvc	__LC_EXIT_TIMER(8),__LC_MCCK_ENTER_TIMER
+0:	clg	%r9,BASED(.Lcleanup_io_restore_insn+8)
+	je	1f
 	lg	%r9,24(%r11)		# get saved r11 pointer to pt_regs
 	mvc	__LC_RETURN_PSW(16),__PT_PSW(%r9)
 	mvc	0(64,%r11),__PT_R8(%r9)
 	lmg	%r0,%r7,__PT_R0(%r9)
-0:	lmg	%r8,%r9,__LC_RETURN_PSW
+1:	lmg	%r8,%r9,__LC_RETURN_PSW
 	br	%r14
 .Lcleanup_io_restore_insn:
+	.quad	.Lio_exit_timer
 	.quad	.Lio_done - 4
 
 .Lcleanup_idle:
@@ -1197,114 +1219,12 @@ cleanup_critical:
 	.quad	.Lpsw_idle_lpsw
 
 .Lcleanup_save_fpu_regs:
-	TSTMSK	__LC_CPU_FLAGS,_CIF_FPU
-	bor	%r14
-	clg	%r9,BASED(.Lcleanup_save_fpu_regs_done)
-	jhe	5f
-	clg	%r9,BASED(.Lcleanup_save_fpu_regs_fp)
-	jhe	4f
-	clg	%r9,BASED(.Lcleanup_save_fpu_regs_vx_high)
-	jhe	3f
-	clg	%r9,BASED(.Lcleanup_save_fpu_regs_vx_low)
-	jhe	2f
-	clg	%r9,BASED(.Lcleanup_save_fpu_fpc_end)
-	jhe	1f
-	lg	%r2,__LC_CURRENT
-	aghi	%r2,__TASK_thread
-0:	# Store floating-point controls
-	stfpc	__THREAD_FPU_fpc(%r2)
-1:	# Load register save area and check if VX is active
-	lg	%r3,__THREAD_FPU_regs(%r2)
-	TSTMSK	__LC_MACHINE_FLAGS,MACHINE_FLAG_VX
-	jz	4f			  # no VX -> store FP regs
-2:	# Store vector registers (V0-V15)
-	VSTM	%v0,%v15,0,%r3		  # vstm 0,15,0(3)
-3:	# Store vector registers (V16-V31)
-	VSTM	%v16,%v31,256,%r3	  # vstm 16,31,256(3)
-	j	5f			  # -> done, set CIF_FPU flag
-4:	# Store floating-point registers
-	std	0,0(%r3)
-	std	1,8(%r3)
-	std	2,16(%r3)
-	std	3,24(%r3)
-	std	4,32(%r3)
-	std	5,40(%r3)
-	std	6,48(%r3)
-	std	7,56(%r3)
-	std	8,64(%r3)
-	std	9,72(%r3)
-	std	10,80(%r3)
-	std	11,88(%r3)
-	std	12,96(%r3)
-	std	13,104(%r3)
-	std	14,112(%r3)
-	std	15,120(%r3)
-5:	# Set CIF_FPU flag
-	oi	__LC_CPU_FLAGS+7,_CIF_FPU
-	lg	%r9,48(%r11)		# return from save_fpu_regs
+	larl	%r9,save_fpu_regs
 	br	%r14
-.Lcleanup_save_fpu_fpc_end:
-	.quad	.Lsave_fpu_regs_fpc_end
-.Lcleanup_save_fpu_regs_vx_low:
-	.quad	.Lsave_fpu_regs_vx_low
-.Lcleanup_save_fpu_regs_vx_high:
-	.quad	.Lsave_fpu_regs_vx_high
-.Lcleanup_save_fpu_regs_fp:
-	.quad	.Lsave_fpu_regs_fp
-.Lcleanup_save_fpu_regs_done:
-	.quad	.Lsave_fpu_regs_done
 
 .Lcleanup_load_fpu_regs:
-	TSTMSK	__LC_CPU_FLAGS,_CIF_FPU
-	bnor	%r14
-	clg	%r9,BASED(.Lcleanup_load_fpu_regs_done)
-	jhe	1f
-	clg	%r9,BASED(.Lcleanup_load_fpu_regs_fp)
-	jhe	2f
-	clg	%r9,BASED(.Lcleanup_load_fpu_regs_vx_high)
-	jhe	3f
-	clg	%r9,BASED(.Lcleanup_load_fpu_regs_vx)
-	jhe	4f
-	lg	%r4,__LC_CURRENT
-	aghi	%r4,__TASK_thread
-	lfpc	__THREAD_FPU_fpc(%r4)
-	TSTMSK	__LC_MACHINE_FLAGS,MACHINE_FLAG_VX
-	lg	%r4,__THREAD_FPU_regs(%r4)	# %r4 <- reg save area
-	jz	2f				# -> no VX, load FP regs
-4:	# Load V0 ..V15 registers
-	VLM	%v0,%v15,0,%r4
-3:	# Load V16..V31 registers
-	VLM	%v16,%v31,256,%r4
-	j	1f
-2:	# Load floating-point registers
-	ld	0,0(%r4)
-	ld	1,8(%r4)
-	ld	2,16(%r4)
-	ld	3,24(%r4)
-	ld	4,32(%r4)
-	ld	5,40(%r4)
-	ld	6,48(%r4)
-	ld	7,56(%r4)
-	ld	8,64(%r4)
-	ld	9,72(%r4)
-	ld	10,80(%r4)
-	ld	11,88(%r4)
-	ld	12,96(%r4)
-	ld	13,104(%r4)
-	ld	14,112(%r4)
-	ld	15,120(%r4)
-1:	# Clear CIF_FPU bit
-	ni	__LC_CPU_FLAGS+7,255-_CIF_FPU
-	lg	%r9,48(%r11)		# return from load_fpu_regs
+	larl	%r9,load_fpu_regs
 	br	%r14
-.Lcleanup_load_fpu_regs_vx:
-	.quad	.Lload_fpu_regs_vx
-.Lcleanup_load_fpu_regs_vx_high:
-	.quad	.Lload_fpu_regs_vx_high
-.Lcleanup_load_fpu_regs_fp:
-	.quad	.Lload_fpu_regs_fp
-.Lcleanup_load_fpu_regs_done:
-	.quad	.Lload_fpu_regs_done
 
 /*
  * Integer constants

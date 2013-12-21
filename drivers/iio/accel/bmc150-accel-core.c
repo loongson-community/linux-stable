@@ -68,6 +68,9 @@
 #define BMC150_ACCEL_REG_PMU_BW		0x10
 #define BMC150_ACCEL_DEF_BW			125
 
+#define BMC150_ACCEL_REG_RESET			0x14
+#define BMC150_ACCEL_RESET_VAL			0xB6
+
 #define BMC150_ACCEL_REG_INT_MAP_0		0x19
 #define BMC150_ACCEL_INT_MAP_0_BIT_SLOPE	BIT(2)
 
@@ -191,7 +194,6 @@ struct bmc150_accel_data {
 	struct device *dev;
 	int irq;
 	struct bmc150_accel_interrupt interrupts[BMC150_ACCEL_INTERRUPTS];
-	atomic_t active_intr;
 	struct bmc150_accel_trigger triggers[BMC150_ACCEL_TRIGGERS];
 	struct mutex mutex;
 	u8 fifo_mode, watermark;
@@ -486,11 +488,6 @@ static int bmc150_accel_set_interrupt(struct bmc150_accel_data *data, int i,
 		goto out_fix_power_state;
 	}
 
-	if (state)
-		atomic_inc(&data->active_intr);
-	else
-		atomic_dec(&data->active_intr);
-
 	return 0;
 
 out_fix_power_state:
@@ -547,7 +544,7 @@ static int bmc150_accel_get_axis(struct bmc150_accel_data *data,
 {
 	int ret;
 	int axis = chan->scan_index;
-	unsigned int raw_val;
+	__le16 raw_val;
 
 	mutex_lock(&data->mutex);
 	ret = bmc150_accel_set_power_state(data, true);
@@ -557,14 +554,14 @@ static int bmc150_accel_get_axis(struct bmc150_accel_data *data,
 	}
 
 	ret = regmap_bulk_read(data->regmap, BMC150_ACCEL_AXIS_TO_REG(axis),
-			       &raw_val, 2);
+			       &raw_val, sizeof(raw_val));
 	if (ret < 0) {
 		dev_err(data->dev, "Error reading axis %d\n", axis);
 		bmc150_accel_set_power_state(data, false);
 		mutex_unlock(&data->mutex);
 		return ret;
 	}
-	*val = sign_extend32(raw_val >> chan->scan_type.shift,
+	*val = sign_extend32(le16_to_cpu(raw_val) >> chan->scan_type.shift,
 			     chan->scan_type.realbits - 1);
 	ret = bmc150_accel_set_power_state(data, false);
 	mutex_unlock(&data->mutex);
@@ -988,6 +985,7 @@ static const struct iio_event_spec bmc150_accel_event = {
 		.realbits = (bits),					\
 		.storagebits = 16,					\
 		.shift = 16 - (bits),					\
+		.endianness = IIO_LE,					\
 	},								\
 	.event_spec = &bmc150_accel_event,				\
 	.num_event_specs = 1						\
@@ -1486,6 +1484,14 @@ static int bmc150_accel_chip_init(struct bmc150_accel_data *data)
 	int ret, i;
 	unsigned int val;
 
+	/*
+	 * Reset chip to get it in a known good state. A delay of 1.8ms after
+	 * reset is required according to the data sheets of supported chips.
+	 */
+	regmap_write(data->regmap, BMC150_ACCEL_REG_RESET,
+		     BMC150_ACCEL_RESET_VAL);
+	usleep_range(1800, 2500);
+
 	ret = regmap_read(data->regmap, BMC150_ACCEL_REG_CHIP_ID, &val);
 	if (ret < 0) {
 		dev_err(data->dev,
@@ -1692,8 +1698,7 @@ static int bmc150_accel_resume(struct device *dev)
 	struct bmc150_accel_data *data = iio_priv(indio_dev);
 
 	mutex_lock(&data->mutex);
-	if (atomic_read(&data->active_intr))
-		bmc150_accel_set_mode(data, BMC150_ACCEL_SLEEP_MODE_NORMAL, 0);
+	bmc150_accel_set_mode(data, BMC150_ACCEL_SLEEP_MODE_NORMAL, 0);
 	bmc150_accel_fifo_set_mode(data);
 	mutex_unlock(&data->mutex);
 
