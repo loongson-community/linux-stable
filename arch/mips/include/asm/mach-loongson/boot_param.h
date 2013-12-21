@@ -142,6 +142,9 @@ struct boot_params{
 };
 
 extern u32 nr_cpus_loongson;
+extern u32 nr_nodes_loongson;
+extern int cores_per_node;
+extern int cores_per_package;
 extern enum loongson_cpu_type cputype;
 extern struct efi_memory_map_loongson *emap;
 extern u64 ht_control_base;

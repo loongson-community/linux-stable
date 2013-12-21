@@ -216,6 +216,8 @@ void __cpuinit loongson3_init_secondary(void)
 		loongson3_ipi_write32(0xffffffff, ipi_en0_regs[i]);
 	}
 
+	cpu_data[cpu].package = cpu / cores_per_package;
+	cpu_data[cpu].core = cpu % cores_per_package;
 	per_cpu(cpu_state, cpu) = CPU_ONLINE;
 
 	i = 0;
@@ -412,17 +414,37 @@ static int __cpuinit loongson3_cpu_callback(struct notifier_block *nfb,
 	unsigned long action, void *hcpu)
 {
 	unsigned int cpu = (unsigned long)hcpu;
+	unsigned int node = cpu / cores_per_node;
+	unsigned int core_id = cpu % cores_per_node;
 
 	switch (action) {
 	case CPU_POST_DEAD:
 	case CPU_POST_DEAD_FROZEN:
 		printk(KERN_INFO "Disable clock for CPU#%d\n", cpu);
-		LOONGSON_CHIPCFG0 &= ~(1 << (12 + cpu));
+		if (node == 0)
+			LOONGSON_CHIPCFG0 &= ~(1 << (12 + core_id));
+#ifdef CONFIG_NUMA
+		else if (node == 1)
+			LOONGSON_CHIPCFG1 &= ~(1 << (12 + core_id));
+		else if (node == 2)
+			LOONGSON_CHIPCFG2 &= ~(1 << (12 + core_id));
+		else if (node == 3)
+			LOONGSON_CHIPCFG3 &= ~(1 << (12 + core_id));
+#endif
 		break;
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
 		printk(KERN_INFO "Enable clock for CPU#%d\n", cpu);
-		LOONGSON_CHIPCFG0 |= 1 << (12 + cpu);
+		if (node == 0)
+			LOONGSON_CHIPCFG0 |= 1 << (12 + core_id);
+#ifdef CONFIG_NUMA
+		else if (node == 1)
+			LOONGSON_CHIPCFG1 |= 1 << (12 + core_id);
+		else if (node == 2)
+			LOONGSON_CHIPCFG2 |= 1 << (12 + core_id);
+		else if (node == 3)
+			LOONGSON_CHIPCFG3 |= 1 << (12 + core_id);
+#endif
 		break;
 	}
 
