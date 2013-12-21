@@ -70,6 +70,7 @@ config LEMOTE_MACH3A
 	select CSRC_R4K
 	select CEVT_R4K
 	select CPU_HAS_WB
+	select HAVE_CLK
 	select HW_HAS_PCI
 	select ISA
 	select I8259
