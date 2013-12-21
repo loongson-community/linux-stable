@@ -18,6 +18,7 @@
 #define LOONGSON_INT_CORE0_INT0		0x11 /* route to int 0 of core 0 */
 #define LOONGSON_INT_CORE0_INT1		0x21 /* route to int 1 of core 0 */
 
+extern unsigned long long smp_group[4];
 extern void loongson3_ipi_interrupt(struct pt_regs *regs);
 
 static void ht_irqdispatch(void)
@@ -65,9 +66,15 @@ static inline void mask_loongson_irq(struct irq_data *d)
 	/* Workaround: UART IRQ may deliver to any core */
 	if (d->irq == LOONGSON_UART_IRQ) {
 		int cpu = smp_processor_id();
+		int node_id = cpu / cores_per_node;
+		int core_id = cpu % cores_per_node;
+		u64 intenclr_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_INTENCLR);
+		u64 introuter_lpc_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_LPC);
 
-		LOONGSON_INT_ROUTER_INTENCLR = 1 << 10;
-		LOONGSON_INT_ROUTER_LPC = 0x10 + (1<<cpu);
+		*(volatile u32 *)intenclr_addr = 1 << 10;
+		*(volatile u8 *)introuter_lpc_addr = 0x10 + (1<<core_id);
 	}
 }
 
@@ -76,9 +83,15 @@ static inline void unmask_loongson_irq(struct irq_data *d)
 	/* Workaround: UART IRQ may deliver to any core */
 	if (d->irq == LOONGSON_UART_IRQ) {
 		int cpu = smp_processor_id();
+		int node_id = cpu / cores_per_node;
+		int core_id = cpu % cores_per_node;
+		u64 intenset_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_INTENSET);
+		u64 introuter_lpc_addr = smp_group[node_id] |
+			(u64)(&LOONGSON_INT_ROUTER_LPC);
 
-		LOONGSON_INT_ROUTER_INTENSET = 1 << 10;
-		LOONGSON_INT_ROUTER_LPC = 0x10 + (1<<cpu);
+		*(volatile u32 *)intenset_addr = 1 << 10;
+		*(volatile u8 *)introuter_lpc_addr = 0x10 + (1<<core_id);
 	}
 
 	set_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
