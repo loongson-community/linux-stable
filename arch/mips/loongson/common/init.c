@@ -13,6 +13,7 @@
 #include <loongson.h>
 
 extern struct plat_smp_ops loongson3_smp_ops;
+extern void __init prom_init_numa_memory(void);
 
 /* Loongson CPU address windows config space base address */
 unsigned long __maybe_unused _loongson_addrwincfg_base;
@@ -31,7 +32,11 @@ void __init prom_init(void)
 	set_io_port_base((unsigned long)
 		ioremap(LOONGSON_PCIIO_BASE, LOONGSON_PCIIO_SIZE));
 
+#ifdef CONFIG_NUMA
+	prom_init_numa_memory();
+#else
 	prom_init_memory();
+#endif
 
 	/*init the uart base address */
 	prom_init_uart_base();
