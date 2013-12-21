@@ -324,6 +324,7 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
  */
 void __init loongson3_cpus_done(void)
 {
+	disable_unused_cpus();
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -580,6 +581,21 @@ static int __cpuinit register_loongson3_notifier(void)
 	return 0;
 }
 early_initcall(register_loongson3_notifier);
+
+void __cpuinit disable_unused_cpus(void)
+{
+	int cpu;
+	struct cpumask tmp;
+
+	cpumask_complement(&tmp, cpu_online_mask);
+	cpumask_and(&tmp, &tmp, cpu_possible_mask);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_up(cpu);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_down(cpu);
+}
 
 #endif
 
