@@ -248,7 +248,7 @@ static int wm831x_clkout_is_enabled(struct clk_hw *hw)
 	if (ret < 0) {
 		dev_err(wm831x->dev, "Unable to read CLOCK_CONTROL_1: %d\n",
 			ret);
-		return true;
+		return false;
 	}
 
 	return (ret & WM831X_CLKOUT_ENA) != 0;
@@ -359,6 +359,8 @@ static int wm831x_clk_probe(struct platform_device *pdev)
 	clkdata = devm_kzalloc(&pdev->dev, sizeof(*clkdata), GFP_KERNEL);
 	if (!clkdata)
 		return -ENOMEM;
+
+	clkdata->wm831x = wm831x;
 
 	/* XTAL_ENA can only be set via OTP/InstantConfig so just read once */
 	ret = wm831x_reg_read(wm831x, WM831X_CLOCK_CONTROL_2);

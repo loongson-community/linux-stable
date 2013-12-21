@@ -469,9 +469,8 @@ static int em28xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 	int addr, rc, i;
 	u8 reg;
 
-	rc = rt_mutex_trylock(&dev->i2c_bus_lock);
-	if (rc < 0)
-		return rc;
+	if (!rt_mutex_trylock(&dev->i2c_bus_lock))
+		return -EAGAIN;
 
 	/* Switch I2C bus if needed */
 	if (bus != dev->cur_i2c_bus &&
@@ -726,7 +725,7 @@ static int em28xx_i2c_eeprom(struct em28xx *dev, unsigned bus,
 
 	*eedata = data;
 	*eedata_len = len;
-	dev_config = (void *)eedata;
+	dev_config = (void *)*eedata;
 
 	switch (le16_to_cpu(dev_config->chip_conf) >> 4 & 0x3) {
 	case 0:

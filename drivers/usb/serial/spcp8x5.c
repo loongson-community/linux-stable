@@ -155,6 +155,19 @@ static int spcp8x5_probe(struct usb_serial *serial,
 	return 0;
 }
 
+static int spcp8x5_attach(struct usb_serial *serial)
+{
+	unsigned char num_ports = serial->num_ports;
+
+	if (serial->num_bulk_in < num_ports ||
+			serial->num_bulk_out < num_ports) {
+		dev_err(&serial->interface->dev, "missing endpoints\n");
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 static int spcp8x5_port_probe(struct usb_serial_port *port)
 {
 	const struct usb_device_id *id = usb_get_serial_data(port->serial);
@@ -218,11 +231,17 @@ static int spcp8x5_get_msr(struct usb_serial_port *port, u8 *status)
 	ret = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			      GET_UART_STATUS, GET_UART_STATUS_TYPE,
 			      0, GET_UART_STATUS_MSR, buf, 1, 100);
-	if (ret < 0)
+	if (ret < 1) {
 		dev_err(&port->dev, "failed to get modem status: %d", ret);
+		if (ret >= 0)
+			ret = -EIO;
+		goto out;
+	}
 
 	dev_dbg(&port->dev, "0xc0:0x22:0:6  %d - 0x02%x", ret, *buf);
 	*status = *buf;
+	ret = 0;
+out:
 	kfree(buf);
 
 	return ret;
@@ -346,22 +365,20 @@ static void spcp8x5_set_termios(struct tty_struct *tty,
 	}
 
 	/* Set Data Length : 00:5bit, 01:6bit, 10:7bit, 11:8bit */
-	if (cflag & CSIZE) {
-		switch (cflag & CSIZE) {
-		case CS5:
-			buf[1] |= SET_UART_FORMAT_SIZE_5;
-			break;
-		case CS6:
-			buf[1] |= SET_UART_FORMAT_SIZE_6;
-			break;
-		case CS7:
-			buf[1] |= SET_UART_FORMAT_SIZE_7;
-			break;
-		default:
-		case CS8:
-			buf[1] |= SET_UART_FORMAT_SIZE_8;
-			break;
-		}
+	switch (cflag & CSIZE) {
+	case CS5:
+		buf[1] |= SET_UART_FORMAT_SIZE_5;
+		break;
+	case CS6:
+		buf[1] |= SET_UART_FORMAT_SIZE_6;
+		break;
+	case CS7:
+		buf[1] |= SET_UART_FORMAT_SIZE_7;
+		break;
+	default:
+	case CS8:
+		buf[1] |= SET_UART_FORMAT_SIZE_8;
+		break;
 	}
 
 	/* Set Stop bit2 : 0:1bit 1:2bit */
@@ -481,6 +498,7 @@ static struct usb_serial_driver spcp8x5_device = {
 	.tiocmget		= spcp8x5_tiocmget,
 	.tiocmset		= spcp8x5_tiocmset,
 	.probe			= spcp8x5_probe,
+	.attach			= spcp8x5_attach,
 	.port_probe		= spcp8x5_port_probe,
 	.port_remove		= spcp8x5_port_remove,
 };

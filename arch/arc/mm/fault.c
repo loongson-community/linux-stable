@@ -16,7 +16,7 @@
 #include <linux/kdebug.h>
 #include <asm/pgalloc.h>
 
-static int handle_vmalloc_fault(struct mm_struct *mm, unsigned long address)
+static int handle_vmalloc_fault(unsigned long address)
 {
 	/*
 	 * Synchronize this task's top level page-table
@@ -26,7 +26,7 @@ static int handle_vmalloc_fault(struct mm_struct *mm, unsigned long address)
 	pud_t *pud, *pud_k;
 	pmd_t *pmd, *pmd_k;
 
-	pgd = pgd_offset_fast(mm, address);
+	pgd = pgd_offset_fast(current->active_mm, address);
 	pgd_k = pgd_offset_k(address);
 
 	if (!pgd_present(*pgd_k))
@@ -59,8 +59,7 @@ void do_page_fault(struct pt_regs *regs, int write, unsigned long address,
 	struct mm_struct *mm = tsk->mm;
 	siginfo_t info;
 	int fault, ret;
-	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE |
-				(write ? FAULT_FLAG_WRITE : 0);
+	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 	/*
 	 * We fault-in kernel-space virtual memory on-demand. The
@@ -72,7 +71,7 @@ void do_page_fault(struct pt_regs *regs, int write, unsigned long address,
 	 * nothing more.
 	 */
 	if (address >= VMALLOC_START && address <= VMALLOC_END) {
-		ret = handle_vmalloc_fault(mm, address);
+		ret = handle_vmalloc_fault(address);
 		if (unlikely(ret))
 			goto bad_area_nosemaphore;
 		else
@@ -88,6 +87,8 @@ void do_page_fault(struct pt_regs *regs, int write, unsigned long address,
 	if (in_atomic() || !mm)
 		goto no_context;
 
+	if (user_mode(regs))
+		flags |= FAULT_FLAG_USER;
 retry:
 	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, address);
@@ -115,12 +116,12 @@ good_area:
 	if (write) {
 		if (!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
+		flags |= FAULT_FLAG_WRITE;
 	} else {
 		if (!(vma->vm_flags & (VM_READ | VM_EXEC)))
 			goto bad_area;
 	}
 
-survive:
 	/*
 	 * If for any reason at all we couldn't handle the fault,
 	 * make sure we exit gracefully rather than endlessly redo
@@ -159,6 +160,8 @@ survive:
 	/* TBD: switch to pagefault_out_of_memory() */
 	if (fault & VM_FAULT_OOM)
 		goto out_of_memory;
+	else if (fault & VM_FAULT_SIGSEGV)
+		goto bad_area;
 	else if (fault & VM_FAULT_SIGBUS)
 		goto do_sigbus;
 
@@ -200,14 +203,12 @@ no_context:
 	die("Oops", regs, address, cause_code);
 
 out_of_memory:
-	if (is_global_init(tsk)) {
-		yield();
-		goto survive;
-	}
 	up_read(&mm->mmap_sem);
 
-	if (user_mode(regs))
-		do_group_exit(SIGKILL);	/* This will never return */
+	if (user_mode(regs)) {
+		pagefault_out_of_memory();
+		return;
+	}
 
 	goto no_context;
 

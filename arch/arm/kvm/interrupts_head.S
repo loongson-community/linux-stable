@@ -302,11 +302,14 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	.endif
 
 	mrc	p15, 0, r2, c14, c1, 0	@ CNTKCTL
+	mrrc	p15, 0, r4, r5, c7	@ PAR
 
 	.if \store_to_vcpu == 0
-	push	{r2}
+	push	{r2,r4-r5}
 	.else
 	str	r2, [vcpu, #CP15_OFFSET(c14_CNTKCTL)]
+	add	r12, vcpu, #CP15_OFFSET(c7_PAR)
+	strd	r4, r5, [r12]
 	.endif
 .endm
 
@@ -319,12 +322,15 @@ vcpu	.req	r0		@ vcpu pointer always in r0
  */
 .macro write_cp15_state read_from_vcpu
 	.if \read_from_vcpu == 0
-	pop	{r2}
+	pop	{r2,r4-r5}
 	.else
 	ldr	r2, [vcpu, #CP15_OFFSET(c14_CNTKCTL)]
+	add	r12, vcpu, #CP15_OFFSET(c7_PAR)
+	ldrd	r4, r5, [r12]
 	.endif
 
 	mcr	p15, 0, r2, c14, c1, 0	@ CNTKCTL
+	mcrr	p15, 0, r4, r5, c7	@ PAR
 
 	.if \read_from_vcpu == 0
 	pop	{r2-r12}
@@ -497,6 +503,10 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	add	r5, vcpu, r4
 	strd	r2, r3, [r5]
 
+	@ Ensure host CNTVCT == CNTPCT
+	mov	r2, #0
+	mcrr	p15, 4, r2, r2, c14	@ CNTVOFF
+
 1:
 #endif
 	@ Allow physical timer/counter access for the host
@@ -560,8 +570,13 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 .endm
 
 /* Configures the HCPTR (Hyp Coprocessor Trap Register) on entry/return
- * (hardware reset value is 0). Keep previous value in r2. */
-.macro set_hcptr operation, mask
+ * (hardware reset value is 0). Keep previous value in r2.
+ * An ISB is emited on vmexit/vmtrap, but executed on vmexit only if
+ * VFP wasn't already enabled (always executed on vmtrap).
+ * If a label is specified with vmexit, it is branched to if VFP wasn't
+ * enabled.
+ */
+.macro set_hcptr operation, mask, label = none
 	mrc	p15, 4, r2, c1, c1, 2
 	ldr	r3, =\mask
 	.if \operation == vmentry
@@ -570,6 +585,17 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	bic	r3, r2, r3		@ Don't trap defined coproc-accesses
 	.endif
 	mcr	p15, 4, r3, c1, c1, 2
+	.if \operation != vmentry
+	.if \operation == vmexit
+	tst	r2, #(HCPTR_TCP(10) | HCPTR_TCP(11))
+	beq	1f
+	.endif
+	isb
+	.if \label != none
+	b	\label
+	.endif
+1:
+	.endif
 .endm
 
 /* Configures the HDCR (Hyp Debug Configuration Register) on entry/return

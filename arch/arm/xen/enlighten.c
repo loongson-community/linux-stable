@@ -170,6 +170,7 @@ static void __init xen_percpu_init(void *unused)
 	per_cpu(xen_vcpu, cpu) = vcpup;
 
 	enable_percpu_irq(xen_events_irq, 0);
+	put_cpu();
 }
 
 static void xen_restart(char str, const char *cmd)
@@ -257,8 +258,7 @@ static int __init xen_guest_init(void)
 	 * for secondary CPUs as they are brought up.
 	 * For uniformity we use VCPUOP_register_vcpu_info even on cpu0.
 	 */
-	xen_vcpu_info = __alloc_percpu(sizeof(struct vcpu_info),
-			                       sizeof(struct vcpu_info));
+	xen_vcpu_info = alloc_percpu(struct vcpu_info);
 	if (xen_vcpu_info == NULL)
 		return -ENOMEM;
 
@@ -272,12 +272,15 @@ core_initcall(xen_guest_init);
 
 static int __init xen_pm_init(void)
 {
+	if (!xen_domain())
+		return -ENODEV;
+
 	pm_power_off = xen_power_off;
 	arm_pm_restart = xen_restart;
 
 	return 0;
 }
-subsys_initcall(xen_pm_init);
+late_initcall(xen_pm_init);
 
 static irqreturn_t xen_arm_callback(int irq, void *arg)
 {

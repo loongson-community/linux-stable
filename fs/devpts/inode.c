@@ -498,6 +498,7 @@ static void devpts_kill_sb(struct super_block *sb)
 {
 	struct pts_fs_info *fsi = DEVPTS_SB(sb);
 
+	ida_destroy(&fsi->allocated_ptys);
 	kfree(fsi);
 	kill_litter_super(sb);
 }
@@ -561,6 +562,26 @@ void devpts_kill_index(struct inode *ptmx_inode, int idx)
 	ida_remove(&fsi->allocated_ptys, idx);
 	pty_count--;
 	mutex_unlock(&allocated_ptys_lock);
+}
+
+/*
+ * pty code needs to hold extra references in case of last /dev/tty close
+ */
+
+void devpts_add_ref(struct inode *ptmx_inode)
+{
+	struct super_block *sb = pts_sb_from_inode(ptmx_inode);
+
+	atomic_inc(&sb->s_active);
+	ihold(ptmx_inode);
+}
+
+void devpts_del_ref(struct inode *ptmx_inode)
+{
+	struct super_block *sb = pts_sb_from_inode(ptmx_inode);
+
+	iput(ptmx_inode);
+	deactivate_super(sb);
 }
 
 /**

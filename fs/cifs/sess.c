@@ -198,7 +198,7 @@ static void unicode_domain_string(char **pbcc_area, struct cifs_ses *ses,
 		bytes_ret = 0;
 	} else
 		bytes_ret = cifs_strtoUTF16((__le16 *) bcc_ptr, ses->domainName,
-					    256, nls_cp);
+					    CIFS_MAX_DOMAINNAME_LEN, nls_cp);
 	bcc_ptr += 2 * bytes_ret;
 	bcc_ptr += 2;  /* account for null terminator */
 
@@ -256,8 +256,8 @@ static void ascii_ssetup_strings(char **pbcc_area, struct cifs_ses *ses,
 
 	/* copy domain */
 	if (ses->domainName != NULL) {
-		strncpy(bcc_ptr, ses->domainName, 256);
-		bcc_ptr += strnlen(ses->domainName, 256);
+		strncpy(bcc_ptr, ses->domainName, CIFS_MAX_DOMAINNAME_LEN);
+		bcc_ptr += strnlen(ses->domainName, CIFS_MAX_DOMAINNAME_LEN);
 	} /* else we will send a null domain name
 	     so the server will default to its own domain */
 	*bcc_ptr = 0;
@@ -487,19 +487,27 @@ int build_ntlmssp_auth_blob(unsigned char *pbuffer,
 	sec_blob->LmChallengeResponse.MaximumLength = 0;
 
 	sec_blob->NtChallengeResponse.BufferOffset = cpu_to_le32(tmp - pbuffer);
-	rc = setup_ntlmv2_rsp(ses, nls_cp);
-	if (rc) {
-		cifs_dbg(VFS, "Error %d during NTLMSSP authentication\n", rc);
-		goto setup_ntlmv2_ret;
-	}
-	memcpy(tmp, ses->auth_key.response + CIFS_SESS_KEY_SIZE,
-			ses->auth_key.len - CIFS_SESS_KEY_SIZE);
-	tmp += ses->auth_key.len - CIFS_SESS_KEY_SIZE;
+	if (ses->user_name != NULL) {
+		rc = setup_ntlmv2_rsp(ses, nls_cp);
+		if (rc) {
+			cifs_dbg(VFS, "Error %d during NTLMSSP authentication\n", rc);
+			goto setup_ntlmv2_ret;
+		}
+		memcpy(tmp, ses->auth_key.response + CIFS_SESS_KEY_SIZE,
+				ses->auth_key.len - CIFS_SESS_KEY_SIZE);
+		tmp += ses->auth_key.len - CIFS_SESS_KEY_SIZE;
 
-	sec_blob->NtChallengeResponse.Length =
-			cpu_to_le16(ses->auth_key.len - CIFS_SESS_KEY_SIZE);
-	sec_blob->NtChallengeResponse.MaximumLength =
-			cpu_to_le16(ses->auth_key.len - CIFS_SESS_KEY_SIZE);
+		sec_blob->NtChallengeResponse.Length =
+				cpu_to_le16(ses->auth_key.len - CIFS_SESS_KEY_SIZE);
+		sec_blob->NtChallengeResponse.MaximumLength =
+				cpu_to_le16(ses->auth_key.len - CIFS_SESS_KEY_SIZE);
+	} else {
+		/*
+		 * don't send an NT Response for anonymous access
+		 */
+		sec_blob->NtChallengeResponse.Length = 0;
+		sec_blob->NtChallengeResponse.MaximumLength = 0;
+	}
 
 	if (ses->domainName == NULL) {
 		sec_blob->DomainName.BufferOffset = cpu_to_le32(tmp - pbuffer);

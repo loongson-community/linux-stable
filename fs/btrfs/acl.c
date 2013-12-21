@@ -118,11 +118,9 @@ static int btrfs_set_acl(struct btrfs_trans_handle *trans,
 	case ACL_TYPE_ACCESS:
 		name = POSIX_ACL_XATTR_ACCESS;
 		if (acl) {
-			ret = posix_acl_equiv_mode(acl, &inode->i_mode);
-			if (ret < 0)
+			ret = posix_acl_update_mode(inode, &inode->i_mode, &acl);
+			if (ret)
 				return ret;
-			if (ret == 0)
-				acl = NULL;
 		}
 		ret = 0;
 		break;
@@ -229,7 +227,7 @@ int btrfs_init_acl(struct btrfs_trans_handle *trans,
 		if (ret > 0) {
 			/* we need an acl */
 			ret = btrfs_set_acl(trans, inode, acl, ACL_TYPE_ACCESS);
-		} else {
+		} else if (ret < 0) {
 			cache_no_acl(inode);
 		}
 	} else {
