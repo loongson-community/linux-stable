@@ -24,6 +24,7 @@
 static unsigned int __maybe_unused cached_master_mask;	/* i8259A */
 static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
+static unsigned int __maybe_unused cached_autoplug_enabled;
 
 uint64_t cmos_read64(unsigned long addr)
 {
@@ -197,9 +198,29 @@ static int loongson_pm_valid_state(suspend_state_t state)
 	}
 }
 
+static int loongson_pm_begin(suspend_state_t state)
+{
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+	extern int autoplug_enabled;
+	cached_autoplug_enabled = autoplug_enabled;
+	autoplug_enabled = 0;
+#endif
+	return 0;
+}
+
+static void loongson_pm_end(void)
+{
+#ifdef CONFIG_LOONGSON3_CPUAUTOPLUG
+	extern int autoplug_enabled;
+	autoplug_enabled = cached_autoplug_enabled;
+#endif
+}
+
 static const struct platform_suspend_ops loongson_pm_ops = {
 	.valid	= loongson_pm_valid_state,
+	.begin	= loongson_pm_begin,
 	.enter	= loongson_pm_enter,
+	.end	= loongson_pm_end,
 };
 
 static int __init loongson_pm_init(void)
