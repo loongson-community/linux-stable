@@ -1,8 +1,9 @@
 /*
  * loongson-specific suspend support
  *
- *  Copyright (C) 2009 Lemote Inc.
+ *  Copyright (C) 2009 - 2012 Lemote Inc.
  *  Author: Wu Zhangjin <wuzhangjin@gmail.com>
+ *          Huacai Chen <chenhc@lemote.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,13 +16,34 @@
 
 #include <asm/i8259.h>
 #include <asm/mipsregs.h>
+#include <asm/bootinfo.h>
 
 #include <loongson.h>
+#include <mc146818rtc.h>
 
 static unsigned int __maybe_unused cached_master_mask;	/* i8259A */
 static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
 
+uint64_t cmos_read64(unsigned long addr)
+{
+	unsigned char bytes[8];
+	int i;
+
+	for (i=0; i<8; i++)
+		bytes[i] = CMOS_READ(addr + i);
+
+	return *(uint64_t *)bytes;
+}
+
+void cmos_write64(uint64_t data, unsigned long addr)
+{
+	int i;
+	unsigned char * bytes = (unsigned char *)&data;
+
+	for (i=0; i<8; i++)
+		CMOS_WRITE(bytes[i], addr + i);
+}
 void arch_suspend_disable_irqs(void)
 {
 	/* disable all mips events */
@@ -89,7 +111,12 @@ static void wait_for_wakeup_events(void)
  */
 static inline void stop_perf_counters(void)
 {
+#ifdef CONFIG_CPU_LOONGSON3
+	__write_64bit_c0_register($25, 0, 0xc0000000);
+	__write_64bit_c0_register($25, 2, 0x40000000);
+#else
 	__write_64bit_c0_register($24, 0, 0);
+#endif
 }
 
 
@@ -114,22 +141,35 @@ static void loongson_suspend_enter(void)
 	mmiowb();
 }
 
-void __weak mach_suspend(void)
+void __weak mach_suspend(suspend_state_t state)
 {
 }
 
-void __weak mach_resume(void)
+void __weak mach_resume(suspend_state_t state)
 {
 }
 
 static int loongson_pm_enter(suspend_state_t state)
 {
-	mach_suspend();
+	mach_suspend(state);
 
 	/* processor specific suspend */
-	loongson_suspend_enter();
+	switch(state){
+	case PM_SUSPEND_STANDBY:
+		loongson_suspend_enter();
+		break;
+	case PM_SUSPEND_MEM:
+#ifdef CONFIG_CPU_LOONGSON3
+		loongson_suspend_lowlevel();
+		cmos_write64(0x0, 0x40);  /* clear pc in cmos */
+		cmos_write64(0x0, 0x48);  /* clear sp in cmos */
+#else
+		loongson_suspend_enter();
+#endif
+		break;
+	}
 
-	mach_resume();
+	mach_resume(state);
 
 	return 0;
 }
@@ -138,9 +178,19 @@ static int loongson_pm_valid_state(suspend_state_t state)
 {
 	switch (state) {
 	case PM_SUSPEND_ON:
+		return 1;
+
 	case PM_SUSPEND_STANDBY:
 	case PM_SUSPEND_MEM:
-		return 1;
+		switch (mips_machtype) {
+		case MACH_LEMOTE_ML2F7:
+		case MACH_LEMOTE_YL2F89:
+		case MACH_LEMOTE_A1004:
+		case MACH_LEMOTE_A1201:
+			return 1;
+		default:
+			return 0;
+		}
 
 	default:
 		return 0;
