@@ -96,6 +96,10 @@ obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event_mipsxx.o
 
 obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
 
+obj-$(CONFIG_AUDITSYSCALL_O32)	+= audit-o32.o
+obj-$(CONFIG_AUDITSYSCALL_N32)	+= audit-n32.o
+obj-$(CONFIG_AUDITSYSCALL)	+= audit-native.o
+
 #
 # DSP ASE supported for MIPS32 or MIPS64 Release 2 cores only. It is not
 # safe to unconditionnaly use the assembler -mdsp / -mdspr2 switches
