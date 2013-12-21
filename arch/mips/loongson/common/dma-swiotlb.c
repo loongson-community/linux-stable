@@ -91,14 +91,31 @@ static void loongson_dma_sync_sg_for_device(struct device *dev,
 
 static dma_addr_t loongson_unity_phys_to_dma(struct device *dev, phys_addr_t paddr)
 {
-	return (paddr < 0x10000000) ?
+	long nid;
+	dma_addr_t daddr;
+
+	daddr = (paddr < 0x10000000) ?
 			(paddr | 0x0000000080000000) : paddr;
+#ifdef CONFIG_PHYS48_TO_HT40
+	 /* We extract 2bit node id (bit 44~47, only bit 44~45 used now) from
+	  * Loongson3's 48bit address space and embed it into 40bit */
+	nid = (paddr >> 44) & 0x3;
+	daddr = ((nid << 44 ) ^ daddr) | (nid << 37);
+#endif
+	return daddr;
 }
 
 static phys_addr_t loongson_unity_dma_to_phys(struct device *dev, dma_addr_t daddr)
 {
-	return (daddr < 0x90000000 && daddr >= 0x80000000) ?
+	long nid;
+
+	daddr = (daddr < 0x90000000 && daddr >= 0x80000000) ?
 			(daddr & 0x0fffffff) : daddr;
+#ifdef CONFIG_PHYS48_TO_HT40
+	nid = (daddr >> 37) & 0x3;
+	daddr = ((nid << 37 ) ^ daddr) | (nid << 44);
+#endif
+	return daddr;
 }
 
 struct loongson_dma_map_ops {
