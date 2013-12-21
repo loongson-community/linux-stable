@@ -8,3 +8,5 @@ obj-$(CONFIG_I2C_PIIX4) += emc1412.o
 obj-$(CONFIG_SMP)	+= smp.o
 
 obj-$(CONFIG_NUMA)	+= numa.o
+
+obj-$(CONFIG_SUSPEND)	+= pm.o sleep.o
