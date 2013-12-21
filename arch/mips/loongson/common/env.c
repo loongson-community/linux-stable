@@ -44,6 +44,8 @@ int cores_per_node;
 int cores_per_package;
 int cpufreq_workaround = 0;
 int cpuhotplug_workaround = 0;
+unsigned int has_systab = 0;
+unsigned long systab_addr;
 
 u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
