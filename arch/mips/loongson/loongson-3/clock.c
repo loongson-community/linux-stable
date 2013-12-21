@@ -138,16 +138,19 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 	clk->rate = rate;
 
 	if (cputype == Loongson_3A) {
-		regval = LOONGSON_CHIPCFG0;
+		regval = LOONGSON_CHIPCFG(0);
 		regval = (regval & ~0x7) | (loongson3_clockmod_table[i].index - 1);
-		LOONGSON_CHIPCFG0 = regval;
+		LOONGSON_CHIPCFG(0) = regval;
 	}
 	else if (cputype == Loongson_3B) {
 		int cpu = clk - cpu_clks;
-		regval = LOONGSON_FREQCTRL;
-		regval = (regval & ~(0x7 << (cpu*4))) |
-			((loongson3_clockmod_table[i].index - 1) << (cpu*4));
-		LOONGSON_FREQCTRL = regval;
+		uint64_t core_id = cpu_data[cpu].core;
+		uint64_t package_id = cpu_data[cpu].package;
+
+		regval = LOONGSON_FREQCTRL(package_id);
+		regval = (regval & ~(0x7 << (core_id*4))) |
+			((loongson3_clockmod_table[i].index - 1) << (core_id*4));
+		LOONGSON_FREQCTRL(package_id) = regval;
 	}
 
 	return ret;
