@@ -10,10 +10,18 @@
  * option) any later version.
  */
 
+#include <linux/gpio.h>
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <loongson_hwmon.h>
 #include <asm/bootinfo.h>
+
+#define GPIO5	5
+#define GPIO7	7
+
+#define A1205_LCD_CNTL	GPIO5
+#define A1205_BACKLIGHIT_CNTL	GPIO7
 
 /* Loongson laptops use wpce775l as Embeded Controller */
 static struct platform_device wpce775l_chip = {
@@ -157,6 +165,8 @@ static int __init loongson3a_platform_init(void)
 		platform_device_register(&wpce775l_chip);
 		break;
 	case MACH_LEMOTE_A1205:
+		gpio_request(A1205_LCD_CNTL,  "a1205_lcd_cntl");
+		gpio_request(A1205_BACKLIGHIT_CNTL, "a1205_bl_cntl");
 		/* thermal sensor register and interface init */
 		loongson_temp_info.get_cpu_temp = loongson3_cpu_temp;
 		loongson_temp_info.get_mb_temp = emc1412_internal_temp;
