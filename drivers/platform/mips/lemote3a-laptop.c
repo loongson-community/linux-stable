@@ -349,6 +349,12 @@ static const struct sci_event se[] =
 	[SCI_EVENT_NUM_BATVL] =			{0, lemote3a_bat_very_low_handler},
 	[SCI_EVENT_NUM_THROT] =			{0, lemote3a_throttling_CPU_handler},
 	[SCI_EVENT_NUM_POWER] =			{0, NULL},
+	[SCI_EVENT_RESOLUTION_SETTING] = 	{0, NULL},
+	[SCI_EVENT_MEDIA_RUN_PAUSE] =		{0, NULL},
+	[SCI_EVENT_MEDIA_STOP] = 		{0, NULL},
+	[SCI_EVENT_MEDIA_LAST] = 		{0, NULL},
+	[SCI_EVENT_MEDIA_NEXT] = 		{0, NULL},
+	[SCI_EVENT_RECOVERY] =			{0, NULL},
 };
 /* Hotkey device object */
 static struct input_dev * lemote3a_hotkey_dev = NULL;
@@ -368,6 +374,12 @@ static const struct key_entry lemote3a_keymap[] =
 	{KE_KEY, SCI_EVENT_NUM_CAMERA, { KEY_CAMERA } }, /* Fn + F10 */
 	{KE_KEY, SCI_EVENT_NUM_TP, { KEY_TOUCHPAD_SW } }, /* Fn + F11 */
 	{KE_KEY, SCI_EVENT_NUM_POWER, { KEY_POWER } }, /* Power */
+	{KE_KEY, SCI_EVENT_RESOLUTION_SETTING, { KEY_SETUP } },
+	{KE_KEY, SCI_EVENT_MEDIA_RUN_PAUSE, { KEY_PLAYPAUSE } },
+	{KE_KEY, SCI_EVENT_MEDIA_STOP, { KEY_STOPCD } },
+	{KE_KEY, SCI_EVENT_MEDIA_LAST, { KEY_PREVIOUSSONG } },
+	{KE_KEY, SCI_EVENT_MEDIA_NEXT, { KEY_NEXTSONG } },
+	{KE_KEY, SCI_EVENT_RECOVERY, { KEY_PROG1 } },
 	{KE_END, 0 }
 };
 
