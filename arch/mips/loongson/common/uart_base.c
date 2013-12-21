@@ -42,6 +42,10 @@ void prom_init_loongson_uart_base(void)
 	case MACH_LEMOTE_A1101:
 	case MACH_LEMOTE_A1201:
 	case MACH_LEMOTE_A1205:
+	case MACH_LEMOTE_A1214:
+	case MACH_LEMOTE_A1215:
+	case MACH_LEMOTE_A1217:
+	case MACH_LEMOTE_A1219:
 		/* The CPU provided serial port (CPU) */
 		loongson_uart_base = LOONGSON_REG_BASE + 0x1e0;
 		break;
