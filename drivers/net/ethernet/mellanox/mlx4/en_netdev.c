@@ -1740,8 +1740,11 @@ int mlx4_en_start_port(struct net_device *dev)
 	/* Process all completions if exist to prevent
 	 * the queues freezing if they are full
 	 */
-	for (i = 0; i < priv->rx_ring_num; i++)
+	for (i = 0; i < priv->rx_ring_num; i++) {
+		local_bh_disable();
 		napi_schedule(&priv->rx_cq[i]->napi);
+		local_bh_enable();
+	}
 
 	netif_tx_start_all_queues(dev);
 	netif_device_attach(dev);
@@ -3122,6 +3125,13 @@ int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
 	priv->msg_enable = MLX4_EN_MSG_LEVEL;
 #ifdef CONFIG_MLX4_EN_DCB
 	if (!mlx4_is_slave(priv->mdev->dev)) {
+		u8 prio;
+
+		for (prio = 0; prio < IEEE_8021QAZ_MAX_TCS; ++prio) {
+			priv->ets.prio_tc[prio] = prio;
+			priv->ets.tc_tsa[prio]  = IEEE_8021QAZ_TSA_VENDOR;
+		}
+
 		priv->dcbx_cap = DCB_CAP_DCBX_VER_CEE | DCB_CAP_DCBX_HOST |
 			DCB_CAP_DCBX_VER_IEEE;
 		priv->flags |= MLX4_EN_DCB_ENABLED;

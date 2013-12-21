@@ -352,7 +352,7 @@ static int esw_create_legacy_fdb_table(struct mlx5_eswitch *esw, int nvports)
 	root_ns = mlx5_get_flow_namespace(dev, MLX5_FLOW_NAMESPACE_FDB);
 	if (!root_ns) {
 		esw_warn(dev, "Failed to get FDB flow namespace\n");
-		return -ENOMEM;
+		return -EOPNOTSUPP;
 	}
 
 	flow_group_in = mlx5_vzalloc(inlen);
@@ -961,7 +961,7 @@ static int esw_vport_enable_egress_acl(struct mlx5_eswitch *esw,
 	root_ns = mlx5_get_flow_namespace(dev, MLX5_FLOW_NAMESPACE_ESW_EGRESS);
 	if (!root_ns) {
 		esw_warn(dev, "Failed to get E-Switch egress flow namespace\n");
-		return -EIO;
+		return -EOPNOTSUPP;
 	}
 
 	flow_group_in = mlx5_vzalloc(inlen);
@@ -1078,7 +1078,7 @@ static int esw_vport_enable_ingress_acl(struct mlx5_eswitch *esw,
 	root_ns = mlx5_get_flow_namespace(dev, MLX5_FLOW_NAMESPACE_ESW_INGRESS);
 	if (!root_ns) {
 		esw_warn(dev, "Failed to get E-Switch ingress flow namespace\n");
-		return -EIO;
+		return -EOPNOTSUPP;
 	}
 
 	flow_group_in = mlx5_vzalloc(inlen);
@@ -1703,7 +1703,7 @@ int mlx5_eswitch_set_vport_mac(struct mlx5_eswitch *esw,
 
 	if (!ESW_ALLOWED(esw))
 		return -EPERM;
-	if (!LEGAL_VPORT(esw, vport))
+	if (!LEGAL_VPORT(esw, vport) || is_multicast_ether_addr(mac))
 		return -EINVAL;
 
 	mutex_lock(&esw->state_lock);
@@ -1924,26 +1924,35 @@ int mlx5_eswitch_get_vport_stats(struct mlx5_eswitch *esw,
 	memset(vf_stats, 0, sizeof(*vf_stats));
 	vf_stats->rx_packets =
 		MLX5_GET_CTR(out, received_eth_unicast.packets) +
+		MLX5_GET_CTR(out, received_ib_unicast.packets) +
 		MLX5_GET_CTR(out, received_eth_multicast.packets) +
+		MLX5_GET_CTR(out, received_ib_multicast.packets) +
 		MLX5_GET_CTR(out, received_eth_broadcast.packets);
 
 	vf_stats->rx_bytes =
 		MLX5_GET_CTR(out, received_eth_unicast.octets) +
+		MLX5_GET_CTR(out, received_ib_unicast.octets) +
 		MLX5_GET_CTR(out, received_eth_multicast.octets) +
+		MLX5_GET_CTR(out, received_ib_multicast.octets) +
 		MLX5_GET_CTR(out, received_eth_broadcast.octets);
 
 	vf_stats->tx_packets =
 		MLX5_GET_CTR(out, transmitted_eth_unicast.packets) +
+		MLX5_GET_CTR(out, transmitted_ib_unicast.packets) +
 		MLX5_GET_CTR(out, transmitted_eth_multicast.packets) +
+		MLX5_GET_CTR(out, transmitted_ib_multicast.packets) +
 		MLX5_GET_CTR(out, transmitted_eth_broadcast.packets);
 
 	vf_stats->tx_bytes =
 		MLX5_GET_CTR(out, transmitted_eth_unicast.octets) +
+		MLX5_GET_CTR(out, transmitted_ib_unicast.octets) +
 		MLX5_GET_CTR(out, transmitted_eth_multicast.octets) +
+		MLX5_GET_CTR(out, transmitted_ib_multicast.octets) +
 		MLX5_GET_CTR(out, transmitted_eth_broadcast.octets);
 
 	vf_stats->multicast =
-		MLX5_GET_CTR(out, received_eth_multicast.packets);
+		MLX5_GET_CTR(out, received_eth_multicast.packets) +
+		MLX5_GET_CTR(out, received_ib_multicast.packets);
 
 	vf_stats->broadcast =
 		MLX5_GET_CTR(out, received_eth_broadcast.packets);

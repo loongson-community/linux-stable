@@ -1603,6 +1603,10 @@ bool ath9k_hw_check_alive(struct ath_hw *ah)
 	int count = 50;
 	u32 reg, last_val;
 
+	/* Check if chip failed to wake up */
+	if (REG_READ(ah, AR_CFG) == 0xdeadbeef)
+		return false;
+
 	if (AR_SREV_9300(ah))
 		return !ath9k_hw_detect_mac_hang(ah);
 
@@ -2792,7 +2796,7 @@ u32 ath9k_hw_gpio_get(struct ath_hw *ah, u32 gpio)
 		WARN_ON(1);
 	}
 
-	return val;
+	return !!val;
 }
 EXPORT_SYMBOL(ath9k_hw_gpio_get);
 

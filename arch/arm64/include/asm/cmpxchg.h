@@ -46,7 +46,7 @@ static inline unsigned long __xchg_case_##name(unsigned long x,		\
 	"	swp" #acq_lse #rel #sz "\t%" #w "3, %" #w "0, %2\n"	\
 		__nops(3)						\
 	"	" #nop_lse)						\
-	: "=&r" (ret), "=&r" (tmp), "+Q" (*(u8 *)ptr)			\
+	: "=&r" (ret), "=&r" (tmp), "+Q" (*(unsigned long *)ptr)	\
 	: "r" (x)							\
 	: cl);								\
 									\
@@ -229,7 +229,9 @@ static inline void __cmpwait_case_##name(volatile void *ptr,		\
 	unsigned long tmp;						\
 									\
 	asm volatile(							\
-	"	ldxr" #sz "\t%" #w "[tmp], %[v]\n"		\
+	"	sevl\n"							\
+	"	wfe\n"							\
+	"	ldxr" #sz "\t%" #w "[tmp], %[v]\n"			\
 	"	eor	%" #w "[tmp], %" #w "[tmp], %" #w "[val]\n"	\
 	"	cbnz	%" #w "[tmp], 1f\n"				\
 	"	wfe\n"							\

@@ -198,6 +198,7 @@ static int drm_open_helper(struct file *filp, struct drm_minor *minor)
 		return -ENOMEM;
 
 	filp->private_data = priv;
+	filp->f_mode |= FMODE_UNSIGNED_OFFSET;
 	priv->filp = filp;
 	priv->pid = get_pid(task_pid(current));
 	priv->minor = minor;
@@ -686,8 +687,8 @@ void drm_send_event_locked(struct drm_device *dev, struct drm_pending_event *e)
 	assert_spin_locked(&dev->event_lock);
 
 	if (e->completion) {
-		/* ->completion might disappear as soon as it signalled. */
 		complete_all(e->completion);
+		e->completion_release(e->completion);
 		e->completion = NULL;
 	}
 

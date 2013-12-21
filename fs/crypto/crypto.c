@@ -352,7 +352,6 @@ EXPORT_SYMBOL(fscrypt_zeroout_range);
 static int fscrypt_d_revalidate(struct dentry *dentry, unsigned int flags)
 {
 	struct dentry *dir;
-	struct fscrypt_info *ci;
 	int dir_has_key, cached_with_key;
 
 	if (flags & LOOKUP_RCU)
@@ -364,18 +363,11 @@ static int fscrypt_d_revalidate(struct dentry *dentry, unsigned int flags)
 		return 0;
 	}
 
-	ci = d_inode(dir)->i_crypt_info;
-	if (ci && ci->ci_keyring_key &&
-	    (ci->ci_keyring_key->flags & ((1 << KEY_FLAG_INVALIDATED) |
-					  (1 << KEY_FLAG_REVOKED) |
-					  (1 << KEY_FLAG_DEAD))))
-		ci = NULL;
-
 	/* this should eventually be an flag in d_flags */
 	spin_lock(&dentry->d_lock);
 	cached_with_key = dentry->d_flags & DCACHE_ENCRYPTED_WITH_KEY;
 	spin_unlock(&dentry->d_lock);
-	dir_has_key = (ci != NULL);
+	dir_has_key = (d_inode(dir)->i_crypt_info != NULL);
 	dput(dir);
 
 	/*
@@ -492,9 +484,6 @@ int fscrypt_initialize(void)
 {
 	int i, res = -ENOMEM;
 
-	if (fscrypt_bounce_page_pool)
-		return 0;
-
 	mutex_lock(&fscrypt_init_mutex);
 	if (fscrypt_bounce_page_pool)
 		goto already_initialized;
@@ -528,8 +517,17 @@ EXPORT_SYMBOL(fscrypt_initialize);
  */
 static int __init fscrypt_init(void)
 {
+	/*
+	 * Use an unbound workqueue to allow bios to be decrypted in parallel
+	 * even when they happen to complete on the same CPU.  This sacrifices
+	 * locality, but it's worthwhile since decryption is CPU-intensive.
+	 *
+	 * Also use a high-priority workqueue to prioritize decryption work,
+	 * which blocks reads from completing, over regular application tasks.
+	 */
 	fscrypt_read_workqueue = alloc_workqueue("fscrypt_read_queue",
-							WQ_HIGHPRI, 0);
+						 WQ_UNBOUND | WQ_HIGHPRI,
+						 num_online_cpus());
 	if (!fscrypt_read_workqueue)
 		goto fail;
 

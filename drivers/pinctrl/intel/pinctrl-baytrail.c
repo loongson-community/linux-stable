@@ -46,6 +46,9 @@
 #define BYT_TRIG_POS		BIT(25)
 #define BYT_TRIG_LVL		BIT(24)
 #define BYT_DEBOUNCE_EN		BIT(20)
+#define BYT_GLITCH_FILTER_EN	BIT(19)
+#define BYT_GLITCH_F_SLOW_CLK	BIT(17)
+#define BYT_GLITCH_F_FAST_CLK	BIT(16)
 #define BYT_PULL_STR_SHIFT	9
 #define BYT_PULL_STR_MASK	(3 << BYT_PULL_STR_SHIFT)
 #define BYT_PULL_STR_2K		(0 << BYT_PULL_STR_SHIFT)
@@ -731,16 +734,23 @@ static void __iomem *byt_gpio_reg(struct byt_gpio *vg, unsigned int offset,
 				  int reg)
 {
 	struct byt_community *comm = byt_get_community(vg, offset);
-	u32 reg_offset = 0;
+	u32 reg_offset;
 
 	if (!comm)
 		return NULL;
 
 	offset -= comm->pin_base;
-	if (reg == BYT_INT_STAT_REG)
+	switch (reg) {
+	case BYT_INT_STAT_REG:
 		reg_offset = (offset / 32) * 4;
-	else
+		break;
+	case BYT_DEBOUNCE_REG:
+		reg_offset = 0;
+		break;
+	default:
 		reg_offset = comm->pad_map[offset] * 16;
+		break;
+	}
 
 	return comm->reg_base + reg_offset + reg;
 }
@@ -1092,6 +1102,7 @@ static int byt_pin_config_get(struct pinctrl_dev *pctl_dev, unsigned int offset,
 	enum pin_config_param param = pinconf_to_config_param(*config);
 	void __iomem *conf_reg = byt_gpio_reg(vg, offset, BYT_CONF0_REG);
 	void __iomem *val_reg = byt_gpio_reg(vg, offset, BYT_VAL_REG);
+	void __iomem *db_reg = byt_gpio_reg(vg, offset, BYT_DEBOUNCE_REG);
 	unsigned long flags;
 	u32 conf, pull, val, debounce;
 	u16 arg = 0;
@@ -1128,7 +1139,7 @@ static int byt_pin_config_get(struct pinctrl_dev *pctl_dev, unsigned int offset,
 			return -EINVAL;
 
 		raw_spin_lock_irqsave(&vg->lock, flags);
-		debounce = readl(byt_gpio_reg(vg, offset, BYT_DEBOUNCE_REG));
+		debounce = readl(db_reg);
 		raw_spin_unlock_irqrestore(&vg->lock, flags);
 
 		switch (debounce & BYT_DEBOUNCE_PULSE_MASK) {
@@ -1176,6 +1187,7 @@ static int byt_pin_config_set(struct pinctrl_dev *pctl_dev,
 	unsigned int param, arg;
 	void __iomem *conf_reg = byt_gpio_reg(vg, offset, BYT_CONF0_REG);
 	void __iomem *val_reg = byt_gpio_reg(vg, offset, BYT_VAL_REG);
+	void __iomem *db_reg = byt_gpio_reg(vg, offset, BYT_DEBOUNCE_REG);
 	unsigned long flags;
 	u32 conf, val, debounce;
 	int i, ret = 0;
@@ -1238,36 +1250,44 @@ static int byt_pin_config_set(struct pinctrl_dev *pctl_dev,
 
 			break;
 		case PIN_CONFIG_INPUT_DEBOUNCE:
-			debounce = readl(byt_gpio_reg(vg, offset,
-						      BYT_DEBOUNCE_REG));
-			conf &= ~BYT_DEBOUNCE_PULSE_MASK;
+			debounce = readl(db_reg);
+			debounce &= ~BYT_DEBOUNCE_PULSE_MASK;
+
+			if (arg)
+				conf |= BYT_DEBOUNCE_EN;
+			else
+				conf &= ~BYT_DEBOUNCE_EN;
 
 			switch (arg) {
 			case 375:
-				conf |= BYT_DEBOUNCE_PULSE_375US;
+				debounce |= BYT_DEBOUNCE_PULSE_375US;
 				break;
 			case 750:
-				conf |= BYT_DEBOUNCE_PULSE_750US;
+				debounce |= BYT_DEBOUNCE_PULSE_750US;
 				break;
 			case 1500:
-				conf |= BYT_DEBOUNCE_PULSE_1500US;
+				debounce |= BYT_DEBOUNCE_PULSE_1500US;
 				break;
 			case 3000:
-				conf |= BYT_DEBOUNCE_PULSE_3MS;
+				debounce |= BYT_DEBOUNCE_PULSE_3MS;
 				break;
 			case 6000:
-				conf |= BYT_DEBOUNCE_PULSE_6MS;
+				debounce |= BYT_DEBOUNCE_PULSE_6MS;
 				break;
 			case 12000:
-				conf |= BYT_DEBOUNCE_PULSE_12MS;
+				debounce |= BYT_DEBOUNCE_PULSE_12MS;
 				break;
 			case 24000:
-				conf |= BYT_DEBOUNCE_PULSE_24MS;
+				debounce |= BYT_DEBOUNCE_PULSE_24MS;
 				break;
 			default:
-				ret = -EINVAL;
+				if (arg)
+					ret = -EINVAL;
+				break;
 			}
 
+			if (!ret)
+				writel(debounce, db_reg);
 			break;
 		default:
 			ret = -ENOTSUPP;
@@ -1449,7 +1469,7 @@ static void byt_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 			   val & BYT_INPUT_EN ? "  " : "in",
 			   val & BYT_OUTPUT_EN ? "   " : "out",
 			   val & BYT_LEVEL ? "hi" : "lo",
-			   comm->pad_map[i], comm->pad_map[i] * 32,
+			   comm->pad_map[i], comm->pad_map[i] * 16,
 			   conf0 & 0x7,
 			   conf0 & BYT_TRIG_NEG ? " fall" : "     ",
 			   conf0 & BYT_TRIG_POS ? " rise" : "     ",
@@ -1562,6 +1582,9 @@ static int byt_irq_type(struct irq_data *d, unsigned int type)
 	 */
 	value &= ~(BYT_DIRECT_IRQ_EN | BYT_TRIG_POS | BYT_TRIG_NEG |
 		   BYT_TRIG_LVL);
+	/* Enable glitch filtering */
+	value |= BYT_GLITCH_FILTER_EN | BYT_GLITCH_F_SLOW_CLK |
+		 BYT_GLITCH_F_FAST_CLK;
 
 	writel(value, reg);
 
@@ -1606,7 +1629,9 @@ static void byt_gpio_irq_handler(struct irq_desc *desc)
 			continue;
 		}
 
+		raw_spin_lock(&vg->lock);
 		pending = readl(reg);
+		raw_spin_unlock(&vg->lock);
 		for_each_set_bit(pin, &pending, 32) {
 			virq = irq_find_mapping(vg->chip.irqdomain, base + pin);
 			generic_handle_irq(virq);

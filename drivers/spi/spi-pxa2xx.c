@@ -1458,6 +1458,10 @@ static const struct pci_device_id pxa2xx_spi_pci_compound_match[] = {
 	{ PCI_VDEVICE(INTEL, 0x1ac2), LPSS_BXT_SSP },
 	{ PCI_VDEVICE(INTEL, 0x1ac4), LPSS_BXT_SSP },
 	{ PCI_VDEVICE(INTEL, 0x1ac6), LPSS_BXT_SSP },
+	/* GLK */
+	{ PCI_VDEVICE(INTEL, 0x31c2), LPSS_BXT_SSP },
+	{ PCI_VDEVICE(INTEL, 0x31c4), LPSS_BXT_SSP },
+	{ PCI_VDEVICE(INTEL, 0x31c6), LPSS_BXT_SSP },
 	/* APL */
 	{ PCI_VDEVICE(INTEL, 0x5ac2), LPSS_BXT_SSP },
 	{ PCI_VDEVICE(INTEL, 0x5ac4), LPSS_BXT_SSP },
@@ -1690,6 +1694,7 @@ static int pxa2xx_spi_probe(struct platform_device *pdev)
 		pxa2xx_spi_write(drv_data, SSCR1, tmp);
 		tmp = SSCR0_SCR(2) | SSCR0_Motorola | SSCR0_DataSize(8);
 		pxa2xx_spi_write(drv_data, SSCR0, tmp);
+		break;
 	default:
 		tmp = SSCR1_RxTresh(RX_THRESH_DFLT) |
 		      SSCR1_TxTresh(TX_THRESH_DFLT);

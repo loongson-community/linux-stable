@@ -1900,6 +1900,7 @@ static int try_flush_caps(struct inode *inode, u64 *ptid)
 retry:
 	spin_lock(&ci->i_ceph_lock);
 	if (ci->i_ceph_flags & CEPH_I_NOFLUSH) {
+		spin_unlock(&ci->i_ceph_lock);
 		dout("try_flush_caps skipping %p I_NOFLUSH set\n", inode);
 		goto out;
 	}
@@ -1917,8 +1918,10 @@ retry:
 			mutex_lock(&session->s_mutex);
 			goto retry;
 		}
-		if (cap->session->s_state < CEPH_MDS_SESSION_OPEN)
+		if (cap->session->s_state < CEPH_MDS_SESSION_OPEN) {
+			spin_unlock(&ci->i_ceph_lock);
 			goto out;
+		}
 
 		flushing = __mark_caps_flushing(inode, session, true,
 						&flush_tid, &oldest_flush_tid);
@@ -2479,6 +2482,27 @@ static void check_max_size(struct inode *inode, loff_t endoff)
 		ceph_check_caps(ci, CHECK_CAPS_AUTHONLY, NULL);
 }
 
+int ceph_try_get_caps(struct ceph_inode_info *ci, int need, int want, int *got)
+{
+	int ret, err = 0;
+
+	BUG_ON(need & ~CEPH_CAP_FILE_RD);
+	BUG_ON(want & ~(CEPH_CAP_FILE_CACHE|CEPH_CAP_FILE_LAZYIO));
+	ret = ceph_pool_perm_check(ci, need);
+	if (ret < 0)
+		return ret;
+
+	ret = try_get_cap_refs(ci, need, want, 0, true, got, &err);
+	if (ret) {
+		if (err == -EAGAIN) {
+			ret = 0;
+		} else if (err < 0) {
+			ret = err;
+		}
+	}
+	return ret;
+}
+
 /*
  * Wait for caps, and take cap references.  If we can't get a WR cap
  * due to a small max_size, make sure we check_max_size (and possibly
@@ -2507,9 +2531,20 @@ int ceph_get_caps(struct ceph_inode_info *ci, int need, int want,
 			if (err < 0)
 				ret = err;
 		} else {
-			ret = wait_event_interruptible(ci->i_cap_wq,
-					try_get_cap_refs(ci, need, want, endoff,
-							 true, &_got, &err));
+			DEFINE_WAIT_FUNC(wait, woken_wake_function);
+			add_wait_queue(&ci->i_cap_wq, &wait);
+
+			while (!try_get_cap_refs(ci, need, want, endoff,
+						 true, &_got, &err)) {
+				if (signal_pending(current)) {
+					ret = -ERESTARTSYS;
+					break;
+				}
+				wait_woken(&wait, TASK_INTERRUPTIBLE, MAX_SCHEDULE_TIMEOUT);
+			}
+
+			remove_wait_queue(&ci->i_cap_wq, &wait);
+
 			if (err == -EAGAIN)
 				continue;
 			if (err < 0)

@@ -754,8 +754,9 @@ int line6_probe(struct usb_interface *interface,
 		goto error;
 	}
 
+	line6_get_interval(line6);
+
 	if (properties->capabilities & LINE6_CAP_CONTROL) {
-		line6_get_interval(line6);
 		ret = line6_init_cap_control(line6);
 		if (ret < 0)
 			goto error;
@@ -774,9 +775,10 @@ int line6_probe(struct usb_interface *interface,
 	return 0;
 
  error:
-	if (line6->disconnect)
-		line6->disconnect(line6);
-	snd_card_free(card);
+	/* we can call disconnect callback here because no close-sync is
+	 * needed yet at this point
+	 */
+	line6_disconnect(interface);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(line6_probe);
