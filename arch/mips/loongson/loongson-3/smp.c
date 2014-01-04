@@ -260,8 +260,10 @@ void __cpuinit loongson3_init_secondary(void)
 	i = 0;
 	__get_cpu_var(core0_c0count) = 0;
 	loongson3_send_ipi_single(0, SMP_ASK_C0COUNT);
-	while (!__get_cpu_var(core0_c0count))
+	while (!__get_cpu_var(core0_c0count)) {
 		i++;
+		cpu_relax();
+	}
 
 	if (i > MAX_LOOPS)
 		i = MAX_LOOPS;
