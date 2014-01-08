@@ -71,8 +71,13 @@ static void cpu_node_probe(void)
 /* TODO: We need a more reasonalble method */
 static int __init compute_node_distance(int row, int col)
 {
+	int package_row = row * cores_per_node / cores_per_package;
+	int package_col = col * cores_per_node / cores_per_package;
+
 	if (col == row)
 		return 0;
+	else if (package_row == package_col)
+		return 40;
 	else
 		return 100;
 }
