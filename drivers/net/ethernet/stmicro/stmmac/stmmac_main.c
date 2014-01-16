@@ -953,6 +953,66 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 }
 
 /**
+ * stmmac_hw_setup: setup mac in a usable state.
+ *  @dev : pointer to the device structure.
+ *  Description:
+ *  This function sets up the ip in a usable state.
+ *  Return value:
+ *  0 on success and an appropriate (-)ve integer as defined in errno.h
+ *  file on failure.
+ */
+static int stmmac_hw_setup(struct net_device *dev)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	int ret;
+
+	init_dma_desc_rings(dev);
+
+	/* DMA initialization and SW reset */
+	ret = stmmac_init_dma_engine(priv);
+	if (ret < 0) {
+		pr_err("%s: DMA initialization failed\n", __func__);
+		return ret;
+	}
+
+	/* Copy the MAC addr into the HW  */
+	priv->hw->mac->set_umac_addr(priv->ioaddr, dev->dev_addr, 0);
+
+	/* If required, perform hw setup of the bus. */
+	if (priv->plat->bus_setup)
+		priv->plat->bus_setup(priv->ioaddr);
+
+	/* Initialize the MAC Core */
+	priv->hw->mac->core_init(priv->ioaddr);
+
+	/* Enable the MAC Rx/Tx */
+	stmmac_set_mac(priv->ioaddr, true);
+
+	/* Set the HW DMA mode and the COE */
+	stmmac_dma_operation_mode(priv);
+
+	stmmac_mmc_setup(priv);
+
+#ifdef CONFIG_STMMAC_DEBUG_FS
+	ret = stmmac_init_fs(dev);
+	if (ret < 0)
+		pr_warning("%s: failed debugFS registration\n", __func__);
+#endif
+	/* Start the ball rolling... */
+	DBG(probe, DEBUG, "%s: DMA RX/TX processes started...\n", dev->name);
+	priv->hw->dma->start_tx(priv->ioaddr);
+	priv->hw->dma->start_rx(priv->ioaddr);
+
+	/* Dump DMA/MAC registers */
+	if (netif_msg_hw(priv)) {
+		priv->hw->mac->dump_regs(priv->ioaddr);
+		priv->hw->dma->dump_regs(priv->ioaddr);
+	}
+
+	return 0;
+}
+
+/**
  *  stmmac_open - open entry point of the driver
  *  @dev : pointer to the device structure.
  *  Description:
@@ -993,6 +1053,10 @@ static int stmmac_open(struct net_device *dev)
 		goto phy_error;
 	}
 
+	/* Extra statistics */
+	memset(&priv->xstats, 0, sizeof(struct stmmac_extra_stats));
+	priv->xstats.threshold = tc;
+
 	/* Create and initialize the TX/RX descriptors chains. */
 	priv->dma_tx_size = STMMAC_ALIGN(dma_txsize);
 	priv->dma_rx_size = STMMAC_ALIGN(dma_rxsize);
@@ -1004,24 +1068,14 @@ static int stmmac_open(struct net_device *dev)
 		goto dma_desc_error;
 	}
 
-	init_dma_desc_rings(dev);
-
-	/* DMA initialization and SW reset */
-	ret = stmmac_init_dma_engine(priv);
+	ret = stmmac_hw_setup(dev);
 	if (ret < 0) {
-		pr_err("%s: DMA initialization failed\n", __func__);
+		pr_err("%s: Hw setup failed\n", __func__);
 		goto init_error;
 	}
 
-	/* Copy the MAC addr into the HW  */
-	priv->hw->mac->set_umac_addr(priv->ioaddr, dev->dev_addr, 0);
-
-	/* If required, perform hw setup of the bus. */
-	if (priv->plat->bus_setup)
-		priv->plat->bus_setup(priv->ioaddr);
-
-	/* Initialize the MAC Core */
-	priv->hw->mac->core_init(priv->ioaddr);
+	if (priv->phydev)
+		phy_start(priv->phydev);
 
 	/* Request the IRQ lines */
 	ret = request_irq(dev->irq, stmmac_interrupt,
@@ -1043,40 +1097,9 @@ static int stmmac_open(struct net_device *dev)
 		}
 	}
 
-	/* Enable the MAC Rx/Tx */
-	stmmac_set_mac(priv->ioaddr, true);
-
-	/* Set the HW DMA mode and the COE */
-	stmmac_dma_operation_mode(priv);
-
-	/* Extra statistics */
-	memset(&priv->xstats, 0, sizeof(struct stmmac_extra_stats));
-	priv->xstats.threshold = tc;
-
-	stmmac_mmc_setup(priv);
-
-#ifdef CONFIG_STMMAC_DEBUG_FS
-	ret = stmmac_init_fs(dev);
-	if (ret < 0)
-		pr_warning("%s: failed debugFS registration\n", __func__);
-#endif
-	/* Start the ball rolling... */
-	DBG(probe, DEBUG, "%s: DMA RX/TX processes started...\n", dev->name);
-	priv->hw->dma->start_tx(priv->ioaddr);
-	priv->hw->dma->start_rx(priv->ioaddr);
-
 #ifdef CONFIG_STMMAC_TIMER
 	priv->tm->timer_start(tmrate);
 #endif
-
-	/* Dump DMA/MAC registers */
-	if (netif_msg_hw(priv)) {
-		priv->hw->mac->dump_regs(priv->ioaddr);
-		priv->hw->dma->dump_regs(priv->ioaddr);
-	}
-
-	if (priv->phydev)
-		phy_start(priv->phydev);
 
 	napi_enable(&priv->napi);
 	skb_queue_head_init(&priv->rx_recycle);
