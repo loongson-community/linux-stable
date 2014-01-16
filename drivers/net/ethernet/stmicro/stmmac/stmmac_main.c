@@ -458,29 +458,6 @@ static void init_dma_desc_rings(struct net_device *dev)
 	DBG(probe, INFO, "stmmac: txsize %d, rxsize %d, bfsize %d\n",
 	    txsize, rxsize, bfsize);
 
-	priv->rx_skbuff_dma = kmalloc(rxsize * sizeof(dma_addr_t), GFP_KERNEL);
-	priv->rx_skbuff =
-	    kmalloc(sizeof(struct sk_buff *) * rxsize, GFP_KERNEL);
-	priv->dma_rx =
-	    (struct dma_desc *)dma_alloc_coherent(priv->device,
-						  rxsize *
-						  sizeof(struct dma_desc),
-						  &priv->dma_rx_phy,
-						  GFP_KERNEL);
-	priv->tx_skbuff = kmalloc(sizeof(struct sk_buff *) * txsize,
-				       GFP_KERNEL);
-	priv->dma_tx =
-	    (struct dma_desc *)dma_alloc_coherent(priv->device,
-						  txsize *
-						  sizeof(struct dma_desc),
-						  &priv->dma_tx_phy,
-						  GFP_KERNEL);
-
-	if ((priv->dma_rx == NULL) || (priv->dma_tx == NULL)) {
-		pr_err("%s:ERROR allocating the DMA Tx/Rx desc\n", __func__);
-		return;
-	}
-
 	DBG(probe, INFO, "stmmac (%s) DMA desc: virt addr (Rx %p, "
 	    "Tx %p)\n\tDMA phy addr (Rx 0x%08x, Tx 0x%08x)\n",
 	    dev->name, priv->dma_rx, priv->dma_tx,
@@ -571,6 +548,38 @@ static void dma_free_tx_skbufs(struct stmmac_priv *priv)
 			priv->tx_skbuff[i] = NULL;
 		}
 	}
+}
+
+static int alloc_dma_desc_resources(struct stmmac_priv *priv)
+{
+	unsigned int txsize = priv->dma_tx_size;
+	unsigned int rxsize = priv->dma_rx_size;
+	int ret = -ENOMEM;
+
+	priv->rx_skbuff_dma = kmalloc(rxsize * sizeof(dma_addr_t), GFP_KERNEL);
+	priv->rx_skbuff =
+	    kmalloc(sizeof(struct sk_buff *) * rxsize, GFP_KERNEL);
+	priv->dma_rx =
+	    (struct dma_desc *)dma_alloc_coherent(priv->device,
+						  rxsize *
+						  sizeof(struct dma_desc),
+						  &priv->dma_rx_phy,
+						  GFP_KERNEL);
+	priv->tx_skbuff = kmalloc(sizeof(struct sk_buff *) * txsize,
+				       GFP_KERNEL);
+	priv->dma_tx =
+	    (struct dma_desc *)dma_alloc_coherent(priv->device,
+						  txsize *
+						  sizeof(struct dma_desc),
+						  &priv->dma_tx_phy,
+						  GFP_KERNEL);
+
+	if ((priv->dma_rx == NULL) || (priv->dma_tx == NULL)) {
+		pr_err("%s:ERROR allocating the DMA Tx/Rx desc\n", __func__);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void free_dma_desc_resources(struct stmmac_priv *priv)
@@ -988,6 +997,13 @@ static int stmmac_open(struct net_device *dev)
 	priv->dma_tx_size = STMMAC_ALIGN(dma_txsize);
 	priv->dma_rx_size = STMMAC_ALIGN(dma_rxsize);
 	priv->dma_buf_sz = STMMAC_ALIGN(buf_sz);
+
+	ret = alloc_dma_desc_resources(priv);
+	if (ret < 0) {
+		pr_err("%s: DMA descriptors allocation failed\n", __func__);
+		goto dma_desc_error;
+	}
+
 	init_dma_desc_rings(dev);
 
 	/* DMA initialization and SW reset */
@@ -1076,6 +1092,7 @@ init_error:
 #ifdef CONFIG_STMMAC_TIMER
 	kfree(priv->tm);
 #endif
+dma_desc_error:
 	if (priv->phydev)
 		phy_disconnect(priv->phydev);
 phy_error:
