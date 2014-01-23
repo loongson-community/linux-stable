@@ -49,6 +49,8 @@
  */
 static __inline__ void atomic_add(int i, atomic_t * v)
 {
+	smp_mb__before_llsc();
+
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		int temp;
 
@@ -81,6 +83,8 @@ static __inline__ void atomic_add(int i, atomic_t * v)
 		v->counter += i;
 		raw_local_irq_restore(flags);
 	}
+
+	smp_llsc_mb();
 }
 
 /*
@@ -92,6 +96,8 @@ static __inline__ void atomic_add(int i, atomic_t * v)
  */
 static __inline__ void atomic_sub(int i, atomic_t * v)
 {
+	smp_mb__before_llsc();
+
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		int temp;
 
@@ -124,6 +130,8 @@ static __inline__ void atomic_sub(int i, atomic_t * v)
 		v->counter -= i;
 		raw_local_irq_restore(flags);
 	}
+
+	smp_llsc_mb();
 }
 
 /*
@@ -420,6 +428,8 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
  */
 static __inline__ void atomic64_add(long i, atomic64_t * v)
 {
+	smp_mb__before_llsc();
+
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		long temp;
 
@@ -452,6 +462,8 @@ static __inline__ void atomic64_add(long i, atomic64_t * v)
 		v->counter += i;
 		raw_local_irq_restore(flags);
 	}
+
+	smp_llsc_mb();
 }
 
 /*
@@ -463,6 +475,8 @@ static __inline__ void atomic64_add(long i, atomic64_t * v)
  */
 static __inline__ void atomic64_sub(long i, atomic64_t * v)
 {
+	smp_mb__before_llsc();
+
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		long temp;
 
@@ -495,6 +509,8 @@ static __inline__ void atomic64_sub(long i, atomic64_t * v)
 		v->counter -= i;
 		raw_local_irq_restore(flags);
 	}
+
+	smp_llsc_mb();
 }
 
 /*
