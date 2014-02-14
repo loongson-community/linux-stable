@@ -479,7 +479,7 @@ extern void e1000e_check_options(struct e1000_adapter *adapter);
 extern void e1000e_set_ethtool_ops(struct net_device *netdev);
 
 extern int e1000e_up(struct e1000_adapter *adapter);
-extern void e1000e_down(struct e1000_adapter *adapter);
+extern void e1000e_down(struct e1000_adapter *adapter, bool reset);
 extern void e1000e_reinit_locked(struct e1000_adapter *adapter);
 extern void e1000e_reset(struct e1000_adapter *adapter);
 extern void e1000e_power_up_phy(struct e1000_adapter *adapter);
