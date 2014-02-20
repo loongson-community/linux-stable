@@ -32,7 +32,9 @@ enum fields {
 	JIMM = 0x080,
 	FUNC = 0x100,
 	SET = 0x200,
-	SCIMM = 0x400
+	SCIMM = 0x400,
+	RZ = 0x800,
+	RC = 0x1000
 };
 
 #define OP_MASK		0x3f
@@ -55,6 +57,10 @@ enum fields {
 #define SET_SH		0
 #define SCIMM_MASK	0xfffff
 #define SCIMM_SH	6
+#define RZ_MASK		0x1f
+#define RZ_SH		0
+#define RC_MASK		0x1ff
+#define RC_SH		6
 
 enum opcode {
 	insn_invalid,
@@ -68,7 +74,7 @@ enum opcode {
 	insn_or, insn_ori, insn_pref, insn_rfe, insn_rotr, insn_sc, insn_scd,
 	insn_sd, insn_sll, insn_sra, insn_srl, insn_subu, insn_sw,
 	insn_syscall, insn_tlbp, insn_tlbr, insn_tlbwi, insn_tlbwr, insn_xor,
-	insn_xori, insn_lddir, insn_ldpte,
+	insn_xori, insn_lddir, insn_ldpte, insn_gssq,
 };
 
 struct insn {
@@ -153,6 +159,7 @@ static struct insn insn_table[] __uasminitdata = {
 	{ insn_xor,  M(spec_op, 0, 0, 0, 0, xor_op),  RS | RT | RD },
 	{ insn_ldpte, M(lwc2_op, 0, 0, 0, ldpte_op, mult_op), RS | RD },
 	{ insn_lddir, M(lwc2_op, 0, 0, 0, lddir_op, mult_op), RS | RT | RD },
+	{ insn_gssq, M(swc2_op, 0, 0, 0, 0, gssq_op), RT | RS | RZ | RC },
 	{ insn_invalid, 0, 0 }
 };
 
@@ -241,6 +248,21 @@ static inline __uasminit u32 build_set(u32 arg)
 	return arg & SET_MASK;
 }
 
+static inline u32 build_rz(u32 arg)
+{
+	WARN(arg & ~RZ_MASK, KERN_WARNING "Micro-assembler field overflow\n");
+
+	return (arg & RZ_MASK) << RZ_SH;
+}
+
+static inline u32 build_rc(s32 arg)
+{
+	WARN((arg >> 4) > 0xff ||
+	     (arg >> 4) < -0x100, KERN_WARNING "Micro-assembler field overflow\n");
+
+	return ((arg >> 4) & RC_MASK) << RC_SH;
+}
+
 /*
  * The order of opcode arguments is implicitly left to right,
  * starting with RS and ending with FUNC or IMM.
@@ -271,6 +293,10 @@ static void __uasminit build_insn(u32 **buf, enum opcode opc, ...)
 		op |= build_rd(va_arg(ap, u32));
 	if (ip->fields & RE)
 		op |= build_re(va_arg(ap, u32));
+	if (ip->fields & RZ)
+		op |= build_rz(va_arg(ap, u32));
+	if (ip->fields & RC)
+		op |= build_rc(va_arg(ap, s32));
 	if (ip->fields & SIMM)
 		op |= build_simm(va_arg(ap, s32));
 	if (ip->fields & UIMM)
@@ -323,6 +349,13 @@ UASM_EXPORT_SYMBOL(uasm_i##op);
 Ip_u2s3u1(op)						\
 {							\
 	build_insn(buf, insn##op, c, a, b);		\
+}							\
+UASM_EXPORT_SYMBOL(uasm_i##op);
+
+#define I_u4u2u1s3(op)					\
+Ip_u4u2u1s3(op)						\
+{							\
+	build_insn(buf, insn##op, d, b, a, c);		\
 }							\
 UASM_EXPORT_SYMBOL(uasm_i##op);
 
@@ -425,6 +458,7 @@ I_0(_rfe)
 I_u2s3u1(_sc)
 I_u2s3u1(_scd)
 I_u2s3u1(_sd)
+I_u4u2u1s3(_gssq)
 I_u2u1u3(_sll)
 I_u2u1u3(_sra)
 I_u2u1u3(_srl)
