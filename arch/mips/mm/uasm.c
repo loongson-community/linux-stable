@@ -24,7 +24,9 @@ enum fields {
 	JIMM = 0x080,
 	FUNC = 0x100,
 	SET = 0x200,
-	SCIMM = 0x400
+	SCIMM = 0x400,
+	RZ = 0x800,
+	RC = 0x1000
 };
 
 #define OP_MASK		0x3f
@@ -54,7 +56,7 @@ enum opcode {
 	insn_or, insn_ori, insn_pref, insn_rfe, insn_rotr, insn_sc, insn_scd,
 	insn_sd, insn_sll, insn_sra, insn_srl, insn_subu, insn_sw,
 	insn_syscall, insn_tlbp, insn_tlbr, insn_tlbwi, insn_tlbwr, insn_xor,
-	insn_xori, insn_lddir, insn_ldpte,
+	insn_xori, insn_lddir, insn_ldpte, insn_gssq,
 };
 
 struct insn {
@@ -165,6 +167,13 @@ Ip_u2s3u1(op)						\
 }							\
 UASM_EXPORT_SYMBOL(uasm_i##op);
 
+#define I_u4u2u1s3(op)					\
+Ip_u4u2u1s3(op)						\
+{							\
+	build_insn(buf, insn##op, d, b, a, c);		\
+}							\
+UASM_EXPORT_SYMBOL(uasm_i##op);
+
 #define I_u2u1s3(op)					\
 Ip_u2u1s3(op)						\
 {							\
@@ -264,6 +273,7 @@ I_0(_rfe)
 I_u2s3u1(_sc)
 I_u2s3u1(_scd)
 I_u2s3u1(_sd)
+I_u4u2u1s3(_gssq)
 I_u2u1u3(_sll)
 I_u2u1u3(_sra)
 I_u2u1u3(_srl)
