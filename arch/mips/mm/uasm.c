@@ -75,7 +75,7 @@ enum opcode {
 	insn_sra, insn_srl, insn_rotr, insn_subu, insn_sw, insn_tlbp,
 	insn_tlbr, insn_tlbwi, insn_tlbwr, insn_xor, insn_xori,
 	insn_dins, insn_dinsm, insn_syscall, insn_bbit0, insn_bbit1,
-	insn_lwx, insn_ldx, insn_lddir, insn_ldpte, insn_gssq,
+	insn_lwx, insn_ldx, insn_lddir, insn_ldpte, insn_gssq, insn_gslq,
 };
 
 struct insn {
@@ -158,6 +158,7 @@ static struct insn insn_table[] __uasminitdata = {
 	{ insn_ldpte, M(lwc2_op, 0, 0, 0, ldpte_op, mult_op), RS | RD },
 	{ insn_lddir, M(lwc2_op, 0, 0, 0, lddir_op, mult_op), RS | RT | RD },
 	{ insn_gssq, M(swc2_op, 0, 0, 0, 0, gssq_op), RT | RS | RZ | RC },
+	{ insn_gslq, M(lwc2_op, 0, 0, 0, 0, gslq_op), RT | RS | RZ | RC },
 	{ insn_invalid, 0, 0 }
 };
 
@@ -448,6 +449,7 @@ I_u2s3u1(_sc)
 I_u2s3u1(_scd)
 I_u2s3u1(_sd)
 I_u4u2u1s3(_gssq)
+I_u4u2u1s3(_gslq)
 I_u2u1u3(_sll)
 I_u2u1u3(_sra)
 I_u2u1u3(_srl)
