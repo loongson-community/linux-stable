@@ -470,7 +470,11 @@
 		.macro	CLI
 #if !defined(CONFIG_MIPS_MT_SMTC)
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | STATMASK
+#else
 		li	t1, ST0_CU0 | STATMASK
+#endif
 		or	t0, t1
 		xori	t0, STATMASK
 		mtc0	t0, CP0_STATUS
@@ -505,7 +509,11 @@
 		.macro	STI
 #if !defined(CONFIG_MIPS_MT_SMTC)
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | STATMASK
+#else
 		li	t1, ST0_CU0 | STATMASK
+#endif
 		or	t0, t1
 		xori	t0, STATMASK & ~1
 		mtc0	t0, CP0_STATUS
@@ -568,7 +576,11 @@
 		move	ra, t0
 #endif /* CONFIG_MIPS_MT_SMTC */
 		mfc0	t0, CP0_STATUS
+#ifdef CONFIG_CPU_LOONGSON3
+		li	t1, ST0_CU0 | ST0_MM | (STATMASK & ~1)
+#else
 		li	t1, ST0_CU0 | (STATMASK & ~1)
+#endif
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 		andi	t2, t0, ST0_IEP
 		srl	t2, 2
