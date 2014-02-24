@@ -224,6 +224,9 @@ int dump_task_fpu(struct task_struct *t, elf_fpregset_t *fpr)
  */
 static void __noreturn kernel_thread_helper(void *arg, int (*fn)(void *))
 {
+#ifdef CONFIG_CPU_LOONGSON3
+	set_c0_status(ST0_MM);
+#endif
 	do_exit(fn(arg));
 }
 
