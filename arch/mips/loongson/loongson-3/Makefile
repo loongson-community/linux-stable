@@ -3,7 +3,7 @@
 #
 obj-y			+= irq.o cop2-ex.o ec_wpce775l.o platform.o clock.o workarounds.o \
 			   ls2h-irq.o ls2h-platform.o ls7a-irq.o ls7a-platform.o rs780-irq.o rs780-platform.o \
-			   loongson3-memset.o
+			   loongson3-memset.o loongson3-memcpy.o
 
 obj-$(CONFIG_SMP)	+= smp.o
 
