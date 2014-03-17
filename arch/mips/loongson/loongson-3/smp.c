@@ -32,6 +32,7 @@
 #include "smp.h"
 
 DEFINE_PER_CPU(int, cpu_state);
+extern int hpet_enabled;
 extern void maybe_enable_cpufreq(void);
 extern void maybe_disable_cpufreq(void);
 
@@ -344,7 +345,7 @@ void __cpuinit loongson3_boot_secondary(int cpu, struct task_struct *idle)
 	volatile unsigned long startargs[4];
 
 #if defined(CONFIG_LOONGSON3_CPUFREQ) && defined(CONFIG_HOTPLUG_CPU)
-	if (loongson_workarounds & WORKAROUND_CPUFREQ)
+	if ((loongson_workarounds & WORKAROUND_CPUFREQ) && hpet_enabled)
 		maybe_disable_cpufreq();
 #endif
 
@@ -403,7 +404,7 @@ static int loongson3_cpu_disable(void)
 static void loongson3_cpu_die(unsigned int cpu)
 {
 #ifdef CONFIG_LOONGSON3_CPUFREQ
-	if (loongson_workarounds & WORKAROUND_CPUFREQ)
+	if ((loongson_workarounds & WORKAROUND_CPUFREQ) && hpet_enabled)
 		maybe_enable_cpufreq();
 #endif
 

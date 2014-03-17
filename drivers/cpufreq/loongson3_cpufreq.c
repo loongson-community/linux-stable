@@ -233,6 +233,10 @@ EXPORT_SYMBOL_GPL(loongson3_cpu_wait);
 static int __init cpufreq_init(void)
 {
 	int ret;
+	extern int hpet_enabled;
+
+	if (!hpet_enabled)
+		return -ENODEV;
 
 	if (num_online_cpus() == 1) /* smp_init() has finished at this time */
 		cpufreq_enabled = 1;

@@ -30,7 +30,9 @@
 #include <linux/leds.h>
 #include <asm/bootinfo.h>
 
+#include <boot_param.h>
 #include <ec_wpce775l.h>
+#include <loongson-pch.h>
 
 #define KEY_TOUCHPAD_SW	KEY_F21
 #define KEY_MODEM	KEY_F24
@@ -76,7 +78,6 @@ enum /* bat_reg_flag */
 
 /* SCI device */
 #define EC_SCI_DEV		"sci"	/* < 10 bytes. */
-#define SCI_IRQ_NUM		0x07
 #define GPIO_SIZE		256
 
 const char *version = EC_VERSION;
@@ -582,8 +583,10 @@ static int lemote3a_laptop_suspend(struct platform_device * pdev, pm_message_t s
 {
 	struct pci_dev *dev;
 
-	dev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
-	pci_disable_device(dev);
+	if (loongson_pch->board_type == RS780E) {
+		dev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
+		pci_disable_device(dev);
+	}
 
 	return 0;
 }
@@ -593,8 +596,10 @@ static int lemote3a_laptop_resume(struct platform_device * pdev)
 {
 	struct pci_dev *dev;
 
-	dev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
-	pci_enable_device(dev);
+	if (loongson_pch->board_type == RS780E) {
+		dev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
+		pci_enable_device(dev);
+	}
 
 	/* Process LID event */
 	lemote3a_sci_event_handler(SCI_EVENT_NUM_LID);
@@ -1024,7 +1029,8 @@ static int sci_pci_init(void)
 	int ret = -EIO;
 	struct pci_dev *pdev;
 
-	pdev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
+	if (loongson_pch->board_type == RS780E)
+		pdev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
 
 	/* Create the sci device */
 	lemote3a_sci_device = kmalloc(sizeof(struct sci_device), GFP_KERNEL);
@@ -1034,18 +1040,20 @@ static int sci_pci_init(void)
 	}
 
 	/* Fill sci device */
-	lemote3a_sci_device->irq = SCI_IRQ_NUM;
+	lemote3a_sci_device->irq = loongson_ec_sci_irq;
 	lemote3a_sci_device->irq_data = 0x00;
 	lemote3a_sci_device->number = 0x00;
 	lemote3a_sci_device->parameter = 0x00;
 	strcpy(lemote3a_sci_device->name, EC_SCI_DEV);
 
 	/* Enable pci device and get the GPIO resources. */
-	ret = pci_enable_device(pdev);
-	if (ret) {
-		printk(KERN_ERR "Lemote Laptop Platform Driver : Enable pci device failed!\n");
-		ret = -ENODEV;
-		goto out_pdev;
+	if (loongson_pch->board_type == RS780E) {
+		ret = pci_enable_device(pdev);
+		if (ret) {
+			printk(KERN_ERR "Lemote Laptop Platform Driver : Enable pci device failed!\n");
+			ret = -ENODEV;
+			goto out_pdev;
+		}
 	}
 
 	/* Clear sci status: GPM9Status field in bit14 of
@@ -1066,7 +1074,8 @@ static int sci_pci_init(void)
 	goto out;
 
 out_irq:
-	pci_disable_device(pdev);
+	if (loongson_pch->board_type == RS780E)
+		pci_disable_device(pdev);
 out_pdev:
 	kfree(lemote3a_sci_device);
 out:

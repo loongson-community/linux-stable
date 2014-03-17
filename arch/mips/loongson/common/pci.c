@@ -12,6 +12,7 @@
 #include <pci.h>
 #include <loongson.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 
 static struct resource loongson_pci_mem_resource = {
 	.name	= "pci memory space",
@@ -82,6 +83,9 @@ extern int sbx00_acpi_init(void);
 
 static int __init pcibios_init(void)
 {
+	if (loongson_pch && loongson_pch->board_type == LS2H)
+		return 0;
+
 	setup_pcimap();
 
 	loongson_pci_controller.io_map_base = mips_io_port_base;

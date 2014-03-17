@@ -7,6 +7,7 @@
 
 #include <asm/hpet.h>
 #include <asm/time.h>
+#include <loongson-pch.h>
 
 #define SMBUS_CFG_BASE		(ht_control_base + 0x0300a000)
 #define SMBUS_PCI_REGB4		0xb4
@@ -16,6 +17,7 @@
 #define HPET_MIN_CYCLES		16
 #define HPET_MIN_PROG_DELTA	(HPET_MIN_CYCLES * 12)
 
+extern int hpet_enabled;
 static DEFINE_SPINLOCK(hpet_lock);
 DEFINE_PER_CPU(struct clock_event_device, hpet_clockevent_device);
 
@@ -210,7 +212,11 @@ void __init setup_hpet_timer(void)
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *cd;
 
+	if (loongson_pch && loongson_pch->board_type != RS780E)
+		return;
+
 	hpet_setup();
+	hpet_enabled = 1;
 
 	cd = &per_cpu(hpet_clockevent_device, cpu);
 	cd->name = "hpet";
@@ -260,6 +266,9 @@ static struct clocksource csrc_hpet = {
 
 int __init init_hpet_clocksource(void)
 {
+	if (!hpet_enabled)
+		return -EBUSY;
+
 	csrc_hpet.mult = clocksource_hz2mult(HPET_FREQ, csrc_hpet.shift);
 	return clocksource_register_hz(&csrc_hpet, HPET_FREQ);
 }
