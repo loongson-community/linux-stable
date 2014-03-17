@@ -73,11 +73,13 @@ void __init prom_init_memory(void)
 		if (node_id == 0) {
 			switch (mem_type) {
 			case SYSTEM_RAM_LOW:
+				low_physmem_start = emap->map[i].mem_start;
 				add_memory_region(emap->map[i].mem_start,
 					(u64)emap->map[i].mem_size << 20,
 					BOOT_MEM_RAM);
 				break;
 			case SYSTEM_RAM_HIGH:
+				high_physmem_start = emap->map[i].mem_start;
 				add_memory_region(emap->map[i].mem_start,
 					(u64)emap->map[i].mem_size << 20,
 					BOOT_MEM_RAM);
