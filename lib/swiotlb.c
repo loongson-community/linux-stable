@@ -735,6 +735,7 @@ dma_addr_t swiotlb_map_page(struct device *dev, struct page *page,
 {
 	phys_addr_t map, phys = page_to_phys(page) + offset;
 	dma_addr_t dev_addr = phys_to_dma(dev, phys);
+	int dev_swiotlb_force = dma_get_attr(DMA_ATTR_FORCE_SWIOTLB, attrs);
 
 	BUG_ON(dir == DMA_NONE);
 	/*
@@ -742,7 +743,7 @@ dma_addr_t swiotlb_map_page(struct device *dev, struct page *page,
 	 * we can safely return the device addr and not worry about bounce
 	 * buffering it.
 	 */
-	if (dma_capable(dev, dev_addr, size) && !swiotlb_force)
+	if (dma_capable(dev, dev_addr, size) && !swiotlb_force && !dev_swiotlb_force)
 		return dev_addr;
 
 	trace_swiotlb_bounced(dev, dev_addr, size, swiotlb_force);
@@ -873,7 +874,7 @@ swiotlb_map_sg_attrs(struct device *hwdev, struct scatterlist *sgl, int nelems,
 		     enum dma_data_direction dir, struct dma_attrs *attrs)
 {
 	struct scatterlist *sg;
-	int i;
+	int i, dev_swiotlb_force = dma_get_attr(DMA_ATTR_FORCE_SWIOTLB, attrs);
 
 	BUG_ON(dir == DMA_NONE);
 
@@ -881,7 +882,7 @@ swiotlb_map_sg_attrs(struct device *hwdev, struct scatterlist *sgl, int nelems,
 		phys_addr_t paddr = sg_phys(sg);
 		dma_addr_t dev_addr = phys_to_dma(hwdev, paddr);
 
-		if (swiotlb_force ||
+		if (swiotlb_force || dev_swiotlb_force ||
 		    !dma_capable(hwdev, dev_addr, sg->length)) {
 			phys_addr_t map = map_single(hwdev, sg_phys(sg),
 						     sg->length, dir);

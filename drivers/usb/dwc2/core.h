@@ -448,6 +448,20 @@ struct dwc2_hw_params {
 	u32 snpsid;
 };
 
+struct dwc2_saved_regs {
+	u32 gusbcfg;
+	u32 gahbcfg;
+	u32 gotgctl;
+	u32 gintmsk;
+	u32 gdfifocfg;
+	u32 hcfg;
+	u32 hfir;
+	u32 hprt0;
+	u32 haintmsk;
+	u32 hcchar[MAX_EPS_CHANNELS];
+	u32 hcintmsk[MAX_EPS_CHANNELS];
+};
+
 /* Size of control and EP0 buffers */
 #define DWC2_CTRL_BUFF_SIZE 8
 
@@ -726,6 +740,7 @@ struct dwc2_hsotg {
 	u32 g_np_g_tx_fifo_sz;
 	u32 g_tx_fifo_sz[MAX_EPS_CHANNELS];
 #endif /* CONFIG_USB_DWC2_PERIPHERAL || CONFIG_USB_DWC2_DUAL_ROLE */
+	struct dwc2_saved_regs saved_regs;
 };
 
 /* Reasons for halting a host channel */

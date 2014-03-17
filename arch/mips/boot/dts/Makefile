@@ -1,6 +1,7 @@
 dts-dirs	+= brcm
 dts-dirs	+= cavium-octeon
 dts-dirs	+= lantiq
+dts-dirs	+= loongson
 dts-dirs	+= mti
 dts-dirs	+= netlogic
 dts-dirs	+= ralink
