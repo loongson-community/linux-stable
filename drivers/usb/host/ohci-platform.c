@@ -79,6 +79,8 @@ static const struct hc_driver ohci_platform_hc_driver = {
 	.start_port_reset	= ohci_start_port_reset,
 };
 
+static struct usb_ohci_pdata ohci_platform_defaults;
+
 static int __devinit ohci_platform_probe(struct platform_device *dev)
 {
 	struct usb_hcd *hcd;
@@ -86,10 +88,15 @@ static int __devinit ohci_platform_probe(struct platform_device *dev)
 	int irq;
 	int err = -ENOMEM;
 
-	BUG_ON(!dev->dev.platform_data);
-
 	if (usb_disabled())
 		return -ENODEV;
+
+	if (!dev->dev.platform_data)
+		dev->dev.platform_data = &ohci_platform_defaults;
+	if (!dev->dev.dma_mask)
+		dev->dev.dma_mask = &dev->dev.coherent_dma_mask;
+	if (!dev->dev.coherent_dma_mask)
+		dev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 
 	irq = platform_get_irq(dev, 0);
 	if (irq < 0) {
@@ -170,6 +177,12 @@ static int ohci_platform_resume(struct device *dev)
 #define ohci_platform_resume	NULL
 #endif /* CONFIG_PM */
 
+static const struct of_device_id ohci_platform_ids[] = {
+	{ .compatible = "generic-ohci", },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, ohci_platform_ids);
+
 static const struct platform_device_id ohci_platform_table[] = {
 	{ "ohci-platform", 0 },
 	{ }
@@ -190,5 +203,6 @@ static struct platform_driver ohci_platform_driver = {
 		.owner	= THIS_MODULE,
 		.name	= "ohci-platform",
 		.pm	= &ohci_platform_pm_ops,
+		.of_match_table = ohci_platform_ids,
 	}
 };
