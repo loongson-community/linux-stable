@@ -19,18 +19,7 @@ static inline dma_addr_t plat_map_dma_mem(struct device *dev, void *addr,
 					  size_t size)
 {
 #ifdef CONFIG_CPU_LOONGSON3
-	long nid;
-	dma_addr_t daddr;
-
-	daddr = virt_to_phys(addr) < 0x10000000 ?
-			(virt_to_phys(addr) | 0x0000000080000000) : virt_to_phys(addr);
-#ifdef CONFIG_PHYS48_TO_HT40
-	 /* We extract 2bit node id (bit 44~47, only bit 44~45 used now) from
-	  * Loongson3's 48bit address space and embed it into 40bit */
-	nid = (daddr >> 44) & 0x3;
-	daddr = ((nid << 44 ) ^ daddr) | (nid << 37);
-#endif
-	return daddr;
+	return phys_to_dma(dev, virt_to_phys(addr));
 #else
 	return virt_to_phys(addr) | 0x80000000;
 #endif
@@ -40,18 +29,7 @@ static inline dma_addr_t plat_map_dma_mem_page(struct device *dev,
 					       struct page *page)
 {
 #ifdef CONFIG_CPU_LOONGSON3
-	long nid;
-	dma_addr_t daddr;
-
-	daddr = page_to_phys(page) < 0x10000000 ?
-			(page_to_phys(page) | 0x0000000080000000) : page_to_phys(page);
-#ifdef CONFIG_PHYS48_TO_HT40
-	 /* We extract 2bit node id (bit 44~47, only bit 44~45 used now) from
-	  * Loongson3's 48bit address space and embed it into 40bit */
-	nid = (daddr >> 44) & 0x3;
-	daddr = ((nid << 44 ) ^ daddr) | (nid << 37);
-#endif
-	return daddr;
+	return phys_to_dma(dev, page_to_phys(page));
 #else
 	return page_to_phys(page) | 0x80000000;
 #endif
@@ -62,15 +40,7 @@ static inline unsigned long plat_dma_addr_to_phys(struct device *dev,
 {
 #if defined(CONFIG_64BIT)
 #if defined(CONFIG_CPU_LOONGSON3)
-	long nid;
-
-	dma_addr = (dma_addr < 0x90000000 && dma_addr >= 0x80000000) ?
-			(dma_addr & 0x0fffffff) : dma_addr;
-#ifdef CONFIG_PHYS48_TO_HT40
-	nid = (dma_addr >> 37) & 0x3;
-	dma_addr = ((nid << 37 ) ^ dma_addr) | (nid << 44);
-#endif
-	return dma_addr;
+	return dma_to_phys(dev, dma_addr);
 #elif defined(CONFIG_CPU_LOONGSON2F)
 	return (dma_addr > 0x8fffffff) ? dma_addr : (dma_addr & 0x0fffffff);
 #endif /* CONFIG_CPU_LOONGSON3 */

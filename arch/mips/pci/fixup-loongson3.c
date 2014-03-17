@@ -28,7 +28,9 @@
  */
 
 #include <linux/pci.h>
+#include <irq.h>
 #include <boot_param.h>
+#include <workarounds.h>
 
 static void print_fixup_info(const struct pci_dev * pdev)
 {
@@ -54,11 +56,15 @@ static void __init pci_fixup_radeon(struct pci_dev *pdev)
 	pdev->resource[PCI_ROM_RESOURCE].flags |= IORESOURCE_ROM_COPY;
 }
 
-DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_ATI, PCI_ANY_ID,
+DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_VENDOR_ID_ATI, 0x9615,
 				PCI_CLASS_DISPLAY_VGA, 8, pci_fixup_radeon);
 
 /* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
+	init_dma_attrs(&dev->dev.archdata.dma_attrs);
+	if (loongson_workarounds & WORKAROUND_PCIE_DMA)
+		dma_set_attr(DMA_ATTR_FORCE_SWIOTLB, &dev->dev.archdata.dma_attrs);
+
 	return 0;
 }
