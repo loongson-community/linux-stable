@@ -40,9 +40,16 @@ static int __devinit stmmac_probe_config_dt(struct platform_device *pdev,
 
 	*mac = of_get_mac_address(np);
 	plat->interface = of_get_phy_mode(np);
+
+	plat->bus_id = of_alias_get_id(np, "ethernet");
+	if (plat->bus_id < 0)
+		plat->bus_id = 0;
+
 	plat->mdio_bus_data = devm_kzalloc(&pdev->dev,
 					   sizeof(struct stmmac_mdio_bus_data),
 					   GFP_KERNEL);
+
+	plat->mdio_bus_data->bus_id = plat->bus_id;
 
 	/*
 	 * Currently only the properties needed on SPEAr600

@@ -137,6 +137,8 @@ static void __init szmem(unsigned int node)
 		if (node_id == node) {
 			switch (mem_type) {
 			case SYSTEM_RAM_LOW:
+				if (node_id == 0)
+					low_physmem_start = emap->map[i].mem_start;
 				start_pfn = ((node_id << 44) + emap->map[i].mem_start) >> PAGE_SHIFT;
 				node_psize = (mem_size << 20) >> PAGE_SHIFT;
 				end_pfn  = start_pfn + node_psize;
@@ -150,6 +152,8 @@ static void __init szmem(unsigned int node)
 				memblock_add_node(PFN_PHYS(start_pfn), PFN_PHYS(end_pfn - start_pfn), node);
 				break;
 			case SYSTEM_RAM_HIGH:
+				if (node_id == 0)
+					high_physmem_start = emap->map[i].mem_start;
 				start_pfn = ((node_id << 44) + emap->map[i].mem_start) >> PAGE_SHIFT;
 				node_psize = (mem_size << 20) >> PAGE_SHIFT;
 				end_pfn  = start_pfn + node_psize;

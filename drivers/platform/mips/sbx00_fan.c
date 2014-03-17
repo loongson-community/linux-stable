@@ -337,7 +337,7 @@ static ssize_t set_fan_mode(struct device *dev,
 	new_mode = SENSORS_LIMIT(simple_strtoul(buf, NULL, 10),
 					FAN_FULL_MODE, FAN_AUTO_MODE);
 	if (new_mode == sbx00_fan_mode[id])
-		return 0;
+		return count;
 
 	switch (new_mode) {
 	case FAN_FULL_MODE:

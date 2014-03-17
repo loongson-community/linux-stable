@@ -180,7 +180,7 @@ static ssize_t set_fan_mode(struct device *dev,
 					FAN_FULL_MODE, FAN_AUTO_MODE);
 
 	if (new_mode == fan_mode)
-		return 0;
+		return count;
 
 	switch (new_mode) {
 	case FAN_FULL_MODE:

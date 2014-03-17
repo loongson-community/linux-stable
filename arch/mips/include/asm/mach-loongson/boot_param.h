@@ -98,6 +98,7 @@ struct system_loongson{
 	char tcm_name[32];
 	u64 tcm_base_addr;
 	u64 workarounds; /* see workarounds.h */
+	u64 of_dtb_addr; /* NULL if not support */
 }__attribute__((packed));
 
 struct irq_source_routing_table {
@@ -202,10 +203,17 @@ extern u64 ht_control_base;
 extern u64 pci_mem_start_addr, pci_mem_end_addr;
 extern u64 loongson_pciio_base;
 extern u64 vgabios_addr;
+extern u64 low_physmem_start;
+extern u64 high_physmem_start;
 
 extern u32 loongson_nr_uarts;
 extern struct uart_device loongson_uarts[MAX_UARTS];
+extern u32 loongson_ec_sci_irq;
 extern char loongson_ecname[32];
 extern u32 loongson_nr_sensors;
 extern struct sensor_device loongson_sensors[MAX_SENSORS];
+
+extern void *loongson_fdt_blob;
+extern u32 __dtb_loongson3_ls2h_begin[];
+extern u32 __dtb_loongson3_rs780_begin[];
 #endif
