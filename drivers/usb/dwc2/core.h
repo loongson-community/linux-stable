@@ -488,6 +488,20 @@ struct dwc2_hw_params {
 	u32 snpsid;
 };
 
+struct dwc2_saved_regs {
+	u32 gusbcfg;
+	u32 gahbcfg;
+	u32 gotgctl;
+	u32 gintmsk;
+	u32 gdfifocfg;
+	u32 hcfg;
+	u32 hfir;
+	u32 hprt0;
+	u32 haintmsk;
+	u32 hcchar[MAX_EPS_CHANNELS];
+	u32 hcintmsk[MAX_EPS_CHANNELS];
+};
+
 /**
  * struct dwc2_hsotg - Holds the state of the driver, including the non-periodic
  * and periodic schedules
@@ -678,6 +692,7 @@ struct dwc2_hsotg {
 	u32 hfnum_other_samples_b;
 	u64 hfnum_other_frrem_accum_b;
 #endif
+	struct dwc2_saved_regs saved_regs;
 };
 
 /* Reasons for halting a host channel */

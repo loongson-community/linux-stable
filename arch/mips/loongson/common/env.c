@@ -23,6 +23,7 @@
 #include <asm/dma-coherence.h>
 #include <loongson.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 #include <workarounds.h>
 
 u32 cpu_clock_freq;
@@ -41,11 +42,16 @@ unsigned long systab_addr;
 
 u32 loongson_dma_mask_bits;
 u64 loongson_workarounds;
+u32 loongson_ec_sci_irq;
 char loongson_ecname[32];
 u32 loongson_nr_uarts;
 struct uart_device loongson_uarts[MAX_UARTS];
 u32 loongson_nr_sensors;
 struct sensor_device loongson_sensors[MAX_SENSORS];
+
+void *loongson_fdt_blob;
+struct platform_controller_hub dummy_pch;
+struct platform_controller_hub *loongson_pch;
 
 #define parse_even_earlier(res, option, p)				\
 do {									\
@@ -78,12 +84,14 @@ void __init prom_init_env(void)
 	}
 	if (memsize == 0)
 		memsize = 256;
+	loongson_pch = &dummy_pch;
 	pr_info("memsize=%u, highmemsize=%u\n", memsize, highmemsize);
 #else
 	int i;
 	struct boot_params *boot_p;
 	struct loongson_params *loongson_p;
 	struct system_loongson *esys;
+	struct board_devices *eboard;
 	struct efi_cpuinfo_loongson *ecpu;
 	struct irq_source_routing_table *eirq_source;
 
@@ -95,6 +103,8 @@ void __init prom_init_env(void)
 		((u64)loongson_p + loongson_p->system_offset);
 	ecpu = (struct efi_cpuinfo_loongson *)
 		((u64)loongson_p + loongson_p->cpu_offset);
+	eboard	= (struct board_devices *)
+		((u64)loongson_p + loongson_p->boarddev_table_offset);
 	eirq_source = (struct irq_source_routing_table *)
 		((u64)loongson_p + loongson_p->irq_offset);
 	loongson_memmap = (struct efi_memory_map_loongson *)
@@ -184,6 +194,19 @@ void __init prom_init_env(void)
 		loongson_sysconf.dma_mask_bits = 32;
 	hw_coherentio = !eirq_source->dma_noncoherent;
 	pr_info("BIOS configured I/O coherency: %s\n", hw_coherentio?"ON":"OFF");
+
+	if (strstr(eboard->name,"2H")) {
+		loongson_pch = &ls2h_pch;
+		loongson_ec_sci_irq = 0x80;
+		loongson_fdt_blob = __dtb_loongson3_ls2h_begin;
+	}
+	else {
+		loongson_pch = &rs780_pch;
+		loongson_ec_sci_irq = 0x07;
+		loongson_fdt_blob = __dtb_loongson3_rs780_begin;
+	}
+	if (esys->vers >= 2 && esys->of_dtb_addr)
+		loongson_fdt_blob = (void *)(esys->of_dtb_addr);
 
 	loongson_sysconf.restart_addr = boot_p->reset_system.ResetWarm;
 	loongson_sysconf.poweroff_addr = boot_p->reset_system.Shutdown;

@@ -14,7 +14,9 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <loongson-pch.h>
 #include <loongson_hwmon.h>
 #include <asm/bootinfo.h>
 #include <linux/i2c.h>
@@ -86,6 +88,8 @@ static int __init loongson3_platform_init(void)
 	int i;
 	struct platform_device * pdev;
 
+	loongson_pch->pch_arch_initcall();
+
 	if (loongson_ecname[0] != '\0')
 		platform_device_register_simple(loongson_ecname, -1, NULL, 0);
 
@@ -100,6 +104,9 @@ static int __init loongson3_platform_init(void)
 		platform_device_register(pdev);
 	}
 
+	if (of_have_populated_dt())
+		of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
+
 	if (loongson_workarounds & WORKAROUND_LVDS_GPIO) {
 		gpio_request(GPIO_LCD_CNTL,  "gpio_lcd_cntl");
 		gpio_request(GPIO_BACKLIGHIT_CNTL, "gpio_bl_cntl");
@@ -108,4 +115,12 @@ static int __init loongson3_platform_init(void)
 	return 0;
 }
 
+static int __init loongson3_device_init(void)
+{
+	loongson_pch->pch_device_initcall();
+
+	return 0;
+}
+
 arch_initcall(loongson3_platform_init);
+device_initcall(loongson3_device_init);
