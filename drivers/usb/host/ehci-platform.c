@@ -21,7 +21,9 @@
 #include <linux/kernel.h>
 #include <linux/hrtimer.h>
 #include <linux/io.h>
+#include <linux/of.h>
 #include <linux/module.h>
+#include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
@@ -61,21 +63,27 @@ static const struct ehci_driver_overrides platform_overrides __initdata = {
 	.reset =	ehci_platform_reset,
 };
 
+static struct usb_ehci_pdata ehci_platform_defaults;
+
 static int ehci_platform_probe(struct platform_device *dev)
 {
 	struct usb_hcd *hcd;
 	struct resource *res_mem;
-	struct usb_ehci_pdata *pdata = dev->dev.platform_data;
+	struct usb_ehci_pdata *pdata;
 	int irq;
 	int err = -ENOMEM;
 
-	if (!pdata) {
-		WARN_ON(1);
-		return -ENODEV;
-	}
-
 	if (usb_disabled())
 		return -ENODEV;
+
+	if (!dev->dev.platform_data)
+		dev->dev.platform_data = &ehci_platform_defaults;
+	if (!dev->dev.dma_mask)
+		dev->dev.dma_mask = &dev->dev.coherent_dma_mask;
+	if (!dev->dev.coherent_dma_mask)
+		dev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+
+	pdata = dev->dev.platform_data;
 
 	irq = platform_get_irq(dev, 0);
 	if (irq < 0) {
@@ -138,6 +146,9 @@ static int ehci_platform_remove(struct platform_device *dev)
 	if (pdata->power_off)
 		pdata->power_off(dev);
 
+	if (pdata == &ehci_platform_defaults)
+		dev->dev.platform_data = NULL;
+
 	return 0;
 }
 
@@ -182,6 +193,12 @@ static int ehci_platform_resume(struct device *dev)
 #define ehci_platform_resume	NULL
 #endif /* CONFIG_PM */
 
+static const struct of_device_id vt8500_ehci_ids[] = {
+	{ .compatible = "generic-ehci", },
+	{}
+};
+MODULE_DEVICE_TABLE(of, vt8500_ehci_ids);
+
 static const struct platform_device_id ehci_platform_table[] = {
 	{ "ehci-platform", 0 },
 	{ }
@@ -202,6 +219,7 @@ static struct platform_driver ehci_platform_driver = {
 		.owner	= THIS_MODULE,
 		.name	= "ehci-platform",
 		.pm	= &ehci_platform_pm_ops,
+		.of_match_table = of_match_ptr(vt8500_ehci_ids),
 	}
 };
 

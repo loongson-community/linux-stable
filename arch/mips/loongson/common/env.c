@@ -23,6 +23,7 @@
 #include <asm/dma-coherence.h>
 #include <loongson.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 #include <workarounds.h>
 
 struct boot_params *boot_p;
@@ -31,6 +32,7 @@ struct loongson_params *loongson_p;
 struct efi_cpuinfo_loongson *ecpu;
 struct efi_memory_map_loongson *emap;
 struct system_loongson *esys;
+struct board_devices *eboard;
 struct irq_source_routing_table *eirq_source;
 
 u64 ht_control_base;
@@ -38,6 +40,7 @@ u64 pci_mem_start_addr, pci_mem_end_addr;
 u64 loongson_pciio_base;
 u64 vgabios_addr;
 u64 poweroff_addr, restart_addr, suspend_addr;
+u64 low_physmem_start, high_physmem_start;
 
 u64 loongson_chipcfg[MAX_PACKAGES] = {0xffffffffbfc00180};
 u64 loongson_chiptemp[MAX_PACKAGES];
@@ -57,11 +60,16 @@ unsigned long systab_addr;
 
 u32 loongson_dma_mask_bits;
 u64 loongson_workarounds;
+u32 loongson_ec_sci_irq;
 char loongson_ecname[32];
 u32 loongson_nr_uarts;
 struct uart_device loongson_uarts[MAX_UARTS];
 u32 loongson_nr_sensors;
 struct sensor_device loongson_sensors[MAX_SENSORS];
+
+void *loongson_fdt_blob;
+struct platform_controller_hub dummy_pch;
+struct platform_controller_hub *loongson_pch;
 
 u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
@@ -99,6 +107,7 @@ void __init prom_init_env(void)
 	}
 	if (memsize == 0)
 		memsize = 256;
+	loongson_pch = &dummy_pch;
 #else
 	/* firmware arguments are initialized in head.S */
 	boot_p = (struct boot_params *)fw_arg2;
@@ -107,6 +116,7 @@ void __init prom_init_env(void)
 	esys	= (struct system_loongson *)((u64)loongson_p + loongson_p->system_offset);
 	ecpu	= (struct efi_cpuinfo_loongson *)((u64)loongson_p + loongson_p->cpu_offset);
 	emap	= (struct efi_memory_map_loongson *)((u64)loongson_p + loongson_p->memory_offset);
+	eboard	= (struct board_devices *)((u64)loongson_p + loongson_p->boarddev_table_offset);
 	eirq_source = (struct irq_source_routing_table *)((u64)loongson_p + loongson_p->irq_offset);
 
 	cputype = ecpu->cputype;
@@ -183,6 +193,19 @@ void __init prom_init_env(void)
 		loongson_dma_mask_bits = 32;
 	hw_coherentio = !eirq_source->dma_noncoherent;
 	pr_info("BIOS configured I/O coherency: %s\n", hw_coherentio?"ON":"OFF");
+
+	if (strstr(eboard->name,"2H")) {
+		loongson_pch = &ls2h_pch;
+		loongson_ec_sci_irq = 0x80;
+		loongson_fdt_blob = __dtb_loongson3_ls2h_begin;
+	}
+	else {
+		loongson_pch = &rs780_pch;
+		loongson_ec_sci_irq = 0x07;
+		loongson_fdt_blob = __dtb_loongson3_rs780_begin;
+	}
+	if (esys->vers >= 2 && esys->of_dtb_addr)
+		loongson_fdt_blob = (void *)(esys->of_dtb_addr);
 
 	poweroff_addr = boot_p->reset_system.Shutdown;
 	restart_addr = boot_p->reset_system.ResetWarm;

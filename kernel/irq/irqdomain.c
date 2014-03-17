@@ -250,10 +250,11 @@ struct irq_domain *irq_domain_add_legacy(struct device_node *of_node,
 		int irq = first_irq + i;
 		int hwirq = first_hwirq + i;
 
+#ifndef CONFIG_MIPS
 		/* IRQ0 gets ignored */
 		if (!irq)
 			continue;
-
+#endif
 		/* Legacy flags are left to default at this point,
 		 * one can then use irq_create_mapping() to
 		 * explicitly change them
