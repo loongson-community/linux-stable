@@ -190,6 +190,10 @@ EXPORT_SYMBOL_GPL(loongson3_cpu_wait);
 static int __init cpufreq_init(void)
 {
 	int i, ret;
+	extern int hpet_enabled;
+
+	if (!hpet_enabled)
+		return -ENODEV;
 
 	/* Register platform stuff */
 	ret = platform_driver_register(&platform_driver);

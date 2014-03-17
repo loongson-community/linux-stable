@@ -207,7 +207,10 @@ struct loongson_system_configuration {
 	u64 poweroff_addr;
 	u64 suspend_addr;
 	u64 vgabios_addr;
+	u64 low_physmem_start;
+	u64 high_physmem_start;
 	u32 dma_mask_bits;
+	u32 ec_sci_irq;
 	char ecname[32];
 	u32 nr_uarts;
 	struct uart_device uarts[MAX_UARTS];

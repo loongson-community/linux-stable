@@ -2809,7 +2809,7 @@ void dwc2_set_param_phy_utmi_width(struct dwc2_hsotg *hsotg, int val)
 				val);
 		}
 		val = (hsotg->hw_params.utmi_phy_data_width ==
-		       GHWCFG4_UTMI_PHY_DATA_WIDTH_8) ? 8 : 16;
+		       GHWCFG4_UTMI_PHY_DATA_WIDTH_16) ? 16 : 8;
 		dev_dbg(hsotg->dev, "Setting phy_utmi_width to %d\n", val);
 	}
 

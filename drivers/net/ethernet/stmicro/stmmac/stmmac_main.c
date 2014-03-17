@@ -48,6 +48,9 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #endif /* CONFIG_DEBUG_FS */
+#if defined(CONFIG_CPU_LOONGSON3)
+#include <linux/i2c.h>
+#endif
 #include <linux/net_tstamp.h>
 #include "stmmac_ptp.h"
 #include "stmmac.h"
@@ -97,6 +100,13 @@ MODULE_PARM_DESC(tc, "DMA threshold control value");
 static int buf_sz = DEFAULT_BUFSIZE;
 module_param(buf_sz, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(buf_sz, "DMA buffer size");
+
+#if defined(CONFIG_CPU_LOONGSON3)
+static struct eep_info {
+	unsigned short addr;
+	struct i2c_adapter *adapter;
+} eeprom_info;
+#endif
 
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
@@ -1609,6 +1619,69 @@ static int stmmac_get_hw_features(struct stmmac_priv *priv)
 	return hw_cap;
 }
 
+#if defined(CONFIG_CPU_LOONGSON3)
+static int stmmac_eep_get_mac_addr(struct stmmac_priv *priv, unsigned char *buf)
+{
+	struct platform_device *pdev = to_platform_device(priv->device);
+	unsigned int data_addr = 6 * pdev->id;
+	unsigned char start[2];
+	struct i2c_msg msgs[] = {
+		{
+			.addr	= eeprom_info.addr,
+			.flags	= 0,
+			.len	= 2,
+			.buf	= start,
+		}, {
+			.addr	= eeprom_info.addr,
+			.flags	= I2C_M_RD,
+			.len	= 6,
+			.buf	= buf,
+		}
+	};
+
+	start[0] = (data_addr >> 8) & 0x1f;
+	start[1] = data_addr & 0xff;
+
+	if (eeprom_info.adapter == NULL) {
+		pr_err("%s: eeprom_info is not initalized\n", __func__);
+		return 0;
+	}
+
+	if (i2c_transfer(eeprom_info.adapter, msgs, 2) == 2)
+		return 1;
+	else
+		return 0;
+
+}
+
+static int stmmac_eep_set_mac_addr(struct stmmac_priv *priv, unsigned char *buf)
+{
+	struct platform_device *pdev = to_platform_device(priv->device);
+	unsigned int data_addr = 6 * pdev->id;
+	unsigned char start[8];
+	struct i2c_msg msgs = {
+		.addr	= eeprom_info.addr,
+		.flags	= 0,
+		.len	= 8,
+		.buf	= start,
+	};
+
+	start[0] = (data_addr >> 8) & 0x1f;
+	start[1] = data_addr & 0xff;
+	memcpy(&start[2], buf, 6);
+
+	if (eeprom_info.adapter == NULL) {
+		pr_err("%s: eeprom_info is not initalized\n", __func__);
+		return 0;
+	}
+
+	if (i2c_transfer(eeprom_info.adapter, &msgs, 1) == 1)
+		return 1;
+	else
+		return 0;
+}
+#endif
+
 /**
  * stmmac_check_ether_addr - check if the MAC addr is valid
  * @priv: driver private structure
@@ -1618,6 +1691,9 @@ static int stmmac_get_hw_features(struct stmmac_priv *priv)
  */
 static void stmmac_check_ether_addr(struct stmmac_priv *priv)
 {
+#if defined(CONFIG_CPU_LOONGSON3)
+	stmmac_eep_get_mac_addr(priv, priv->dev->dev_addr);
+#endif
 	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
 		priv->hw->mac->get_umac_addr(priv->hw,
 					     priv->dev->dev_addr, 0);
@@ -1785,8 +1861,6 @@ static int stmmac_open(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	int ret;
-
-	stmmac_check_ether_addr(priv);
 
 	if (priv->pcs != STMMAC_PCS_RGMII && priv->pcs != STMMAC_PCS_TBI &&
 	    priv->pcs != STMMAC_PCS_RTBI) {
@@ -2711,6 +2785,22 @@ static void stmmac_exit_fs(struct net_device *dev)
 }
 #endif /* CONFIG_DEBUG_FS */
 
+#if defined(CONFIG_CPU_LOONGSON3)
+int stmmac_set_mac_address(struct net_device *dev, void *p)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	struct sockaddr *addr = p;
+
+	if (!is_valid_ether_addr(addr->sa_data))
+		return -EADDRNOTAVAIL;
+
+	stmmac_eep_set_mac_addr(priv, addr->sa_data);
+	memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
+	priv->hw->mac->set_umac_addr((void *) dev->base_addr, dev->dev_addr, 0);
+
+	return 0;
+}
+#endif
 static const struct net_device_ops stmmac_netdev_ops = {
 	.ndo_open = stmmac_open,
 	.ndo_start_xmit = stmmac_xmit,
@@ -2724,7 +2814,11 @@ static const struct net_device_ops stmmac_netdev_ops = {
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	.ndo_poll_controller = stmmac_poll_controller,
 #endif
+#if defined(CONFIG_CPU_LOONGSON3)
+	.ndo_set_mac_address = stmmac_set_mac_address,
+#else
 	.ndo_set_mac_address = eth_mac_addr,
+#endif
 };
 
 /**
@@ -2813,6 +2907,39 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 	return 0;
 }
 
+#if defined(CONFIG_CPU_LOONGSON3)
+static const struct i2c_device_id eep_ids[] = {
+	{ "eeprom-loongson", 0 },
+	{ /* END OF LIST */ }
+};
+
+MODULE_DEVICE_TABLE(i2c, eep_ids);
+
+static int eep_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+	eeprom_info.addr = client->addr;
+	eeprom_info.adapter = client->adapter;
+	return 0;
+}
+
+static int eep_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static struct i2c_driver eep_driver = {
+	.driver = {
+		.name = "eep-mac",
+		.owner = THIS_MODULE,
+	},
+	.probe = eep_probe,
+	.remove = eep_remove,
+	.id_table = eep_ids,
+};
+#endif
+
+static int nr_probed = 0;
+
 /**
  * stmmac_dvr_probe
  * @device: device pointer
@@ -2830,6 +2957,11 @@ int stmmac_dvr_probe(struct device *device,
 	int ret = 0;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv;
+
+#if defined(CONFIG_CPU_LOONGSON3)
+	if (!nr_probed)
+		i2c_add_driver(&eep_driver);
+#endif
 
 	ndev = alloc_etherdev(sizeof(struct stmmac_priv));
 	if (!ndev)
@@ -2936,6 +3068,8 @@ int stmmac_dvr_probe(struct device *device,
 
 	netif_napi_add(ndev, &priv->napi, stmmac_poll, 64);
 
+	stmmac_check_ether_addr(priv);
+
 	spin_lock_init(&priv->lock);
 	spin_lock_init(&priv->tx_lock);
 
@@ -2970,6 +3104,8 @@ int stmmac_dvr_probe(struct device *device,
 		goto error_netdev_register;
 	}
 
+	nr_probed++;
+
 	return ret;
 
 error_netdev_register:
@@ -3000,6 +3136,7 @@ int stmmac_dvr_remove(struct net_device *ndev)
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
+	nr_probed--;
 	pr_info("%s:\n\tremoving driver", __func__);
 
 	priv->hw->dma->stop_rx(priv->ioaddr);
@@ -3016,6 +3153,10 @@ int stmmac_dvr_remove(struct net_device *ndev)
 	    priv->pcs != STMMAC_PCS_RTBI)
 		stmmac_mdio_unregister(ndev);
 	free_netdev(ndev);
+#if defined(CONFIG_CPU_LOONGSON3)
+	if (!nr_probed)
+		i2c_del_driver(&eep_driver);
+#endif
 
 	return 0;
 }

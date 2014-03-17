@@ -17,8 +17,11 @@
 #include <linux/platform_device.h>
 #include <asm/bootinfo.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 #include <loongson_hwmon.h>
 #include <workarounds.h>
+
+int hpet_enabled = 0;
 
 /*
  * Kernel helper policy
@@ -85,6 +88,9 @@ static int __init loongson3_platform_init(void)
 	int i;
 	struct platform_device *pdev;
 
+	if (loongson_pch)
+		loongson_pch->pch_arch_initcall();
+
 	if (loongson_sysconf.ecname[0] != '\0')
 		platform_device_register_simple(loongson_sysconf.ecname, -1, NULL, 0);
 
@@ -107,4 +113,13 @@ static int __init loongson3_platform_init(void)
 	return 0;
 }
 
+static int __init loongson3_device_init(void)
+{
+	if (loongson_pch)
+		loongson_pch->pch_device_initcall();
+
+	return 0;
+}
+
 arch_initcall(loongson3_platform_init);
+device_initcall(loongson3_device_init);

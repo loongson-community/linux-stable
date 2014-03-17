@@ -39,6 +39,10 @@ unsigned long long smp_group[4];
 unsigned int has_systab = 0;
 unsigned long systab_addr;
 
+struct platform_controller_hub *loongson_pch;
+extern struct platform_controller_hub ls2h_pch;
+extern struct platform_controller_hub rs780_pch;
+
 #define parse_even_earlier(res, option, p)				\
 do {									\
 	unsigned int tmp __maybe_unused;				\
@@ -79,6 +83,7 @@ void __init prom_init_env(void)
 	struct boot_params *boot_p;
 	struct loongson_params *loongson_p;
 	struct system_loongson *esys;
+	struct board_devices *eboard;
 	struct efi_cpuinfo_loongson *ecpu;
 	struct irq_source_routing_table *eirq_source;
 
@@ -90,6 +95,8 @@ void __init prom_init_env(void)
 		((u64)loongson_p + loongson_p->system_offset);
 	ecpu = (struct efi_cpuinfo_loongson *)
 		((u64)loongson_p + loongson_p->cpu_offset);
+	eboard	= (struct board_devices *)
+		((u64)loongson_p + loongson_p->boarddev_table_offset);
 	eirq_source = (struct irq_source_routing_table *)
 		((u64)loongson_p + loongson_p->irq_offset);
 	loongson_memmap = (struct efi_memory_map_loongson *)
@@ -179,6 +186,15 @@ void __init prom_init_env(void)
 		loongson_sysconf.dma_mask_bits = 32;
 	hw_coherentio = !eirq_source->dma_noncoherent;
 	pr_info("BIOS configured I/O coherency: %s\n", hw_coherentio?"ON":"OFF");
+
+	if (strstr(eboard->name,"2H")) {
+		loongson_pch = &ls2h_pch;
+		loongson_sysconf.ec_sci_irq = 0x80;
+	}
+	else {
+		loongson_pch = &rs780_pch;
+		loongson_sysconf.ec_sci_irq = 0x07;
+	}
 
 	loongson_sysconf.restart_addr = boot_p->reset_system.ResetWarm;
 	loongson_sysconf.poweroff_addr = boot_p->reset_system.Shutdown;
