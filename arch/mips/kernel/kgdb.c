@@ -138,11 +138,7 @@ int dbg_set_reg(int regno, void *mem, struct pt_regs *regs)
 		       dbg_reg_def[regno].size);
 	} else if (current && dbg_reg_def[regno].offset != -1 && regno < 72) {
 		/* FP registers 38 -> 69 */
-#if defined(CONFIG_CPU_LOONGSON3)
-		if (!(regs->cp0_status & (ST0_CU1|ST0_CU2)))
-#else
 		if (!(regs->cp0_status & ST0_CU1))
-#endif
 			return 0;
 		if (regno == 70) {
 			/* Process the fcr31/fsr (register 70) */
@@ -176,11 +172,7 @@ char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
 		       dbg_reg_def[regno].size);
 	} else if (current && dbg_reg_def[regno].offset != -1 && regno < 72) {
 		/* FP registers 38 -> 69 */
-#if defined(CONFIG_CPU_LOONGSON3)
-		if (!(regs->cp0_status & (ST0_CU1|ST0_CU2)))
-#else
 		if (!(regs->cp0_status & ST0_CU1))
-#endif
 			goto out;
 		save_fp(current);
 		if (regno == 70) {

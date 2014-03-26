@@ -61,11 +61,7 @@
 	 * clear saved user stack CU1 bit
 	 */
 	LONG_L	t0, ST_OFF(t3)
-#if defined(CONFIG_CPU_LOONGSON3)
-	li	t1, ~(ST0_CU1|ST0_CU2)
-#else
 	li	t1, ~ST0_CU1
-#endif
 	and	t0, t0, t1
 	LONG_S	t0, ST_OFF(t3)
 
@@ -155,20 +151,12 @@ LEAF(_init_fpu)
 	/* Rather than manipulate per-VPE Status, set per-TC bit in TCStatus */
 	mfc0	t0, CP0_TCSTATUS
 	/* Bit position is the same for Status, TCStatus */
-#if defined(CONFIG_CPU_LOONGSON3)
-	li	t1, (ST0_CU1|ST0_CU2)
-#else
 	li	t1, ST0_CU1
-#endif
 	or	t0, t1
 	mtc0	t0, CP0_TCSTATUS
 #else /* Normal MIPS CU1 enable */
 	mfc0	t0, CP0_STATUS
-#if defined(CONFIG_CPU_LOONGSON3)
-	li	t1, (ST0_CU1|ST0_CU2)
-#else
 	li	t1, ST0_CU1
-#endif
 	or	t0, t1
 	mtc0	t0, CP0_STATUS
 #endif /* CONFIG_MIPS_MT_SMTC */

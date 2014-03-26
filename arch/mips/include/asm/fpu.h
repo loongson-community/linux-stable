@@ -33,33 +33,17 @@ extern void _init_fpu(void);
 extern void _save_fp(struct task_struct *);
 extern void _restore_fp(struct task_struct *);
 
-#if defined(CONFIG_CPU_LOONGSON3)
 #define __enable_fpu()							\
 do {									\
-	set_c0_status(ST0_CU1|ST0_CU2);					\
-	enable_fpu_hazard();						\
+        set_c0_status(ST0_CU1);						\
+        enable_fpu_hazard();						\
 } while (0)
-#else
-#define __enable_fpu()							\
-do {									\
-	set_c0_status(ST0_CU1);						\
-	enable_fpu_hazard();						\
-} while (0)
-#endif
 
-#if defined(CONFIG_CPU_LOONGSON3)
-#define __disable_fpu()							\
-do {									\
-	clear_c0_status(ST0_CU1|ST0_CU2);				\
-	disable_fpu_hazard();						\
-} while (0)
-#else
 #define __disable_fpu()							\
 do {									\
 	clear_c0_status(ST0_CU1);					\
-	disable_fpu_hazard();						\
+        disable_fpu_hazard();						\
 } while (0)
-#endif
 
 #define enable_fpu()							\
 do {									\
@@ -89,11 +73,7 @@ static inline int is_fpu_owner(void)
 static inline void __own_fpu(void)
 {
 	__enable_fpu();
-#if defined(CONFIG_CPU_LOONGSON3)
-	KSTK_STATUS(current) |= (ST0_CU1|ST0_CU2);
-#else
 	KSTK_STATUS(current) |= ST0_CU1;
-#endif
 	set_thread_flag(TIF_USEDFPU);
 }
 
@@ -119,11 +99,7 @@ static inline void lose_fpu(int save)
 	if (is_fpu_owner()) {
 		if (save)
 			_save_fp(current);
-#if defined(CONFIG_CPU_LOONGSON3)
-		KSTK_STATUS(current) &= ~(ST0_CU1|ST0_CU2);
-#else
 		KSTK_STATUS(current) &= ~ST0_CU1;
-#endif
 		clear_thread_flag(TIF_USEDFPU);
 		__disable_fpu();
 	}
