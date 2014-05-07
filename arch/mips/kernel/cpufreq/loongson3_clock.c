@@ -55,12 +55,15 @@ struct clk *clk_get(struct device *dev, const char *id)
 	int i;
 	struct clk *clk;
 
+	if (!id)
+		return NULL;
+
 	for_each_possible_cpu(i) {
 		clk = &cpu_clks[i];
 		if (strcmp(clk->name, id) == 0)
 			return clk;
 	}
-	return ERR_PTR(-ENXIO);
+	return NULL;
 }
 EXPORT_SYMBOL(clk_get);
 
@@ -91,6 +94,9 @@ EXPORT_SYMBOL(clk_disable);
 
 unsigned long clk_get_rate(struct clk *clk)
 {
+	if (!clk)
+		return 0;
+
 	return (unsigned long)clk->rate;
 }
 EXPORT_SYMBOL(clk_get_rate);
