@@ -33,5 +33,7 @@ config SND_AU1X00
 	  Newer drivers for ASoC are available, please do not use
 	  this driver as it will be removed in the future.
 
+source "sound/mips/hda/Kconfig"
+
 endif	# SND_MIPS
 
