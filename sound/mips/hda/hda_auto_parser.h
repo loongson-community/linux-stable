@@ -9,8 +9,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __SOUND_HDA_AUTO_PARSER_H
-#define __SOUND_HDA_AUTO_PARSER_H
+#ifndef __MIPS_HDA_AUTO_PARSER_H
+#define __MIPS_HDA_AUTO_PARSER_H
 
 /*
  * Helper for automatic pin configuration
@@ -41,10 +41,10 @@ struct auto_pin_cfg_item {
 };
 
 struct auto_pin_cfg;
-const char *hda_get_autocfg_input_label(struct hda_codec *codec,
+const char *ls2h_hda_get_autocfg_input_label(struct hda_codec *codec,
 					const struct auto_pin_cfg *cfg,
 					int input);
-int snd_hda_get_pin_label(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_get_pin_label(struct hda_codec *codec, hda_nid_t nid,
 			  const struct auto_pin_cfg *cfg,
 			  char *label, int maxlen, int *indexp);
 
@@ -58,7 +58,7 @@ enum {
 	INPUT_PIN_ATTR_LAST = INPUT_PIN_ATTR_FRONT,
 };
 
-int snd_hda_get_input_pin_attr(unsigned int def_conf);
+int ls2h_hda_get_input_pin_attr(unsigned int def_conf);
 
 struct auto_pin_cfg {
 	int line_outs;
@@ -85,14 +85,14 @@ struct auto_pin_cfg {
 #define HDA_PINCFG_HEADSET_MIC   (1 << 2) /* Try to find headset mic; mark seq number as 0xc to trigger */
 #define HDA_PINCFG_HEADPHONE_MIC (1 << 3) /* Try to find headphone mic; mark seq number as 0xd to trigger */
 
-int snd_hda_parse_pin_defcfg(struct hda_codec *codec,
+int ls2h_hda_parse_pin_defcfg(struct hda_codec *codec,
 			     struct auto_pin_cfg *cfg,
 			     const hda_nid_t *ignore_nids,
 			     unsigned int cond_flags);
 
 /* older function */
-#define snd_hda_parse_pin_def_config(codec, cfg, ignore) \
-	snd_hda_parse_pin_defcfg(codec, cfg, ignore, 0)
+#define ls2h_hda_parse_pin_def_config(codec, cfg, ignore) \
+	ls2h_hda_parse_pin_defcfg(codec, cfg, ignore, 0)
 
 static inline int auto_cfg_hp_outs(const struct auto_pin_cfg *cfg)
 {
@@ -115,4 +115,4 @@ static inline const hda_nid_t *auto_cfg_speaker_pins(const struct auto_pin_cfg *
 	       cfg->line_out_pins : cfg->speaker_pins;
 }
 
-#endif /* __SOUND_HDA_AUTO_PARSER_H */
+#endif /* __MIPS_HDA_AUTO_PARSER_H */

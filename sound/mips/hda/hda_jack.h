@@ -9,8 +9,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __SOUND_HDA_JACK_H
-#define __SOUND_HDA_JACK_H
+#ifndef __MIPS_HDA_JACK_H
+#define __MIPS_HDA_JACK_H
 
 struct auto_pin_cfg;
 struct hda_jack_tbl;
@@ -31,20 +31,20 @@ struct hda_jack_tbl {
 	hda_nid_t gating_jack;		/* valid when gating jack plugged */
 	hda_nid_t gated_jack;		/* gated is dependent on this jack */
 	struct snd_kcontrol *kctl;	/* assigned kctl for jack-detection */
-#ifdef CONFIG_SND_HDA_INPUT_JACK
+#ifdef CONFIG_LS2H_HDA_INPUT_JACK
 	int type;
 	struct snd_jack *jack;
 #endif
 };
 
 struct hda_jack_tbl *
-snd_hda_jack_tbl_get(struct hda_codec *codec, hda_nid_t nid);
+ls2h_hda_jack_tbl_get(struct hda_codec *codec, hda_nid_t nid);
 struct hda_jack_tbl *
-snd_hda_jack_tbl_get_from_tag(struct hda_codec *codec, unsigned char tag);
+ls2h_hda_jack_tbl_get_from_tag(struct hda_codec *codec, unsigned char tag);
 
 struct hda_jack_tbl *
 snd_hda_jack_tbl_new(struct hda_codec *codec, hda_nid_t nid);
-void snd_hda_jack_tbl_clear(struct hda_codec *codec);
+void ls2h_hda_jack_tbl_clear(struct hda_codec *codec);
 
 /**
  * snd_hda_jack_get_action - get jack-tbl entry for the tag
@@ -55,7 +55,7 @@ void snd_hda_jack_tbl_clear(struct hda_codec *codec);
 static inline unsigned char
 snd_hda_jack_get_action(struct hda_codec *codec, unsigned int tag)
 {
-	struct hda_jack_tbl *jack = snd_hda_jack_tbl_get_from_tag(codec, tag);
+	struct hda_jack_tbl *jack = ls2h_hda_jack_tbl_get_from_tag(codec, tag);
 	if (jack) {
 		jack->jack_dirty = 1;
 		return jack->action;
@@ -63,31 +63,31 @@ snd_hda_jack_get_action(struct hda_codec *codec, unsigned int tag)
 	return 0;
 }
 
-void snd_hda_jack_set_dirty_all(struct hda_codec *codec);
+void ls2h_hda_jack_set_dirty_all(struct hda_codec *codec);
 
-int snd_hda_jack_detect_enable(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_jack_detect_enable(struct hda_codec *codec, hda_nid_t nid,
 			       unsigned char action);
-int snd_hda_jack_detect_enable_callback(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_jack_detect_enable_callback(struct hda_codec *codec, hda_nid_t nid,
 					unsigned char action,
 					hda_jack_callback cb);
 
-int snd_hda_jack_set_gating_jack(struct hda_codec *codec, hda_nid_t gated_nid,
+int ls2h_hda_jack_set_gating_jack(struct hda_codec *codec, hda_nid_t gated_nid,
 				 hda_nid_t gating_nid);
 
-u32 snd_hda_pin_sense(struct hda_codec *codec, hda_nid_t nid);
-int snd_hda_jack_detect(struct hda_codec *codec, hda_nid_t nid);
+u32 ls2h_hda_pin_sense(struct hda_codec *codec, hda_nid_t nid);
+int ls2h_hda_jack_detect(struct hda_codec *codec, hda_nid_t nid);
 
-bool is_jack_detectable(struct hda_codec *codec, hda_nid_t nid);
+bool is_hda_jack_detectable(struct hda_codec *codec, hda_nid_t nid);
 
-int snd_hda_jack_add_kctl(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_jack_add_kctl(struct hda_codec *codec, hda_nid_t nid,
 			  const char *name, int idx);
-int snd_hda_jack_add_kctls(struct hda_codec *codec,
+int ls2h_hda_jack_add_kctls(struct hda_codec *codec,
 			   const struct auto_pin_cfg *cfg);
 
-void snd_hda_jack_report_sync(struct hda_codec *codec);
+void ls2h_hda_jack_report_sync(struct hda_codec *codec);
 
-void snd_hda_jack_unsol_event(struct hda_codec *codec, unsigned int res);
+void ls2h_hda_jack_unsol_event(struct hda_codec *codec, unsigned int res);
 
-void snd_hda_jack_poll_all(struct hda_codec *codec);
+void ls2h_hda_jack_poll_all(struct hda_codec *codec);
 
-#endif /* __SOUND_HDA_JACK_H */
+#endif /* __MIPS_HDA_JACK_H */
