@@ -9,8 +9,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __SOUND_HDA_GENERIC_H
-#define __SOUND_HDA_GENERIC_H
+#ifndef __MIPS_HDA_GENERIC_H
+#define __MIPS_HDA_GENERIC_H
 
 /* unsol event tags */
 enum {
@@ -86,8 +86,8 @@ struct badness_table {
 	int shared_surr_main;	/* secondary DAC sahred with main/DAC0 */
 };
 
-extern const struct badness_table hda_main_out_badness;
-extern const struct badness_table hda_extra_out_badness;
+extern const struct badness_table ls2h_hda_main_out_badness;
+extern const struct badness_table ls2h_hda_extra_out_badness;
 
 struct hda_gen_spec {
 	char stream_name_analog[32];	/* analog PCM stream */
@@ -210,7 +210,7 @@ struct hda_gen_spec {
 	unsigned int keep_vref_in_automute:1; /* Don't clear VREF in automute */
 	unsigned int line_in_auto_switch:1; /* allow line-in auto switch */
 
-	/* parser behavior flags; set before snd_hda_gen_parse_auto_config() */
+	/* parser behavior flags; set before ls2h_hda_gen_parse_auto_config() */
 	unsigned int suppress_auto_mute:1; /* suppress input jack auto mute */
 	unsigned int suppress_auto_mic:1; /* suppress input jack auto switch */
 
@@ -287,45 +287,45 @@ struct hda_gen_spec {
 				    struct hda_jack_tbl *tbl);
 };
 
-int snd_hda_gen_spec_init(struct hda_gen_spec *spec);
-void snd_hda_gen_spec_free(struct hda_gen_spec *spec);
+int ls2h_hda_gen_spec_init(struct hda_gen_spec *spec);
+void ls2h_hda_gen_spec_free(struct hda_gen_spec *spec);
 
-int snd_hda_gen_init(struct hda_codec *codec);
-void snd_hda_gen_free(struct hda_codec *codec);
+int ls2h_hda_gen_init(struct hda_codec *codec);
+void ls2h_hda_gen_free(struct hda_codec *codec);
 
-struct nid_path *snd_hda_get_nid_path(struct hda_codec *codec,
+struct nid_path *ls2h_hda_get_nid_path(struct hda_codec *codec,
 				      hda_nid_t from_nid, hda_nid_t to_nid);
-int snd_hda_get_path_idx(struct hda_codec *codec, struct nid_path *path);
-struct nid_path *snd_hda_get_path_from_idx(struct hda_codec *codec, int idx);
-bool snd_hda_parse_nid_path(struct hda_codec *codec, hda_nid_t from_nid,
+int ls2h_hda_get_path_idx(struct hda_codec *codec, struct nid_path *path);
+struct nid_path *ls2h_hda_get_path_from_idx(struct hda_codec *codec, int idx);
+bool ls2h_hda_parse_nid_path(struct hda_codec *codec, hda_nid_t from_nid,
 			    hda_nid_t to_nid, int anchor_nid,
 			    struct nid_path *path);
 struct nid_path *
-snd_hda_add_new_path(struct hda_codec *codec, hda_nid_t from_nid,
+ls2h_hda_add_new_path(struct hda_codec *codec, hda_nid_t from_nid,
 		     hda_nid_t to_nid, int anchor_nid);
-void snd_hda_activate_path(struct hda_codec *codec, struct nid_path *path,
+void ls2h_hda_activate_path(struct hda_codec *codec, struct nid_path *path,
 			   bool enable, bool add_aamix);
 
 struct snd_kcontrol_new *
-snd_hda_gen_add_kctl(struct hda_gen_spec *spec, const char *name,
+ls2h_hda_gen_add_kctl(struct hda_gen_spec *spec, const char *name,
 		     const struct snd_kcontrol_new *temp);
 
-int snd_hda_gen_parse_auto_config(struct hda_codec *codec,
+int ls2h_hda_gen_parse_auto_config(struct hda_codec *codec,
 				  struct auto_pin_cfg *cfg);
-int snd_hda_gen_build_controls(struct hda_codec *codec);
-int snd_hda_gen_build_pcms(struct hda_codec *codec);
+int ls2h_hda_gen_build_controls(struct hda_codec *codec);
+int ls2h_hda_gen_build_pcms(struct hda_codec *codec);
 
 /* standard jack event callbacks */
-void snd_hda_gen_hp_automute(struct hda_codec *codec,
+void ls2h_hda_gen_hp_automute(struct hda_codec *codec,
 			     struct hda_jack_tbl *jack);
-void snd_hda_gen_line_automute(struct hda_codec *codec,
+void ls2h_hda_gen_line_automute(struct hda_codec *codec,
 			       struct hda_jack_tbl *jack);
-void snd_hda_gen_mic_autoswitch(struct hda_codec *codec,
+void ls2h_hda_gen_mic_autoswitch(struct hda_codec *codec,
 				struct hda_jack_tbl *jack);
-void snd_hda_gen_update_outputs(struct hda_codec *codec);
+void ls2h_hda_gen_update_outputs(struct hda_codec *codec);
 
 #ifdef CONFIG_PM
-int snd_hda_gen_check_power_status(struct hda_codec *codec, hda_nid_t nid);
+int ls2h_hda_gen_check_power_status(struct hda_codec *codec, hda_nid_t nid);
 #endif
 
-#endif /* __SOUND_HDA_GENERIC_H */
+#endif /* __MIPS_HDA_GENERIC_H */
