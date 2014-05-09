@@ -103,7 +103,7 @@ static void print_nid_pcms(struct snd_info_buffer *buffer,
 			snd_iprintf(buffer, "  Device: name=\"%s\", "
 				    "type=\"%s\", device=%i\n",
 				    cpcm->name,
-				    snd_hda_pcm_type_name[cpcm->pcm_type],
+				    ls2h_hda_pcm_type_name[cpcm->pcm_type],
 				    cpcm->pcm->device);
 		}
 	}
@@ -113,7 +113,7 @@ static void print_amp_caps(struct snd_info_buffer *buffer,
 			   struct hda_codec *codec, hda_nid_t nid, int dir)
 {
 	unsigned int caps;
-	caps = snd_hda_param_read(codec, nid,
+	caps = ls2h_hda_param_read(codec, nid,
 				  dir == HDA_OUTPUT ?
 				    AC_PAR_AMP_OUT_CAP : AC_PAR_AMP_IN_CAP);
 	if (caps == -1 || caps == 0) {
@@ -139,12 +139,12 @@ static void print_amp_vals(struct snd_info_buffer *buffer,
 	for (i = 0; i < indices; i++) {
 		snd_iprintf(buffer, " [");
 		if (stereo) {
-			val = snd_hda_codec_read(codec, nid, 0,
+			val = ls2h_hda_codec_read(codec, nid, 0,
 						 AC_VERB_GET_AMP_GAIN_MUTE,
 						 AC_AMP_GET_LEFT | dir | i);
 			snd_iprintf(buffer, "0x%02x ", val);
 		}
-		val = snd_hda_codec_read(codec, nid, 0,
+		val = ls2h_hda_codec_read(codec, nid, 0,
 					 AC_VERB_GET_AMP_GAIN_MUTE,
 					 AC_AMP_GET_RIGHT | dir | i);
 		snd_iprintf(buffer, "0x%02x]", val);
@@ -173,7 +173,7 @@ static void print_pcm_bits(struct snd_info_buffer *buffer, unsigned int pcm)
 	char buf[SND_PRINT_BITS_ADVISED_BUFSIZE];
 
 	snd_iprintf(buffer, "    bits [0x%x]:", (pcm >> 16) & 0xff);
-	snd_print_pcm_bits(pcm, buf, sizeof(buf));
+	hda_print_pcm_bits(pcm, buf, sizeof(buf));
 	snd_iprintf(buffer, "%s\n", buf);
 }
 
@@ -193,8 +193,8 @@ static void print_pcm_formats(struct snd_info_buffer *buffer,
 static void print_pcm_caps(struct snd_info_buffer *buffer,
 			   struct hda_codec *codec, hda_nid_t nid)
 {
-	unsigned int pcm = snd_hda_param_read(codec, nid, AC_PAR_PCM);
-	unsigned int stream = snd_hda_param_read(codec, nid, AC_PAR_STREAM);
+	unsigned int pcm = ls2h_hda_param_read(codec, nid, AC_PAR_PCM);
+	unsigned int stream = ls2h_hda_param_read(codec, nid, AC_PAR_STREAM);
 	if (pcm == -1 || stream == -1) {
 		snd_iprintf(buffer, "N/A\n");
 		return;
@@ -241,7 +241,7 @@ static void print_pin_caps(struct snd_info_buffer *buffer,
 	static char *jack_conns[4] = { "Jack", "N/A", "Fixed", "Both" };
 	unsigned int caps, val;
 
-	caps = snd_hda_param_read(codec, nid, AC_PAR_PIN_CAP);
+	caps = ls2h_hda_param_read(codec, nid, AC_PAR_PIN_CAP);
 	snd_iprintf(buffer, "  Pincap 0x%08x:", caps);
 	if (caps & AC_PINCAP_IN)
 		snd_iprintf(buffer, " IN");
@@ -291,7 +291,7 @@ static void print_pin_caps(struct snd_info_buffer *buffer,
 	} else
 		*supports_vref = 0;
 	if (caps & AC_PINCAP_EAPD) {
-		val = snd_hda_codec_read(codec, nid, 0,
+		val = ls2h_hda_codec_read(codec, nid, 0,
 					 AC_VERB_GET_EAPD_BTLENABLE, 0);
 		snd_iprintf(buffer, "  EAPD 0x%x:", val);
 		if (val & AC_EAPDBTL_BALANCED)
@@ -302,12 +302,12 @@ static void print_pin_caps(struct snd_info_buffer *buffer,
 			snd_iprintf(buffer, " R/L");
 		snd_iprintf(buffer, "\n");
 	}
-	caps = snd_hda_codec_read(codec, nid, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
+	caps = ls2h_hda_codec_read(codec, nid, 0, AC_VERB_GET_CONFIG_DEFAULT, 0);
 	snd_iprintf(buffer, "  Pin Default 0x%08x: [%s] %s at %s %s\n", caps,
 		    jack_conns[(caps & AC_DEFCFG_PORT_CONN) >> AC_DEFCFG_PORT_CONN_SHIFT],
-		    snd_hda_get_jack_type(caps),
-		    snd_hda_get_jack_connectivity(caps),
-		    snd_hda_get_jack_location(caps));
+		    ls2h_hda_get_jack_type(caps),
+		    ls2h_hda_get_jack_connectivity(caps),
+		    ls2h_hda_get_jack_location(caps));
 	snd_iprintf(buffer, "    Conn = %s, Color = %s\n",
 		    get_jack_connection(caps),
 		    get_jack_color(caps));
@@ -334,7 +334,7 @@ static void print_pin_ctls(struct snd_info_buffer *buffer,
 {
 	unsigned int pinctls;
 
-	pinctls = snd_hda_codec_read(codec, nid, 0,
+	pinctls = ls2h_hda_codec_read(codec, nid, 0,
 				     AC_VERB_GET_PIN_WIDGET_CONTROL, 0);
 	snd_iprintf(buffer, "  Pin-ctls: 0x%02x:", pinctls);
 	if (pinctls & AC_PINCTL_IN_EN)
@@ -369,11 +369,11 @@ static void print_pin_ctls(struct snd_info_buffer *buffer,
 static void print_vol_knob(struct snd_info_buffer *buffer,
 			   struct hda_codec *codec, hda_nid_t nid)
 {
-	unsigned int cap = snd_hda_param_read(codec, nid,
+	unsigned int cap = ls2h_hda_param_read(codec, nid,
 					      AC_PAR_VOL_KNB_CAP);
 	snd_iprintf(buffer, "  Volume-Knob: delta=%d, steps=%d, ",
 		    (cap >> 7) & 1, cap & 0x7f);
-	cap = snd_hda_codec_read(codec, nid, 0,
+	cap = ls2h_hda_codec_read(codec, nid, 0,
 				 AC_VERB_GET_VOLUME_KNOB_CONTROL, 0);
 	snd_iprintf(buffer, "direct=%d, val=%d\n",
 		    (cap >> 7) & 1, cap & 0x7f);
@@ -383,14 +383,14 @@ static void print_audio_io(struct snd_info_buffer *buffer,
 			   struct hda_codec *codec, hda_nid_t nid,
 			   unsigned int wid_type)
 {
-	int conv = snd_hda_codec_read(codec, nid, 0, AC_VERB_GET_CONV, 0);
+	int conv = ls2h_hda_codec_read(codec, nid, 0, AC_VERB_GET_CONV, 0);
 	snd_iprintf(buffer,
 		    "  Converter: stream=%d, channel=%d\n",
 		    (conv & AC_CONV_STREAM) >> AC_CONV_STREAM_SHIFT,
 		    conv & AC_CONV_CHANNEL);
 
 	if (wid_type == AC_WID_AUD_IN && (conv & AC_CONV_CHANNEL) == 0) {
-		int sdi = snd_hda_codec_read(codec, nid, 0,
+		int sdi = ls2h_hda_codec_read(codec, nid, 0,
 					     AC_VERB_GET_SDI_SELECT, 0);
 		snd_iprintf(buffer, "  SDI-Select: %d\n",
 			    sdi & AC_SDI_SELECT);
@@ -400,7 +400,7 @@ static void print_audio_io(struct snd_info_buffer *buffer,
 static void print_digital_conv(struct snd_info_buffer *buffer,
 			       struct hda_codec *codec, hda_nid_t nid)
 {
-	unsigned int digi1 = snd_hda_codec_read(codec, nid, 0,
+	unsigned int digi1 = ls2h_hda_codec_read(codec, nid, 0,
 						AC_VERB_GET_DIGI_CONVERT_1, 0);
 	unsigned char digi2 = digi1 >> 8;
 	unsigned char digi3 = digi1 >> 16;
@@ -455,8 +455,8 @@ static void print_power_state(struct snd_info_buffer *buffer,
 		[ilog2(AC_PWRST_EPSS)]		= "EPSS",
 	};
 
-	int sup = snd_hda_param_read(codec, nid, AC_PAR_POWER_STATE);
-	int pwr = snd_hda_codec_read(codec, nid, 0,
+	int sup = ls2h_hda_param_read(codec, nid, AC_PAR_POWER_STATE);
+	int pwr = ls2h_hda_codec_read(codec, nid, 0,
 				     AC_VERB_GET_POWER_STATE, 0);
 	if (sup != -1)
 		snd_iprintf(buffer, "  Power states: %s\n",
@@ -478,7 +478,7 @@ static void print_power_state(struct snd_info_buffer *buffer,
 static void print_unsol_cap(struct snd_info_buffer *buffer,
 			      struct hda_codec *codec, hda_nid_t nid)
 {
-	int unsol = snd_hda_codec_read(codec, nid, 0,
+	int unsol = ls2h_hda_codec_read(codec, nid, 0,
 				       AC_VERB_GET_UNSOLICITED_RESPONSE, 0);
 	snd_iprintf(buffer,
 		    "  Unsolicited: tag=%02x, enabled=%d\n",
@@ -489,7 +489,7 @@ static void print_unsol_cap(struct snd_info_buffer *buffer,
 static void print_proc_caps(struct snd_info_buffer *buffer,
 			    struct hda_codec *codec, hda_nid_t nid)
 {
-	unsigned int proc_caps = snd_hda_param_read(codec, nid,
+	unsigned int proc_caps = ls2h_hda_param_read(codec, nid,
 						    AC_PAR_PROC_CAP);
 	snd_iprintf(buffer, "  Processing caps: benign=%d, ncoeff=%d\n",
 		    proc_caps & AC_PCAP_BENIGN,
@@ -507,7 +507,7 @@ static void print_conn_list(struct snd_info_buffer *buffer,
 	    wid_type != AC_WID_AUD_MIX &&
 	    wid_type != AC_WID_VOL_KNB &&
 	    wid_type != AC_WID_POWER)
-		curr = snd_hda_codec_read(codec, nid, 0,
+		curr = ls2h_hda_codec_read(codec, nid, 0,
 					  AC_VERB_GET_CONNECT_SEL, 0);
 	snd_iprintf(buffer, "  Connection: %d\n", conn_len);
 	if (conn_len > 0) {
@@ -525,7 +525,7 @@ static void print_gpio(struct snd_info_buffer *buffer,
 		       struct hda_codec *codec, hda_nid_t nid)
 {
 	unsigned int gpio =
-		snd_hda_param_read(codec, codec->afg, AC_PAR_GPIO_CAP);
+		ls2h_hda_param_read(codec, codec->afg, AC_PAR_GPIO_CAP);
 	unsigned int enable, direction, wake, unsol, sticky, data;
 	int i, max;
 	snd_iprintf(buffer, "GPIO: io=%d, o=%d, i=%d, "
@@ -538,17 +538,17 @@ static void print_gpio(struct snd_info_buffer *buffer,
 	max = gpio & AC_GPIO_IO_COUNT;
 	if (!max || max > 8)
 		return;
-	enable = snd_hda_codec_read(codec, nid, 0,
+	enable = ls2h_hda_codec_read(codec, nid, 0,
 				    AC_VERB_GET_GPIO_MASK, 0);
-	direction = snd_hda_codec_read(codec, nid, 0,
+	direction = ls2h_hda_codec_read(codec, nid, 0,
 				       AC_VERB_GET_GPIO_DIRECTION, 0);
-	wake = snd_hda_codec_read(codec, nid, 0,
+	wake = ls2h_hda_codec_read(codec, nid, 0,
 				  AC_VERB_GET_GPIO_WAKE_MASK, 0);
-	unsol  = snd_hda_codec_read(codec, nid, 0,
+	unsol  = ls2h_hda_codec_read(codec, nid, 0,
 				    AC_VERB_GET_GPIO_UNSOLICITED_RSP_MASK, 0);
-	sticky = snd_hda_codec_read(codec, nid, 0,
+	sticky = ls2h_hda_codec_read(codec, nid, 0,
 				    AC_VERB_GET_GPIO_STICKY_MASK, 0);
-	data = snd_hda_codec_read(codec, nid, 0,
+	data = ls2h_hda_codec_read(codec, nid, 0,
 				  AC_VERB_GET_GPIO_DATA, 0);
 	for (i = 0; i < max; ++i)
 		snd_iprintf(buffer,
@@ -596,7 +596,7 @@ static void print_codec_info(struct snd_info_entry *entry,
 
 	if (! codec->afg)
 		return;
-	snd_hda_power_up(codec);
+	ls2h_hda_power_up(codec);
 	snd_iprintf(buffer, "Default PCM:\n");
 	print_pcm_caps(buffer, codec, codec->afg);
 	snd_iprintf(buffer, "Default Amp-In caps: ");
@@ -604,10 +604,10 @@ static void print_codec_info(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "Default Amp-Out caps: ");
 	print_amp_caps(buffer, codec, codec->afg, HDA_OUTPUT);
 
-	nodes = snd_hda_get_sub_nodes(codec, codec->afg, &nid);
+	nodes = ls2h_hda_get_sub_nodes(codec, codec->afg, &nid);
 	if (! nid || nodes < 0) {
 		snd_iprintf(buffer, "Invalid AFG subtree\n");
-		snd_hda_power_down(codec);
+		ls2h_hda_power_down(codec);
 		return;
 	}
 
@@ -617,7 +617,7 @@ static void print_codec_info(struct snd_info_entry *entry,
 
 	for (i = 0; i < nodes; i++, nid++) {
 		unsigned int wid_caps =
-			snd_hda_param_read(codec, nid,
+			ls2h_hda_param_read(codec, nid,
 					   AC_PAR_AUDIO_WIDGET_CAP);
 		unsigned int wid_type = get_wcaps_type(wid_caps);
 		hda_nid_t conn[HDA_MAX_CONNECTIONS];
@@ -658,7 +658,7 @@ static void print_codec_info(struct snd_info_entry *entry,
 			wid_caps |= AC_WCAP_CONN_LIST;
 
 		if (wid_caps & AC_WCAP_CONN_LIST)
-			conn_len = snd_hda_get_raw_connections(codec, nid, conn,
+			conn_len = ls2h_hda_get_raw_connections(codec, nid, conn,
 							   HDA_MAX_CONNECTIONS);
 
 		if (wid_caps & AC_WCAP_IN_AMP) {
@@ -733,13 +733,13 @@ static void print_codec_info(struct snd_info_entry *entry,
 		if (codec->proc_widget_hook)
 			codec->proc_widget_hook(buffer, codec, nid);
 	}
-	snd_hda_power_down(codec);
+	ls2h_hda_power_down(codec);
 }
 
 /*
  * create a proc read
  */
-int snd_hda_codec_proc_new(struct hda_codec *codec)
+int ls2h_hda_codec_proc_new(struct hda_codec *codec)
 {
 	char name[32];
 	struct snd_info_entry *entry;
