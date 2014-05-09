@@ -18,8 +18,8 @@
  *  Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-#ifndef __SOUND_HDA_CODEC_H
-#define __SOUND_HDA_CODEC_H
+#ifndef __MIPS_HDA_CODEC_H
+#define __MIPS_HDA_CODEC_H
 
 #include <sound/info.h>
 #include <sound/control.h>
@@ -564,21 +564,21 @@ struct snd_array {
 	void *list;
 };
 
-void *snd_array_new(struct snd_array *array);
-void snd_array_free(struct snd_array *array);
-static inline void snd_array_init(struct snd_array *array, unsigned int size,
+void *hda_array_new(struct snd_array *array);
+void hda_array_free(struct snd_array *array);
+static inline void hda_array_init(struct snd_array *array, unsigned int size,
 				  unsigned int align)
 {
 	array->elem_size = size;
 	array->alloc_align = align;
 }
 
-static inline void *snd_array_elem(struct snd_array *array, unsigned int idx)
+static inline void *hda_array_elem(struct snd_array *array, unsigned int idx)
 {
 	return array->list + idx * array->elem_size;
 }
 
-static inline unsigned int snd_array_index(struct snd_array *array, void *ptr)
+static inline unsigned int hda_array_index(struct snd_array *array, void *ptr)
 {
 	return (unsigned long)(ptr - array->list) / array->elem_size;
 }
@@ -610,7 +610,7 @@ struct hda_bus_ops {
 			  struct hda_pcm *pcm);
 	/* reset bus for retry verb */
 	void (*bus_reset)(struct hda_bus *bus);
-#ifdef CONFIG_SND_HDA_POWER_SAVE
+#ifdef CONFIG_LS2H_HDA_POWER_SAVE
 	/* notify power-up/down from codec to controller */
 	void (*pm_notify)(struct hda_bus *bus);
 #endif
@@ -619,7 +619,7 @@ struct hda_bus_ops {
 /* template to pass to the bus constructor */
 struct hda_bus_template {
 	void *private_data;
-	struct pci_dev *pci;
+	struct platform_device *dev;
 	const char *modelname;
 	int *power_save;
 	struct hda_bus_ops ops;
@@ -636,7 +636,7 @@ struct hda_bus {
 
 	/* copied from template */
 	void *private_data;
-	struct pci_dev *pci;
+	struct platform_device *dev;
 	const char *modelname;
 	int *power_save;
 	struct hda_bus_ops ops;
@@ -693,8 +693,8 @@ struct hda_codec_preset_list {
 };
 
 /* initial hook */
-int snd_hda_add_codec_preset(struct hda_codec_preset_list *preset);
-int snd_hda_delete_codec_preset(struct hda_codec_preset_list *preset);
+int ls2h_hda_add_codec_preset(struct hda_codec_preset_list *preset);
+int ls2h_hda_delete_codec_preset(struct hda_codec_preset_list *preset);
 
 /* ops set by the preset patch */
 struct hda_codec_ops {
@@ -709,7 +709,7 @@ struct hda_codec_ops {
 	int (*suspend)(struct hda_codec *codec);
 	int (*resume)(struct hda_codec *codec);
 #endif
-#ifdef CONFIG_SND_HDA_POWER_SAVE
+#ifdef CONFIG_LS2H_HDA_POWER_SAVE
 	int (*check_power_status)(struct hda_codec *codec, hda_nid_t nid);
 #endif
 	void (*reboot_notify)(struct hda_codec *codec);
@@ -838,13 +838,6 @@ struct hda_codec {
 	struct snd_array driver_pins;	/* pin configs set by codec parser */
 	struct snd_array cvt_setups;	/* audio convert setups */
 
-#ifdef CONFIG_SND_HDA_HWDEP
-	struct snd_hwdep *hwdep;	/* assigned hwdep device */
-	struct snd_array init_verbs;	/* additional init verbs */
-	struct snd_array hints;		/* additional hints */
-	struct snd_array user_pins;	/* default pin configs to override */
-#endif
-
 	/* misc flags */
 	unsigned int spdif_status_reset :1; /* needs to toggle SPDIF for each
 					     * status change
@@ -863,7 +856,7 @@ struct hda_codec {
 	unsigned int no_jack_detect:1;	/* Machine has no jack-detection */
 	unsigned int pcm_format_first:1; /* PCM format must be set first */
 	unsigned int epss:1;		/* supporting EPSS? */
-#ifdef CONFIG_SND_HDA_POWER_SAVE
+#ifdef CONFIG_LS2H_HDA_POWER_SAVE
 	unsigned int power_on :1;	/* current (global) power-state */
 	int power_transition;	/* power-state in transition */
 	int power_count;	/* current (global) power refcount */
@@ -881,7 +874,7 @@ struct hda_codec {
 	/* jack detection */
 	struct snd_array jacktbl;
 
-#ifdef CONFIG_SND_HDA_INPUT_JACK
+#ifdef CONFIG_LS2H_HDA_INPUT_JACK
 	/* jack detection */
 	struct snd_array jacks;
 #endif
@@ -896,38 +889,38 @@ enum {
 /*
  * constructors
  */
-int snd_hda_bus_new(struct snd_card *card, const struct hda_bus_template *temp,
+int ls2h_hda_bus_new(struct snd_card *card, const struct hda_bus_template *temp,
 		    struct hda_bus **busp);
-int snd_hda_codec_new(struct hda_bus *bus, unsigned int codec_addr,
+int ls2h_hda_codec_new(struct hda_bus *bus, unsigned int codec_addr,
 		      struct hda_codec **codecp);
-int snd_hda_codec_configure(struct hda_codec *codec);
+int ls2h_hda_codec_configure(struct hda_codec *codec);
 
 /*
  * low level functions
  */
 int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
 			    unsigned int *res);
-unsigned int snd_hda_codec_read(struct hda_codec *codec, hda_nid_t nid,
+unsigned int ls2h_hda_codec_read(struct hda_codec *codec, hda_nid_t nid,
 				int direct,
 				unsigned int verb, unsigned int parm);
-int snd_hda_codec_write(struct hda_codec *codec, hda_nid_t nid, int direct,
+int ls2h_hda_codec_write(struct hda_codec *codec, hda_nid_t nid, int direct,
 			unsigned int verb, unsigned int parm);
-#define snd_hda_param_read(codec, nid, param) \
-	snd_hda_codec_read(codec, nid, 0, AC_VERB_PARAMETERS, param)
-int snd_hda_get_sub_nodes(struct hda_codec *codec, hda_nid_t nid,
+#define ls2h_hda_param_read(codec, nid, param) \
+	ls2h_hda_codec_read(codec, nid, 0, AC_VERB_PARAMETERS, param)
+int ls2h_hda_get_sub_nodes(struct hda_codec *codec, hda_nid_t nid,
 			  hda_nid_t *start_id);
-int snd_hda_get_connections(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_get_connections(struct hda_codec *codec, hda_nid_t nid,
 			    hda_nid_t *conn_list, int max_conns);
 static inline int
 snd_hda_get_num_conns(struct hda_codec *codec, hda_nid_t nid)
 {
-	return snd_hda_get_connections(codec, nid, NULL, 0);
+	return ls2h_hda_get_connections(codec, nid, NULL, 0);
 }
-int snd_hda_get_raw_connections(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_get_raw_connections(struct hda_codec *codec, hda_nid_t nid,
 			    hda_nid_t *conn_list, int max_conns);
-int snd_hda_override_conn_list(struct hda_codec *codec, hda_nid_t nid, int nums,
+int ls2h_hda_override_conn_list(struct hda_codec *codec, hda_nid_t nid, int nums,
 			  const hda_nid_t *list);
-int snd_hda_get_conn_index(struct hda_codec *codec, hda_nid_t mux,
+int ls2h_hda_get_conn_index(struct hda_codec *codec, hda_nid_t mux,
 			   hda_nid_t nid, int recursive);
 int snd_hda_query_supported_pcm(struct hda_codec *codec, hda_nid_t nid,
 				u32 *ratesp, u64 *formatsp, unsigned int *bpsp);
@@ -938,25 +931,25 @@ struct hda_verb {
 	u32 param;
 };
 
-void snd_hda_sequence_write(struct hda_codec *codec,
+void ls2h_hda_sequence_write(struct hda_codec *codec,
 			    const struct hda_verb *seq);
 
 /* unsolicited event */
-int snd_hda_queue_unsol_event(struct hda_bus *bus, u32 res, u32 res_ex);
+int ls2h_hda_queue_unsol_event(struct hda_bus *bus, u32 res, u32 res_ex);
 
 /* cached write */
 #ifdef CONFIG_PM
-int snd_hda_codec_write_cache(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_codec_write_cache(struct hda_codec *codec, hda_nid_t nid,
 			      int direct, unsigned int verb, unsigned int parm);
-void snd_hda_sequence_write_cache(struct hda_codec *codec,
+void ls2h_hda_sequence_write_cache(struct hda_codec *codec,
 				  const struct hda_verb *seq);
-int snd_hda_codec_update_cache(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_codec_update_cache(struct hda_codec *codec, hda_nid_t nid,
 			      int direct, unsigned int verb, unsigned int parm);
-void snd_hda_codec_resume_cache(struct hda_codec *codec);
+void ls2h_hda_codec_resume_cache(struct hda_codec *codec);
 #else
-#define snd_hda_codec_write_cache	snd_hda_codec_write
-#define snd_hda_codec_update_cache	snd_hda_codec_write
-#define snd_hda_sequence_write_cache	snd_hda_sequence_write
+#define ls2h_hda_codec_write_cache	ls2h_hda_codec_write
+#define ls2h_hda_codec_update_cache	ls2h_hda_codec_write
+#define ls2h_hda_sequence_write_cache	ls2h_hda_sequence_write
 #endif
 
 /* the struct for codec->pin_configs */
@@ -967,12 +960,12 @@ struct hda_pincfg {
 	unsigned int cfg;	/* default configuration */
 };
 
-unsigned int snd_hda_codec_get_pincfg(struct hda_codec *codec, hda_nid_t nid);
-int snd_hda_codec_set_pincfg(struct hda_codec *codec, hda_nid_t nid,
+unsigned int ls2h_hda_codec_get_pincfg(struct hda_codec *codec, hda_nid_t nid);
+int ls2h_hda_codec_set_pincfg(struct hda_codec *codec, hda_nid_t nid,
 			     unsigned int cfg);
-int snd_hda_add_pincfg(struct hda_codec *codec, struct snd_array *list,
+int ls2h_hda_add_pincfg(struct hda_codec *codec, struct snd_array *list,
 		       hda_nid_t nid, unsigned int cfg); /* for hwdep */
-void snd_hda_shutup_pins(struct hda_codec *codec);
+void ls2h_hda_shutup_pins(struct hda_codec *codec);
 
 /* SPDIF controls */
 struct hda_spdif_out {
@@ -980,7 +973,7 @@ struct hda_spdif_out {
 	unsigned int status;	/* IEC958 status bits */
 	unsigned short ctls;	/* SPDIF control bits */
 };
-struct hda_spdif_out *snd_hda_spdif_out_of_nid(struct hda_codec *codec,
+struct hda_spdif_out *ls2h_hda_spdif_out_of_nid(struct hda_codec *codec,
 					       hda_nid_t nid);
 void snd_hda_spdif_ctls_unassign(struct hda_codec *codec, int idx);
 void snd_hda_spdif_ctls_assign(struct hda_codec *codec, int idx, hda_nid_t nid);
@@ -988,63 +981,63 @@ void snd_hda_spdif_ctls_assign(struct hda_codec *codec, int idx, hda_nid_t nid);
 /*
  * Mixer
  */
-int snd_hda_build_controls(struct hda_bus *bus);
-int snd_hda_codec_build_controls(struct hda_codec *codec);
+int ls2h_hda_build_controls(struct hda_bus *bus);
+int ls2h_hda_codec_build_controls(struct hda_codec *codec);
 
 /*
  * PCM
  */
-int snd_hda_build_pcms(struct hda_bus *bus);
-int snd_hda_codec_build_pcms(struct hda_codec *codec);
+int ls2h_hda_build_pcms(struct hda_bus *bus);
+int ls2h_hda_codec_build_pcms(struct hda_codec *codec);
 
-int snd_hda_codec_prepare(struct hda_codec *codec,
+int ls2h_hda_codec_prepare(struct hda_codec *codec,
 			  struct hda_pcm_stream *hinfo,
 			  unsigned int stream,
 			  unsigned int format,
 			  struct snd_pcm_substream *substream);
-void snd_hda_codec_cleanup(struct hda_codec *codec,
+void ls2h_hda_codec_cleanup(struct hda_codec *codec,
 			   struct hda_pcm_stream *hinfo,
 			   struct snd_pcm_substream *substream);
 
-void snd_hda_codec_setup_stream(struct hda_codec *codec, hda_nid_t nid,
+void ls2h_hda_codec_setup_stream(struct hda_codec *codec, hda_nid_t nid,
 				u32 stream_tag,
 				int channel_id, int format);
-void __snd_hda_codec_cleanup_stream(struct hda_codec *codec, hda_nid_t nid,
+void __ls2h_hda_codec_cleanup_stream(struct hda_codec *codec, hda_nid_t nid,
 				    int do_now);
-#define snd_hda_codec_cleanup_stream(codec, nid) \
-	__snd_hda_codec_cleanup_stream(codec, nid, 0)
-unsigned int snd_hda_calc_stream_format(unsigned int rate,
+#define ls2h_hda_codec_cleanup_stream(codec, nid) \
+	__ls2h_hda_codec_cleanup_stream(codec, nid, 0)
+unsigned int ls2h_hda_calc_stream_format(unsigned int rate,
 					unsigned int channels,
 					unsigned int format,
 					unsigned int maxbps,
 					unsigned short spdif_ctls);
-int snd_hda_is_supported_format(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_is_supported_format(struct hda_codec *codec, hda_nid_t nid,
 				unsigned int format);
 
 /*
  * Misc
  */
-void snd_hda_get_codec_name(struct hda_codec *codec, char *name, int namelen);
-void snd_hda_bus_reboot_notify(struct hda_bus *bus);
-void snd_hda_codec_set_power_to_all(struct hda_codec *codec, hda_nid_t fg,
+void ls2h_hda_get_codec_name(struct hda_codec *codec, char *name, int namelen);
+void ls2h_hda_bus_reboot_notify(struct hda_bus *bus);
+void ls2h_hda_codec_set_power_to_all(struct hda_codec *codec, hda_nid_t fg,
 				    unsigned int power_state,
 				    bool eapd_workaround);
 
-int snd_hda_lock_devices(struct hda_bus *bus);
-void snd_hda_unlock_devices(struct hda_bus *bus);
+int ls2h_hda_lock_devices(struct hda_bus *bus);
+void ls2h_hda_unlock_devices(struct hda_bus *bus);
 
 /*
  * power management
  */
 #ifdef CONFIG_PM
-int snd_hda_suspend(struct hda_bus *bus);
-int snd_hda_resume(struct hda_bus *bus);
+int ls2h_hda_suspend(struct hda_bus *bus);
+int ls2h_hda_resume(struct hda_bus *bus);
 #endif
 
 static inline
 int hda_call_check_power_status(struct hda_codec *codec, hda_nid_t nid)
 {
-#ifdef CONFIG_SND_HDA_POWER_SAVE
+#ifdef CONFIG_LS2H_HDA_POWER_SAVE
 	if (codec->patch_ops.check_power_status)
 		return codec->patch_ops.check_power_status(codec, nid);
 #endif
@@ -1054,29 +1047,22 @@ int hda_call_check_power_status(struct hda_codec *codec, hda_nid_t nid)
 /*
  * get widget information
  */
-const char *snd_hda_get_jack_connectivity(u32 cfg);
-const char *snd_hda_get_jack_type(u32 cfg);
-const char *snd_hda_get_jack_location(u32 cfg);
+const char *ls2h_hda_get_jack_connectivity(u32 cfg);
+const char *ls2h_hda_get_jack_type(u32 cfg);
+const char *ls2h_hda_get_jack_location(u32 cfg);
 
 /*
  * power saving
  */
-#ifdef CONFIG_SND_HDA_POWER_SAVE
-void snd_hda_power_up(struct hda_codec *codec);
-void snd_hda_power_up_d3wait(struct hda_codec *codec);
-void snd_hda_power_down(struct hda_codec *codec);
-void snd_hda_update_power_acct(struct hda_codec *codec);
+#ifdef CONFIG_LS2H_HDA_POWER_SAVE
+void ls2h_hda_power_up(struct hda_codec *codec);
+void ls2h_hda_power_up_d3wait(struct hda_codec *codec);
+void ls2h_hda_power_down(struct hda_codec *codec);
+void ls2h_hda_update_power_acct(struct hda_codec *codec);
 #else
-static inline void snd_hda_power_up(struct hda_codec *codec) {}
-static inline void snd_hda_power_up_d3wait(struct hda_codec *codec) {}
-static inline void snd_hda_power_down(struct hda_codec *codec) {}
-#endif
-
-#ifdef CONFIG_SND_HDA_PATCH_LOADER
-/*
- * patch firmware
- */
-int snd_hda_load_patch(struct hda_bus *bus, const char *patch);
+static inline void ls2h_hda_power_up(struct hda_codec *codec) {}
+static inline void ls2h_hda_power_up_d3wait(struct hda_codec *codec) {}
+static inline void ls2h_hda_power_down(struct hda_codec *codec) {}
 #endif
 
 /*
@@ -1094,4 +1080,4 @@ int snd_hda_load_patch(struct hda_bus *bus, const char *patch);
 #define EXPORT_SYMBOL_HDA(sym)
 #endif
 
-#endif /* __SOUND_HDA_CODEC_H */
+#endif /* __MIPS_HDA_CODEC_H */
