@@ -9,8 +9,8 @@
  * (at your option) any later version.
  */
 
-#ifndef __SOUND_HDA_AUTO_PARSER_H
-#define __SOUND_HDA_AUTO_PARSER_H
+#ifndef __MIPS_HDA_AUTO_PARSER_H
+#define __MIPS_HDA_AUTO_PARSER_H
 
 /*
  * Helper for automatic pin configuration
@@ -39,10 +39,10 @@ struct auto_pin_cfg_item {
 };
 
 struct auto_pin_cfg;
-const char *hda_get_autocfg_input_label(struct hda_codec *codec,
+const char *ls2h_hda_get_autocfg_input_label(struct hda_codec *codec,
 					const struct auto_pin_cfg *cfg,
 					int input);
-int snd_hda_get_pin_label(struct hda_codec *codec, hda_nid_t nid,
+int ls2h_hda_get_pin_label(struct hda_codec *codec, hda_nid_t nid,
 			  const struct auto_pin_cfg *cfg,
 			  char *label, int maxlen, int *indexp);
 
@@ -55,7 +55,7 @@ enum {
 	INPUT_PIN_ATTR_REAR,	/* mic/line-in jack in rear */
 };
 
-int snd_hda_get_input_pin_attr(unsigned int def_conf);
+int ls2h_hda_get_input_pin_attr(unsigned int def_conf);
 
 struct auto_pin_cfg {
 	int line_outs;
@@ -80,14 +80,14 @@ struct auto_pin_cfg {
 #define HDA_PINCFG_NO_HP_FIXUP	(1 << 0) /* no HP-split */
 #define HDA_PINCFG_NO_LO_FIXUP	(1 << 1) /* don't take other outs as LO */
 
-int snd_hda_parse_pin_defcfg(struct hda_codec *codec,
+int ls2h_hda_parse_pin_defcfg(struct hda_codec *codec,
 			     struct auto_pin_cfg *cfg,
 			     const hda_nid_t *ignore_nids,
 			     unsigned int cond_flags);
 
 /* older function */
-#define snd_hda_parse_pin_def_config(codec, cfg, ignore) \
-	snd_hda_parse_pin_defcfg(codec, cfg, ignore, 0)
+#define ls2h_hda_parse_pin_def_config(codec, cfg, ignore) \
+	ls2h_hda_parse_pin_defcfg(codec, cfg, ignore, 0)
 
 /*
  */
@@ -146,25 +146,25 @@ enum {
 	HDA_FIXUP_ACT_BUILD,
 };
 
-int snd_hda_gen_add_verbs(struct hda_gen_spec *spec,
+int ls2h_hda_gen_add_verbs(struct hda_gen_spec *spec,
 			  const struct hda_verb *list);
-void snd_hda_gen_apply_verbs(struct hda_codec *codec);
-void snd_hda_apply_pincfgs(struct hda_codec *codec,
+void ls2h_hda_gen_apply_verbs(struct hda_codec *codec);
+void ls2h_hda_apply_pincfgs(struct hda_codec *codec,
 			   const struct hda_pintbl *cfg);
-void snd_hda_apply_fixup(struct hda_codec *codec, int action);
-void snd_hda_pick_fixup(struct hda_codec *codec,
+void ls2h_hda_apply_fixup(struct hda_codec *codec, int action);
+void ls2h_hda_pick_fixup(struct hda_codec *codec,
 			const struct hda_model_fixup *models,
 			const struct snd_pci_quirk *quirk,
 			const struct hda_fixup *fixlist);
 
 static inline void snd_hda_gen_init(struct hda_gen_spec *spec)
 {
-	snd_array_init(&spec->verbs, sizeof(struct hda_verb *), 8);
+	hda_array_init(&spec->verbs, sizeof(struct hda_verb *), 8);
 }
 
 static inline void snd_hda_gen_free(struct hda_gen_spec *spec)
 {
-	snd_array_free(&spec->verbs);
+	hda_array_free(&spec->verbs);
 }
 
-#endif /* __SOUND_HDA_AUTO_PARSER_H */
+#endif /* __MIPS_HDA_AUTO_PARSER_H */
