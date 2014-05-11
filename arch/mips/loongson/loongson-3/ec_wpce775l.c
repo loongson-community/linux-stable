@@ -84,7 +84,7 @@ void clean_ec_event_status(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&port_access_lock, flags);
-	outl(0x4000, 0x810);
+	outl(0x404000, 0x810);
 	spin_unlock_irqrestore(&port_access_lock, flags);
 }
 EXPORT_SYMBOL(clean_ec_event_status);

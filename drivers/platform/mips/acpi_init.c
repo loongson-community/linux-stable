@@ -7,7 +7,7 @@
 #define SBX00_ACPI_IO_SIZE 0x100
 
 #define ACPI_PM_EVT_BLK         (SBX00_ACPI_IO_BASE + 0x00) /* 4 bytes */
-#define ACPI_PM1_CNT_BLK        (SBX00_ACPI_IO_BASE + 0x04) /* 2 bytes */
+#define ACPI_PM_CNT_BLK         (SBX00_ACPI_IO_BASE + 0x04) /* 2 bytes */
 #define ACPI_PMA_CNT_BLK        (SBX00_ACPI_IO_BASE + 0x0F) /* 1 byte */
 #define ACPI_PM_TMR_BLK         (SBX00_ACPI_IO_BASE + 0x18) /* 4 bytes */
 #define ACPI_GPE0_BLK           (SBX00_ACPI_IO_BASE + 0x10) /* 8 bytes */
@@ -64,58 +64,118 @@ u8 pm2_ioread(u8 reg)
 }
 EXPORT_SYMBOL(pm2_ioread);
 
-void sci_interrupt_setup(void)
+static void acpi_hw_clear_status(void)
 {
-	u32 temp32;
+	u16 value;
 
-	/* pm1 base */
-	pm_iowrite(0x22, ACPI_PM1_CNT_BLK & 0xff);
-	pm_iowrite(0x23, ACPI_PM1_CNT_BLK >> 8);
+	/* PMStatus: Clear WakeStatus/PwrBtnStatus */
+	value = inw(ACPI_PM_EVT_BLK);
+	value |= (1 << 8 | 1 << 15);
+	outw(value, ACPI_PM_EVT_BLK);
 
-	/* gpm base */
-	pm_iowrite(0x28, ACPI_GPE0_BLK & 0xFF);
+	/* GPEStatus: Clear all generated events */
+	outl(inl(ACPI_GPE0_BLK), ACPI_GPE0_BLK);
+}
+
+void acpi_sleep_prepare(void)
+{
+	u16 value;
+
+	acpi_hw_clear_status();
+
+	/* PMEnable: Enable PwrBtn */
+	value = inw(ACPI_PM_EVT_BLK + 2);
+	value |= 1 << 8;
+	outw(value, ACPI_PM_EVT_BLK + 2);
+
+	/* Turn ON LED blink */
+	value = pm_ioread(0x7c);
+	value = (value & ~0xc) | 0x8;
+	pm_iowrite(0x7c, value);
+}
+
+void acpi_sleep_complete(void)
+{
+	u8 value;
+
+	acpi_hw_clear_status();
+
+	/* Turn OFF LED blink */
+	value = pm_ioread(0x7c);
+	value |= 0xc;
+	pm_iowrite(0x7c, value);
+}
+
+void acpi_registers_setup(void)
+{
+	u32 value;
+
+	/* PM Status Base */
+	pm_iowrite(0x20, ACPI_PM_EVT_BLK & 0xff);
+	pm_iowrite(0x21, ACPI_PM_EVT_BLK >> 8);
+
+	/* PM Control Base */
+	pm_iowrite(0x22, ACPI_PM_CNT_BLK & 0xff);
+	pm_iowrite(0x23, ACPI_PM_CNT_BLK >> 8);
+
+	/* GPM Base */
+	pm_iowrite(0x28, ACPI_GPE0_BLK & 0xff);
 	pm_iowrite(0x29, ACPI_GPE0_BLK >> 8);
 
-	/* gpm base */
-	pm_iowrite(0x2e, ACPI_END & 0xFF);
+	/* ACPI End */
+	pm_iowrite(0x2e, ACPI_END & 0xff);
 	pm_iowrite(0x2f, ACPI_END >> 8);
 
-	/* io decode */
-	pm_iowrite(0x0E, 1<<3 | 0<<2); /* AcpiDecodeEnable, When set, SB uses
-					* the contents of the PM registers at
-					* index 20-2B to decode ACPI I/O address.
-					* AcpiSmiEn & SmiCmdEn */
+	/* IO Decode */
+	pm_iowrite(0x0e, 1 << 3); /* AcpiDecodeEnable, When set, SB uses
+				   * the contents of the PM registers at
+				   * index 20-2B to decode ACPI I/O address.
+				   * AcpiSmiEn & SmiCmdEn */
 
 	/* SCI_EN set P225 */
-	outw(1, ACPI_PM1_CNT_BLK);
+	outw(1, ACPI_PM_CNT_BLK);
 
-	/* enable to generate SCI P180 */
+	/* Enable to generate SCI P180 */
 	pm_iowrite(0x10, pm_ioread(0x10) | 1);
 
-	/* gpm9 enable P227 */
-	temp32 = inl(ACPI_GPE0_BLK + 4);
-	outl(temp32 | (1 << 14), ACPI_GPE0_BLK + 4);
+	/* GPM3/GPM9 enable P227 */
+	value = inl(ACPI_GPE0_BLK + 4);
+	outl(value | (1 << 14) | (1 << 22), ACPI_GPE0_BLK + 4);
 
-	/* set gpm9 as input P205 */
+	/* Set GPM9 as input P205 */
 	pm_iowrite(0x8d, pm_ioread(0x8d) & (~(1 << 1)));
 
-	/* set gpm9 not as output P207 */
+	/* Set GPM9 not as output P207 */
 	pm_iowrite(0x94, pm_ioread(0x94) | (1 << 3));
 
-	/* gpm9 config ACPI trigger SCIOUT P191 */
+	/* GPM3 config ACPI trigger SCIOUT P187 */
+	pm_iowrite(0x33, pm_ioread(0x33) & (~(3 << 4)));
+
+	/* GPM9 config ACPI trigger SCIOUT P191 */
 	pm_iowrite(0x3d, pm_ioread(0x3d) & (~(3 << 2)));
 
-	/* set gpm9 pull-down enable, P258 */
-	temp32 = pm2_ioread(0xf8);
-	temp32 |= ((1 << 5) | (1 << 1));
-	pm2_iowrite(0xf8, temp32);
+	/* GPM3 config falling edge trigger */
+	pm_iowrite(0x37, pm_ioread(0x37) & (~(1 << 6)));
+
+	/* No wait for STPGNT# in ACPI Sx state */
+	pm_iowrite(0x7c, pm_ioread(0x7c) | (1 << 6));
+
+	/* Set GPM3 pull-down enable, P258 */
+	value = pm2_ioread(0xf6);
+	value |= ((1 << 7) | (1 << 3));
+	pm2_iowrite(0xf6, value);
+
+	/* Set GPM9 pull-down enable, P258 */
+	value = pm2_ioread(0xf8);
+	value |= ((1 << 5) | (1 << 1));
+	pm2_iowrite(0xf8, value);
 }
 
 int __init sbx00_acpi_init(void)
 {
 	register_acpi_resource();
-
-	sci_interrupt_setup();
+	acpi_registers_setup();
+	acpi_hw_clear_status();
 
 	return 0;
 }

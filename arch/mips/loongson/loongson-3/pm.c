@@ -32,7 +32,10 @@
 #define I8042_KBD_IRQ		1
 
 extern void irq_router_init(void);
-extern void sci_interrupt_setup(void);
+extern void acpi_sleep_prepare(void);
+extern void acpi_sleep_complete(void);
+extern void acpi_registers_setup(void);
+
 static unsigned char i8042_ctr;
 
 static int i8042_enable_kbd_port(void)
@@ -81,6 +84,9 @@ int wakeup_loongson(void)
 
 void mach_suspend(suspend_state_t state)
 {
+	if (state == PM_SUSPEND_MEM)
+		acpi_sleep_prepare();
+
 	/* Workaround: disable spurious IRQ1 via EC */
 	if (state == PM_SUSPEND_STANDBY) {
 		ec_write_noindex(CMD_RESET, STANDBY_ON);
@@ -92,6 +98,7 @@ void mach_resume(suspend_state_t state)
 {
 	if (state == PM_SUSPEND_MEM) {
 		irq_router_init();
-		sci_interrupt_setup();
+		acpi_registers_setup();
+		acpi_sleep_complete();
 	}
 }
