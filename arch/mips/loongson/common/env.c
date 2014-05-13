@@ -44,6 +44,8 @@ u64 loongson_freqctrl[MAX_PACKAGES];
 unsigned long long smp_group[4];
 
 enum loongson_cpu_type cputype;
+u16 loongson_boot_cpu_id;
+u16 loongson_reserved_cpus_mask;
 u32 nr_cpus_loongson = NR_CPUS;
 u32 nr_nodes_loongson = MAX_NUMNODES;
 int cores_per_node;
@@ -152,6 +154,8 @@ void __init prom_init_env(void)
 
 	nr_cpus_loongson = ecpu->nr_cpus;
 	cpu_clock_freq = ecpu->cpu_clock_freq;
+	loongson_boot_cpu_id = ecpu->cpu_startup_core_id;
+	loongson_reserved_cpus_mask = ecpu->reserved_cores_mask;
 	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
 		nr_cpus_loongson = NR_CPUS;
 	nr_nodes_loongson = (nr_cpus_loongson + cores_per_node - 1) / cores_per_node;
