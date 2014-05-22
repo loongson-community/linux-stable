@@ -205,6 +205,13 @@ struct igb_q_vector {
 	void __iomem *itr_register;
 
 	char name[IFNAMSIZ + 9];
+
+	u32 rdh_old;
+	u32 rdt_old;
+	u32 rx_ntu_old;
+	u32 rx_ntc_old;
+	int weird_hang_count;
+	bool weird_hang_recheck;
 };
 
 struct igb_ring {
