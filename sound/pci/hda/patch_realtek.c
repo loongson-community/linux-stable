@@ -31,6 +31,7 @@
 #include <linux/module.h>
 #include <sound/core.h>
 #include <sound/jack.h>
+#include "hda_priv.h"
 #include "hda_codec.h"
 #include "hda_local.h"
 #include "hda_auto_parser.h"
@@ -163,6 +164,13 @@ static const struct hda_verb alc_gpio3_init_verbs[] = {
 	{0x01, AC_VERB_SET_GPIO_DATA, 0x03},
 	{ }
 };
+
+int has_loongson_workaround(struct hda_codec *codec)
+{
+	struct azx *chip = codec->bus->private_data;
+
+	return chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND;
+}
 
 /*
  * Fix hardware PLL issue
@@ -398,10 +406,10 @@ static int alc_auto_parse_customize_define(struct hda_codec *codec)
 		goto do_sku;
 	}
 
-	if (!codec->bus->pci)
+	if (!codec->bus->pci && !has_loongson_workaround(codec))
 		return -1;
 	ass = codec->subsystem_id & 0xffff;
-	if (ass != codec->bus->pci->subsystem_device && (ass & 1))
+	if (codec->bus->pci && ass != codec->bus->pci->subsystem_device && (ass & 1))
 		goto do_sku;
 
 	nid = 0x1d;

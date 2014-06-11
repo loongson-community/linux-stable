@@ -35,6 +35,7 @@
 #include "hda_local.h"
 #include "hda_beep.h"
 #include "hda_jack.h"
+#include "hda_priv.h"
 #include <sound/hda_hwdep.h>
 
 #define CREATE_TRACE_POINTS
@@ -220,6 +221,7 @@ static int codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
 			   int flags, unsigned int *res)
 {
 	struct hda_bus *bus = codec->bus;
+	struct azx *chip = bus->private_data;
 	int err;
 
 	if (cmd == ~0)
@@ -232,7 +234,9 @@ static int codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
 	mutex_lock(&bus->cmd_mutex);
 	if (flags & HDA_RW_NO_RESPONSE_FALLBACK)
 		bus->no_response_fallback = 1;
-	for (;;) {
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		err = bus->ops.command(bus, cmd);
+	else for (;;) {
 		trace_hda_send_cmd(codec, cmd);
 		err = bus->ops.command(bus, cmd);
 		if (err != -EAGAIN)

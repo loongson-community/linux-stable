@@ -64,18 +64,42 @@ static void azx_stream_start(struct azx *chip, struct azx_dev *azx_dev)
 	azx_writel(chip, INTCTL,
 		   azx_readl(chip, INTCTL) | (1 << azx_dev->index));
 	/* set DMA start and interrupt mask */
-	azx_sd_writeb(chip, azx_dev, SD_CTL,
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		azx_sd_writel(chip, azx_dev, SD_CTL,
+		      azx_sd_readl(chip, azx_dev, SD_CTL) |
+		      SD_CTL_DMA_START | SD_INT_MASK);
+	else
+		azx_sd_writeb(chip, azx_dev, SD_CTL,
 		      azx_sd_readb(chip, azx_dev, SD_CTL) |
 		      SD_CTL_DMA_START | SD_INT_MASK);
 }
 
+static unsigned int azx_get_position_org(struct azx *chip, struct azx_dev *azx_dev);
+
 /* stop DMA */
 static void azx_stream_clear(struct azx *chip, struct azx_dev *azx_dev)
 {
-	azx_sd_writeb(chip, azx_dev, SD_CTL,
+	int stream;
+	struct snd_pcm_substream *substream = azx_dev->substream;
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		azx_sd_writel(chip, azx_dev, SD_CTL,
+		      azx_sd_readl(chip, azx_dev, SD_CTL) &
+		      ~(SD_CTL_DMA_START | SD_INT_MASK));
+		azx_sd_writeb(chip, azx_dev, SD_STS, azx_sd_readb(chip, azx_dev, SD_STS));
+		if (!substream)
+			azx_dev->fix_prvpos = 0;
+		else {
+			stream = substream->stream;
+			azx_dev->fix_prvpos = azx_get_position_org(chip, azx_dev); /* to be sure */
+		}
+	}
+	else {
+		azx_sd_writeb(chip, azx_dev, SD_CTL,
 		      azx_sd_readb(chip, azx_dev, SD_CTL) &
 		      ~(SD_CTL_DMA_START | SD_INT_MASK));
-	azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK); /* to be sure */
+		azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK); /* to be sure */
+	}
 }
 
 /* stop a stream */
@@ -93,6 +117,9 @@ static void azx_stream_reset(struct azx *chip, struct azx_dev *azx_dev)
 {
 	unsigned char val;
 	int timeout;
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		goto out;
 
 	azx_stream_clear(chip, azx_dev);
 
@@ -114,6 +141,7 @@ static void azx_stream_reset(struct azx *chip, struct azx_dev *azx_dev)
 		SD_CTL_STREAM_RESET) && --timeout)
 		;
 
+out:
 	/* reset first position - may not be synced with hw at this time */
 	*azx_dev->posbuf = 0;
 }
@@ -135,7 +163,14 @@ static int azx_setup_controller(struct azx *chip, struct azx_dev *azx_dev)
 	azx_sd_writel(chip, azx_dev, SD_CTL, val);
 
 	/* program the length of samples in cyclic buffer */
-	azx_sd_writel(chip, azx_dev, SD_CBL, azx_dev->bufsize);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		if(azx_dev->substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			azx_sd_writel(chip, azx_dev, SD_CBL, azx_dev->bufsize - 64);
+		else
+			azx_sd_writel(chip, azx_dev, SD_CBL, azx_dev->bufsize - 16);
+	}
+	else
+		azx_sd_writel(chip, azx_dev, SD_CBL, azx_dev->bufsize);
 
 	/* program the stream format */
 	/* this value needs to be the same as the one programmed */
@@ -346,6 +381,8 @@ static int azx_setup_periods(struct azx *chip,
 
 	if (chip->bdl_pos_adj)
 		pos_adj = chip->bdl_pos_adj[chip->dev_index];
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		pos_adj = 0;
 	if (!azx_dev->no_period_wakeup && pos_adj > 0) {
 		struct snd_pcm_runtime *runtime = substream->runtime;
 		int pos_align = pos_adj;
@@ -603,7 +640,7 @@ static int azx_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		azx_dev = get_azx_dev(s);
 		if (start) {
 			azx_dev->start_wallclk = azx_readl(chip, WALLCLK);
-			if (!rstart)
+			if (!rstart && !(chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND))
 				azx_dev->start_wallclk -=
 						azx_dev->period_wallclk;
 			azx_stream_start(chip, azx_dev);
@@ -729,6 +766,27 @@ static unsigned int azx_via_get_position(struct azx *chip,
 	return bound_pos + mod_dma_pos;
 }
 
+static unsigned int azx_get_position_org(struct azx *chip, struct azx_dev *azx_dev)
+{
+	struct snd_pcm_substream *substream = azx_dev->substream;
+	struct azx_pcm *apcm = snd_pcm_substream_chip(substream);
+	unsigned int pos;
+	int stream = substream->stream;
+	struct hda_pcm_stream *hinfo = apcm->hinfo[stream];
+
+	switch (chip->position_fix[stream]) {
+	case POS_FIX_LPIB:
+		/* read LPIB */
+		pos = azx_sd_readl(chip, azx_dev, SD_LPIB);
+		break;
+	default:
+		/* use the position buffer */
+		pos = le32_to_cpu(*azx_dev->posbuf);
+	}
+
+	return pos;
+}
+
 unsigned int azx_get_position(struct azx *chip,
 			      struct azx_dev *azx_dev,
 			      bool with_check)
@@ -739,6 +797,23 @@ unsigned int azx_get_position(struct azx *chip,
 	int stream = substream->stream;
 	struct hda_pcm_stream *hinfo = apcm->hinfo[stream];
 	int delay = 0;
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		pos = azx_get_position_org(chip, azx_dev);
+
+		if (pos >= azx_dev->fix_prvpos) {
+			pos = pos - azx_dev->fix_prvpos;
+			pos %= azx_dev->bufsize;
+		} else {
+			if (azx_dev->fix_prvpos > azx_dev->bufsize)
+				pos = (0x100000000ULL + pos-azx_dev->fix_prvpos)
+					% azx_dev->bufsize;
+			else
+				pos = pos + azx_dev->bufsize - azx_dev->fix_prvpos;
+		}
+
+		return pos;
+	}
 
 	switch (chip->position_fix[stream]) {
 	case POS_FIX_LPIB:
@@ -1059,7 +1134,9 @@ static void azx_init_cmd_io(struct azx *chip)
 
 	/* reset the corb hw read pointer */
 	azx_writew(chip, CORBRP, ICH6_CORBRP_RST);
-	if (!(chip->driver_caps & AZX_DCAPS_CORBRP_SELF_CLEAR)) {
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		azx_writew(chip, CORBRP, 0);
+	else if (!(chip->driver_caps & AZX_DCAPS_CORBRP_SELF_CLEAR)) {
 		for (timeout = 1000; timeout > 0; timeout--) {
 			if ((azx_readw(chip, CORBRP) & ICH6_CORBRP_RST) == ICH6_CORBRP_RST)
 				break;
@@ -1082,6 +1159,8 @@ static void azx_init_cmd_io(struct azx *chip)
 
 	/* enable corb dma */
 	azx_writeb(chip, CORBCTL, ICH6_CORBCTL_RUN);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		azx_readb(chip, CORBCTL);
 
 	/* RIRB set up */
 	chip->rirb.addr = chip->rb.addr + 2048;
@@ -1101,7 +1180,12 @@ static void azx_init_cmd_io(struct azx *chip)
 	else
 		azx_writew(chip, RINTCNT, 1);
 	/* enable rirb dma and response irq */
-	azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN | ICH6_RBCTL_IRQ_EN);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN);
+		azx_readb(chip, RIRBCTL);
+	}
+	else
+		azx_writeb(chip, RIRBCTL, ICH6_RBCTL_DMA_EN | ICH6_RBCTL_IRQ_EN);
 	spin_unlock_irq(&chip->reg_lock);
 }
 
@@ -1117,6 +1201,18 @@ static void azx_free_cmd_io(struct azx *chip)
 static unsigned int azx_command_addr(u32 cmd)
 {
 	unsigned int addr = cmd >> 28;
+
+	if (addr >= AZX_MAX_CODECS) {
+		snd_BUG();
+		addr = 0;
+	}
+
+	return addr;
+}
+
+static unsigned int azx_response_addr(u32 res)
+{
+	unsigned int addr = res & 0xf;
 
 	if (addr >= AZX_MAX_CODECS) {
 		snd_BUG();
@@ -1187,14 +1283,8 @@ static void azx_update_rirb(struct azx *chip)
 		rp = chip->rirb.rp << 1; /* an RIRB entry is 8-bytes */
 		res_ex = le32_to_cpu(chip->rirb.buf[rp + 1]);
 		res = le32_to_cpu(chip->rirb.buf[rp]);
-		addr = res_ex & 0xf;
-		if ((addr >= AZX_MAX_CODECS) || !(chip->codec_mask & (1 << addr))) {
-			dev_err(chip->card->dev, "spurious response %#x:%#x, rp = %d, wp = %d",
-				res, res_ex,
-				chip->rirb.rp, wp);
-			snd_BUG();
-		}
-		else if (res_ex & ICH6_RIRB_EX_UNSOL_EV)
+		addr = azx_response_addr(res_ex);
+		if (res_ex & ICH6_RIRB_EX_UNSOL_EV)
 			snd_hda_queue_unsol_event(chip->bus, res, res_ex);
 		else if (chip->rirb.cmds[addr]) {
 			chip->rirb.res[addr] = res;
@@ -1223,6 +1313,8 @@ static unsigned int azx_rirb_get_response(struct hda_bus *bus,
 	for (loopcounter = 0;; loopcounter++) {
 		if (chip->polling_mode || do_poll) {
 			spin_lock_irq(&chip->reg_lock);
+			if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+				chip->rirb.cmds[addr] %= ICH6_MAX_RIRB_ENTRIES;
 			azx_update_rirb(chip);
 			spin_unlock_irq(&chip->reg_lock);
 		}
@@ -1387,6 +1479,8 @@ static int azx_send_cmd(struct hda_bus *bus, unsigned int val)
 
 	if (chip->disabled)
 		return 0;
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		udelay(500);
 	chip->last_cmd[azx_command_addr(val)] = val;
 	if (chip->single_cmd)
 		return azx_single_send_cmd(bus, val);
@@ -1684,14 +1778,20 @@ static void azx_int_clear(struct azx *chip)
 	/* clear stream status */
 	for (i = 0; i < chip->num_streams; i++) {
 		struct azx_dev *azx_dev = &chip->azx_dev[i];
-		azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK);
+		if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+			azx_sd_writeb(chip, azx_dev, SD_STS, azx_sd_readb(chip, azx_dev, SD_STS));
+		else
+			azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK);
 	}
 
 	/* clear STATESTS */
 	azx_writew(chip, STATESTS, STATESTS_INT_MASK);
 
 	/* clear rirb status */
-	azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		azx_writeb(chip, RIRBSTS, azx_readb(chip, RIRBSTS) & RIRB_INT_MASK);
+	else
+		azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
 
 	/* clear int status */
 	azx_writel(chip, INTSTS, ICH6_INT_CTRL_EN | ICH6_INT_ALL_STREAM);
@@ -1768,8 +1868,21 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	status = azx_readl(chip, INTSTS);
-	if (status == 0 || status == 0xffffffff) {
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		status = 0;
+		for (i = 0; i < chip->num_streams; i++) {
+			azx_dev = &chip->azx_dev[i];
+			status |= (azx_sd_readb(chip, azx_dev, SD_STS) & SD_INT_MASK) ?
+			    (1 << i) : 0;
+		}
+		status |= (status & ~0) ? (1 << 31) : 0;
+	}
+	else
+		status = azx_readl(chip, INTSTS);
+
+	if (status == 0 ||
+		(status == 0xffffffff && !(chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND))) {
 		spin_unlock(&chip->reg_lock);
 		return IRQ_NONE;
 	}
@@ -1778,7 +1891,12 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 		azx_dev = &chip->azx_dev[i];
 		if (status & azx_dev->sd_int_sta_mask) {
 			sd_status = azx_sd_readb(chip, azx_dev, SD_STS);
-			azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK);
+			if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+				azx_sd_writeb(chip, azx_dev, SD_STS, sd_status);
+				azx_sd_readb(chip, azx_dev, SD_STS);
+			}
+			else
+				azx_sd_writeb(chip, azx_dev, SD_STS, SD_INT_MASK);
 			if (!azx_dev->substream || !azx_dev->running ||
 			    !(sd_status & SD_INT_COMPLETE))
 				continue;
@@ -1800,7 +1918,10 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 				udelay(80);
 			azx_update_rirb(chip);
 		}
-		azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
+		if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+			azx_writeb(chip, RIRBSTS, status & RIRB_INT_MASK);
+		else
+			azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
 	}
 
 	spin_unlock(&chip->reg_lock);
