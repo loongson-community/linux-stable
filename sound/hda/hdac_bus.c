@@ -8,6 +8,7 @@
 #include <linux/export.h>
 #include <sound/hdaudio.h>
 #include "trace.h"
+#include "../pci/hda/hda_controller.h"
 
 static void process_unsol_events(struct work_struct *work);
 
@@ -74,6 +75,8 @@ int snd_hdac_bus_exec_verb_unlocked(struct hdac_bus *bus, unsigned int addr,
 {
 	unsigned int tmp;
 	int err;
+	struct hda_bus *hbus = container_of(bus, struct hda_bus, core);
+	struct azx *chip = hbus->private_data;
 
 	if (cmd == ~0)
 		return -EINVAL;
@@ -82,7 +85,9 @@ int snd_hdac_bus_exec_verb_unlocked(struct hdac_bus *bus, unsigned int addr,
 		*res = -1;
 	else if (bus->sync_write)
 		res = &tmp;
-	for (;;) {
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		err = bus->ops->command(bus, cmd);
+	else for (;;) {
 		trace_hda_send_cmd(bus, cmd);
 		err = bus->ops->command(bus, cmd);
 		if (err != -EAGAIN)

@@ -1,6 +1,7 @@
 snd-hda-intel-objs := hda_intel.o
 snd-hda-controller-objs := hda_controller.o
 snd-hda-tegra-objs := hda_tegra.o
+snd-hda-loongson-objs := hda_loongson.o
 # for haswell power well
 snd-hda-intel-$(CONFIG_SND_HDA_I915) +=	hda_i915.o
 
@@ -48,3 +49,4 @@ obj-$(CONFIG_SND_HDA_CODEC_HDMI) += snd-hda-codec-hdmi.o
 # when built in kernel
 obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-intel.o
 obj-$(CONFIG_SND_HDA_TEGRA) += snd-hda-tegra.o
+obj-$(CONFIG_SND_HDA_LS2H) += snd-hda-loongson.o
