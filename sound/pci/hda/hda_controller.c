@@ -303,6 +303,23 @@ unsigned int azx_get_position(struct azx *chip,
 	int stream = substream->stream;
 	int delay = 0;
 
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		pos = chip->get_position[stream](chip, azx_dev);
+
+		if (pos >= azx_dev->fix_prvpos) {
+			pos = pos - azx_dev->fix_prvpos;
+			pos %= azx_dev->core.bufsize;
+		} else {
+			if (azx_dev->fix_prvpos > azx_dev->core.bufsize)
+				pos = (0x100000000ULL + pos-azx_dev->fix_prvpos)
+					% azx_dev->core.bufsize;
+			else
+				pos = pos + azx_dev->core.bufsize - azx_dev->fix_prvpos;
+		}
+
+		return pos;
+	}
+
 	if (chip->get_position[stream])
 		pos = chip->get_position[stream](chip, azx_dev);
 	else /* use the position buffer as default */
@@ -602,8 +619,11 @@ static int azx_rirb_get_response(struct hdac_bus *bus, unsigned int addr,
 
 	for (loopcounter = 0;; loopcounter++) {
 		spin_lock_irq(&bus->reg_lock);
-		if (chip->polling_mode || do_poll)
+		if (chip->polling_mode || do_poll) {
+			if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+				bus->rirb.cmds[addr] %= AZX_MAX_RIRB_ENTRIES;
 			snd_hdac_bus_update_rirb(bus);
+		}
 		if (!bus->rirb.cmds[addr]) {
 			if (!do_poll)
 				chip->poll_count = 0;
@@ -761,6 +781,8 @@ static int azx_send_cmd(struct hdac_bus *bus, unsigned int val)
 
 	if (chip->disabled)
 		return 0;
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		udelay(500);
 	if (chip->single_cmd)
 		return azx_single_send_cmd(bus, val);
 	else
@@ -930,8 +952,9 @@ static void stream_update(struct hdac_bus *bus, struct hdac_stream *s)
 irqreturn_t azx_interrupt(int irq, void *dev_id)
 {
 	struct azx *chip = dev_id;
+	struct hdac_stream *azx_dev;
 	struct hdac_bus *bus = azx_bus(chip);
-	u32 status;
+	u32 i = 0, status = 0;
 
 #ifdef CONFIG_PM
 	if (azx_has_pm_runtime(chip))
@@ -946,8 +969,19 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	status = azx_readl(chip, INTSTS);
-	if (status == 0 || status == 0xffffffff) {
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		list_for_each_entry(azx_dev, &bus->stream_list, list) {
+			status |= (snd_hdac_stream_readb(azx_dev, SD_STS) & SD_INT_MASK) ?
+			    (1 << i) : 0;
+			i++;
+		}
+		status |= (status & ~0) ? (1 << 31) : 0;
+	}
+	else
+		status = azx_readl(chip, INTSTS);
+
+	if (status == 0 ||
+		(status == 0xffffffff && !(chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND))) {
 		spin_unlock(&bus->reg_lock);
 		return IRQ_NONE;
 	}
@@ -962,7 +996,10 @@ irqreturn_t azx_interrupt(int irq, void *dev_id)
 				udelay(80);
 			snd_hdac_bus_update_rirb(bus);
 		}
-		azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
+		if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+			azx_writeb(chip, RIRBSTS, status & RIRB_INT_MASK);
+		else
+			azx_writeb(chip, RIRBSTS, RIRB_INT_MASK);
 	}
 
 	spin_unlock(&bus->reg_lock);
