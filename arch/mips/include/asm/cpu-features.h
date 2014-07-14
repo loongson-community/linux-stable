@@ -27,6 +27,9 @@
 #ifndef cpu_has_tlbinv
 #define cpu_has_tlbinv		(cpu_data[0].options & MIPS_CPU_TLBINV)
 #endif
+#ifndef cpu_has_htw
+#define cpu_has_htw		(cpu_data[0].options & MIPS_CPU_HTW)
+#endif
 #ifndef cpu_has_4kex
 #define cpu_has_4kex		(cpu_data[0].options & MIPS_CPU_4KEX)
 #endif
