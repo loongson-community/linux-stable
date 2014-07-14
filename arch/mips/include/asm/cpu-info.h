@@ -45,8 +45,8 @@ struct cpuinfo_mips {
 	/*
 	 * Capability and feature descriptor structure for MIPS CPU
 	 */
-	unsigned long		options;
 	unsigned long		ases;
+	unsigned long long	options;
 	unsigned int		processor_id;
 	unsigned int		fpu_id;
 	unsigned int		cputype;
