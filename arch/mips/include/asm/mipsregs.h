@@ -655,6 +655,37 @@
 #define MIPS_FPIR_L		(_ULCAST_(1) << 21)
 #define MIPS_FPIR_F64		(_ULCAST_(1) << 22)
 
+#define MIPS_PWFIELD_GDI_SHIFT	24
+#define MIPS_PWFIELD_GDI_MASK	0x3f000000
+#define MIPS_PWFIELD_UDI_SHIFT	18
+#define MIPS_PWFIELD_UDI_MASK	0x00fc0000
+#define MIPS_PWFIELD_MDI_SHIFT	12
+#define MIPS_PWFIELD_MDI_MASK	0x0003f000
+#define MIPS_PWFIELD_PTI_SHIFT	6
+#define MIPS_PWFIELD_PTI_MASK	0x00000fc0
+#define MIPS_PWFIELD_PTEI_SHIFT	0
+#define MIPS_PWFIELD_PTEI_MASK	0x0000003f
+
+#define MIPS_PWSIZE_GDW_SHIFT	24
+#define MIPS_PWSIZE_GDW_MASK	0x3f000000
+#define MIPS_PWSIZE_UDW_SHIFT	18
+#define MIPS_PWSIZE_UDW_MASK	0x00fc0000
+#define MIPS_PWSIZE_MDW_SHIFT	12
+#define MIPS_PWSIZE_MDW_MASK	0x0003f000
+#define MIPS_PWSIZE_PTW_SHIFT	6
+#define MIPS_PWSIZE_PTW_MASK	0x00000fc0
+#define MIPS_PWSIZE_PTEW_SHIFT	0
+#define MIPS_PWSIZE_PTEW_MASK	0x0000003f
+
+#define MIPS_PWCTL_PWEN_SHIFT	31
+#define MIPS_PWCTL_PWEN_MASK	0x80000000
+#define MIPS_PWCTL_DPH_SHIFT	7
+#define MIPS_PWCTL_DPH_MASK	0x00000080
+#define MIPS_PWCTL_HUGEPG_SHIFT	6
+#define MIPS_PWCTL_HUGEPG_MASK	0x00000060
+#define MIPS_PWCTL_PSN_SHIFT	0
+#define MIPS_PWCTL_PSN_MASK	0x0000003f
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -1132,6 +1163,18 @@ do {									\
 #define read_c0_ebase()		__read_32bit_c0_register($15, 1)
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
+/* Hardware Page Table Walker */
+#define read_c0_pwbase()	__read_ulong_c0_register($5, 5)
+#define write_c0_pwbase(val)	__write_ulong_c0_register($5, 5, val)
+
+#define read_c0_pwfield()	__read_ulong_c0_register($5, 6)
+#define write_c0_pwfield(val)	__write_ulong_c0_register($5, 6, val)
+
+#define read_c0_pwsize()	__read_ulong_c0_register($5, 7)
+#define write_c0_pwsize(val)	__write_ulong_c0_register($5, 7, val)
+
+#define read_c0_pwctl()		__read_32bit_c0_register($6, 6)
+#define write_c0_pwctl(val)	__write_32bit_c0_register($6, 6, val)
 
 /* Cavium OCTEON (cnMIPS) */
 #define read_c0_cvmcount()	__read_ulong_c0_register($9, 6)
