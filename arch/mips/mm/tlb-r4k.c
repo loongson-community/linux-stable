@@ -70,6 +70,7 @@ void local_flush_tlb_all(void)
 	ENTER_CRITICAL(flags);
 	/* Save old context and create impossible VPN2 value */
 	old_ctx = read_c0_entryhi();
+	htw_stop();
 	write_c0_entrylo0(0);
 	write_c0_entrylo1(0);
 
@@ -103,6 +104,7 @@ void local_flush_tlb_all(void)
 	}
 	tlbw_use_hazard();
 	write_c0_entryhi(old_ctx);
+	htw_start();
 	FLUSH_ITLB;
 	EXIT_CRITICAL(flags);
 }
@@ -150,6 +152,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 			int oldpid = read_c0_entryhi();
 			int newpid = cpu_asid(cpu, mm);
 
+			htw_stop();
 			while (start < end) {
 				int idx;
 
@@ -173,6 +176,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 			}
 			tlbw_use_hazard();
 			write_c0_entryhi(oldpid);
+			htw_start();
 		} else {
 			drop_mmu_context(mm, cpu);
 		}
@@ -196,6 +200,7 @@ void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 		start &= (PAGE_MASK << 1);
 		end += ((PAGE_SIZE << 1) - 1);
 		end &= (PAGE_MASK << 1);
+		htw_stop();
 
 		while (start < end) {
 			int idx;
@@ -217,6 +222,7 @@ void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 		}
 		tlbw_use_hazard();
 		write_c0_entryhi(pid);
+		htw_start();
 	} else {
 		local_flush_tlb_all();
 	}
@@ -236,6 +242,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		page &= (PAGE_MASK << 1);
 		ENTER_CRITICAL(flags);
 		oldpid = read_c0_entryhi();
+		htw_stop();
 		write_c0_entryhi(page | newpid);
 		mtc0_tlbw_hazard();
 		tlb_probe();
@@ -253,6 +260,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 
 	finish:
 		write_c0_entryhi(oldpid);
+		htw_start();
 		FLUSH_ITLB_VM(vma);
 		EXIT_CRITICAL(flags);
 	}
@@ -269,6 +277,7 @@ void local_flush_tlb_one(unsigned long page)
 
 	ENTER_CRITICAL(flags);
 	oldpid = read_c0_entryhi();
+	htw_stop();
 	page &= (PAGE_MASK << 1);
 	write_c0_entryhi(page);
 	mtc0_tlbw_hazard();
@@ -285,6 +294,7 @@ void local_flush_tlb_one(unsigned long page)
 		tlbw_use_hazard();
 	}
 	write_c0_entryhi(oldpid);
+	htw_start();
 	FLUSH_ITLB;
 	EXIT_CRITICAL(flags);
 }
@@ -372,6 +382,7 @@ void add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 	ENTER_CRITICAL(flags);
 	/* Save old context and create impossible VPN2 value */
 	old_ctx = read_c0_entryhi();
+	htw_stop();
 	old_pagemask = read_c0_pagemask();
 	wired = read_c0_wired();
 	write_c0_wired(wired + 1);
@@ -387,6 +398,7 @@ void add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 
 	write_c0_entryhi(old_ctx);
 	tlbw_use_hazard();	/* What is the hazard here? */
+	htw_start();
 	write_c0_pagemask(old_pagemask);
 	local_flush_tlb_all();
 	EXIT_CRITICAL(flags);
