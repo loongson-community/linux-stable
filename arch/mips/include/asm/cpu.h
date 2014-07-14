@@ -322,6 +322,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_PCI		0x00400000ull /* CPU has Perf Ctr Int indicator */
 #define MIPS_CPU_RIXI		0x00800000ull /* CPU has TLB Read/eXec Inhibit */
 #define MIPS_CPU_TLBINV		0x01000000ull /* CPU supports TLBINV/F */
+#define MIPS_CPU_HTW		0x020000000ull /* CPU support Hardware Page Table Walker */
 
 /*
  * CPU ASE encodings
