@@ -326,6 +326,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_RIXI		0x00800000ull /* CPU has TLB Read/eXec Inhibit */
 #define MIPS_CPU_TLBINV		0x01000000ull /* CPU supports TLBINV/F */
 #define MIPS_CPU_HTW		0x020000000ull /* CPU support Hardware Page Table Walker */
+#define MIPS_CPU_RIXIEX		0x040000000ull /* CPU has unique exception codes for {Read, Execute}-Inhibit exceptions */
 
 /*
  * CPU ASE encodings
