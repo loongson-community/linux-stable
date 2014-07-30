@@ -279,6 +279,8 @@ static struct dev_pm_ops ahci_pm_ops = {
 #endif
 
 static const struct of_device_id ahci_of_match[] = {
+	{ .compatible = "generic-ahci", },
+	/* Keep the following compatibles for device tree compatibility */
 	{ .compatible = "calxeda,hb-ahci", },
 	{ .compatible = "snps,spear-ahci", },
 	{},
