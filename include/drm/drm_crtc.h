@@ -532,6 +532,7 @@ struct drm_connector {
 	void *helper_private;
 
 	/* forced on connector */
+	struct drm_cmdline_mode cmdline_mode;
 	enum drm_connector_force force;
 	uint32_t encoder_ids[DRM_CONNECTOR_MAX_ENCODER];
 	struct drm_encoder *encoder; /* currently active encoder */
