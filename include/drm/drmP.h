@@ -1028,22 +1028,6 @@ struct drm_minor {
 	struct drm_mode_group mode_group;
 };
 
-/* mode specified on the command line */
-struct drm_cmdline_mode {
-	bool specified;
-	bool refresh_specified;
-	bool bpp_specified;
-	int xres, yres;
-	int bpp;
-	int refresh;
-	bool rb;
-	bool interlace;
-	bool cvt;
-	bool margins;
-	enum drm_connector_force force;
-};
-
-
 struct drm_pending_vblank_event {
 	struct drm_pending_event base;
 	int pipe;

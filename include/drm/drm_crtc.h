@@ -498,6 +498,21 @@ enum drm_connector_force {
 	DRM_FORCE_ON_DIGITAL, /* for DVI-I use digital connector */
 };
 
+/* mode specified on the command line */
+struct drm_cmdline_mode {
+	bool specified;
+	bool refresh_specified;
+	bool bpp_specified;
+	int xres, yres;
+	int bpp;
+	int refresh;
+	bool rb;
+	bool interlace;
+	bool cvt;
+	bool margins;
+	enum drm_connector_force force;
+};
+
 /* should we poll this connector for connects and disconnects */
 /* hot plug detectable */
 #define DRM_CONNECTOR_POLL_HPD (1 << 0)
@@ -581,6 +596,7 @@ struct drm_connector {
 	void *helper_private;
 
 	/* forced on connector */
+	struct drm_cmdline_mode cmdline_mode;
 	enum drm_connector_force force;
 	uint32_t encoder_ids[DRM_CONNECTOR_MAX_ENCODER];
 	struct drm_encoder *encoder; /* currently active encoder */
