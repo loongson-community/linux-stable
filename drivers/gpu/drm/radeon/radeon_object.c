@@ -361,7 +361,7 @@ int radeon_bo_list_validate(struct list_head *head, int ring)
 {
 	struct radeon_bo_list *lobj;
 	struct radeon_bo *bo;
-	u32 domain;
+	u32 domain, allowed;
 	int r;
 
 	r = ttm_eu_reserve_buffers(head);
@@ -372,11 +372,12 @@ int radeon_bo_list_validate(struct list_head *head, int ring)
 		bo = lobj->bo;
 		if (!bo->pin_count) {
 			domain = lobj->domain;
+			allowed = lobj->alt_domain;
 			
 		retry:
 			radeon_ttm_placement_from_domain(bo, domain);
 			if (ring == R600_RING_TYPE_UVD_INDEX)
-				radeon_uvd_force_into_uvd_segment(bo);
+				radeon_uvd_force_into_uvd_segment(bo, allowed);
 			r = ttm_bo_validate(&bo->tbo, &bo->placement,
 						true, false);
 			if (unlikely(r)) {
