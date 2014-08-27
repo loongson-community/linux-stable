@@ -201,13 +201,19 @@ int vmw_dmabuf_to_start_of_vram(struct vmw_private *dev_priv,
 	struct vmw_master *vmaster = dev_priv->active_master;
 	struct ttm_buffer_object *bo = &buf->base;
 	struct ttm_placement placement;
+	struct ttm_place place;
 	int ret = 0;
 
 	if (pin)
-		placement = vmw_vram_ne_placement;
+		place = vmw_vram_ne_placement.placement[0];
 	else
-		placement = vmw_vram_placement;
-	placement.lpfn = bo->num_pages;
+		place = vmw_vram_placement.placement[0];
+	place.lpfn = bo->num_pages;
+
+	placement.num_placement = 1;
+	placement.placement = &place;
+	placement.num_busy_placement = 1;
+	placement.busy_placement = &place;
 
 	ret = ttm_write_lock(&vmaster->lock, interruptible);
 	if (unlikely(ret != 0))
@@ -297,7 +303,7 @@ void vmw_bo_get_guest_ptr(const struct ttm_buffer_object *bo,
  */
 void vmw_bo_pin(struct ttm_buffer_object *bo, bool pin)
 {
-	uint32_t pl_flags;
+	struct ttm_place pl;
 	struct ttm_placement placement;
 	uint32_t old_mem_type = bo->mem.mem_type;
 	int ret;
@@ -306,13 +312,15 @@ void vmw_bo_pin(struct ttm_buffer_object *bo, bool pin)
 	BUG_ON(old_mem_type != TTM_PL_VRAM &&
 	       old_mem_type != VMW_PL_GMR);
 
-	pl_flags = TTM_PL_FLAG_VRAM | VMW_PL_FLAG_GMR | TTM_PL_FLAG_CACHED;
+	pl.fpfn = 0;
+	pl.lpfn = 0;
+	pl.flags = TTM_PL_FLAG_VRAM | VMW_PL_FLAG_GMR | TTM_PL_FLAG_CACHED;
 	if (pin)
-		pl_flags |= TTM_PL_FLAG_NO_EVICT;
+		pl.flags |= TTM_PL_FLAG_NO_EVICT;
 
 	memset(&placement, 0, sizeof(placement));
 	placement.num_placement = 1;
-	placement.placement = &pl_flags;
+	placement.placement = &pl;
 
 	ret = ttm_bo_validate(bo, &placement, false, true);
 

@@ -49,7 +49,7 @@ struct ttm_range_manager {
 
 static int ttm_bo_man_get_node(struct ttm_mem_type_manager *man,
 			       struct ttm_buffer_object *bo,
-			       struct ttm_placement *placement,
+			       const struct ttm_place *place,
 			       struct ttm_mem_reg *mem)
 {
 	struct ttm_range_manager *rman = (struct ttm_range_manager *) man->priv;
@@ -58,7 +58,7 @@ static int ttm_bo_man_get_node(struct ttm_mem_type_manager *man,
 	unsigned long lpfn;
 	int ret;
 
-	lpfn = placement->lpfn;
+	lpfn = place->lpfn;
 	if (!lpfn)
 		lpfn = man->size;
 	do {
@@ -69,15 +69,14 @@ static int ttm_bo_man_get_node(struct ttm_mem_type_manager *man,
 		spin_lock(&rman->lock);
 		node = drm_mm_search_free_in_range(mm,
 					mem->num_pages, mem->page_alignment,
-					placement->fpfn, lpfn, 1);
+					place->fpfn, lpfn, 1);
 		if (unlikely(node == NULL)) {
 			spin_unlock(&rman->lock);
 			return 0;
 		}
 		node = drm_mm_get_block_atomic_range(node, mem->num_pages,
 						     mem->page_alignment,
-						     placement->fpfn,
-						     lpfn);
+						     place->fpfn, lpfn);
 		spin_unlock(&rman->lock);
 	} while (node == NULL);
 

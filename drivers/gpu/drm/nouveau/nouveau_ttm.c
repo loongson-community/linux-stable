@@ -75,7 +75,7 @@ nouveau_vram_manager_del(struct ttm_mem_type_manager *man,
 static int
 nouveau_vram_manager_new(struct ttm_mem_type_manager *man,
 			 struct ttm_buffer_object *bo,
-			 struct ttm_placement *placement,
+			 const struct ttm_place *place,
 			 struct ttm_mem_reg *mem)
 {
 	struct nouveau_drm *drm = nouveau_bdev(man->bdev);
@@ -161,7 +161,7 @@ nouveau_gart_manager_del(struct ttm_mem_type_manager *man,
 static int
 nouveau_gart_manager_new(struct ttm_mem_type_manager *man,
 			 struct ttm_buffer_object *bo,
-			 struct ttm_placement *placement,
+			 const struct ttm_place *place,
 			 struct ttm_mem_reg *mem)
 {
 	struct nouveau_drm *drm = nouveau_bdev(bo->bdev);
@@ -243,7 +243,7 @@ nv04_gart_manager_del(struct ttm_mem_type_manager *man, struct ttm_mem_reg *mem)
 static int
 nv04_gart_manager_new(struct ttm_mem_type_manager *man,
 		      struct ttm_buffer_object *bo,
-		      struct ttm_placement *placement,
+		      const struct ttm_place *place,
 		      struct ttm_mem_reg *mem)
 {
 	struct nouveau_mem *node;
