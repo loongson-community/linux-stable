@@ -202,7 +202,7 @@ struct ttm_mem_type_manager_func {
 	 */
 	int  (*get_node)(struct ttm_mem_type_manager *man,
 			 struct ttm_buffer_object *bo,
-			 struct ttm_placement *placement,
+			 const struct ttm_place *place,
 			 struct ttm_mem_reg *mem);
 
 	/**
