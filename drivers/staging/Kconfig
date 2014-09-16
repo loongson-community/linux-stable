@@ -136,4 +136,6 @@ source "drivers/staging/gdm72xx/Kconfig"
 
 source "drivers/staging/sb105x/Kconfig"
 
+source "drivers/staging/dwc2/Kconfig"
+
 endif # STAGING
