@@ -140,4 +140,6 @@ source "drivers/staging/omap-thermal/Kconfig"
 
 source "drivers/staging/sb105x/Kconfig"
 
+source "drivers/staging/dwc2/Kconfig"
+
 endif # STAGING

@@ -62,3 +62,4 @@ obj-$(CONFIG_WIMAX_GDM72XX)	+= gdm72xx/
 obj-$(CONFIG_CSR_WIFI)		+= csr/
 obj-$(CONFIG_OMAP_BANDGAP)	+= omap-thermal/
 obj-$(CONFIG_SB105X)		+= sb105x/
+obj-$(CONFIG_USB_DWC2)		+= dwc2/
