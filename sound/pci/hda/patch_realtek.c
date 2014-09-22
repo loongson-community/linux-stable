@@ -4274,7 +4274,7 @@ static int alc_parse_auto_config(struct hda_codec *codec,
 {
 	struct alc_spec *spec = codec->spec;
 	struct auto_pin_cfg *cfg = &spec->autocfg;
-	int err;
+	int val, err;
 
 	err = snd_hda_parse_pin_defcfg(codec, cfg, ignore_nids,
 				       spec->parse_flags);
@@ -4345,6 +4345,10 @@ static int alc_parse_auto_config(struct hda_codec *codec,
 
 	if (ssid_nids)
 		alc_ssid_check(codec, ssid_nids);
+
+	val = snd_hda_get_bool_hint(codec, "jack_detect");
+	if (val >= 0)
+		codec->no_jack_detect = !val;
 
 	if (!spec->no_analog) {
 		err = alc_auto_check_switches(codec);
