@@ -3981,11 +3981,15 @@ static void cx_auto_parse_eapd(struct hda_codec *codec)
 static int cx_auto_parse_auto_config(struct hda_codec *codec)
 {
 	struct conexant_spec *spec = codec->spec;
-	int err;
+	int val, err;
 
 	err = snd_hda_parse_pin_def_config(codec, &spec->autocfg, NULL);
 	if (err < 0)
 		return err;
+
+	val = snd_hda_get_bool_hint(codec, "jack_detect");
+	if (val >= 0)
+		codec->no_jack_detect = !val;
 
 	cx_auto_parse_output(codec);
 	cx_auto_parse_input(codec);
