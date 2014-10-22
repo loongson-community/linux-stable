@@ -1328,7 +1328,7 @@ static void update_task_scan_period(struct task_struct *p,
 		 * simply bounce migrations uselessly
 		 */
 		period_slot = DIV_ROUND_UP(diff, NUMA_PERIOD_SLOTS);
-		ratio = DIV_ROUND_UP(private * NUMA_PERIOD_SLOTS, (private + shared));
+		ratio = DIV_ROUND_UP(private * NUMA_PERIOD_SLOTS, (private + shared + 1));
 		diff = (diff * ratio) / NUMA_PERIOD_SLOTS;
 	}
 
