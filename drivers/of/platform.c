@@ -165,7 +165,7 @@ struct platform_device *of_device_alloc(struct device_node *np,
 #if defined(CONFIG_MICROBLAZE)
 	dev->dev.dma_mask = &dev->archdata.dma_mask;
 #endif
-	dev->dev.parent = parent;
+	dev->dev.parent = parent ? : &platform_bus;
 
 	if (bus_id)
 		dev_set_name(&dev->dev, "%s", bus_id);
@@ -262,7 +262,7 @@ static struct amba_device *of_amba_device_create(struct device_node *node,
 	/* setup generic device info */
 	dev->dev.coherent_dma_mask = ~0;
 	dev->dev.of_node = of_node_get(node);
-	dev->dev.parent = parent;
+	dev->dev.parent = parent ? : &platform_bus;
 	dev->dev.platform_data = platform_data;
 	if (bus_id)
 		dev_set_name(&dev->dev, "%s", bus_id);
