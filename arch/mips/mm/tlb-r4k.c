@@ -321,6 +321,7 @@ void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 
 	ENTER_CRITICAL(flags);
 
+	htw_stop();
 	pid = read_c0_entryhi() & ASID_MASK;
 	address &= (PAGE_MASK << 1);
 	write_c0_entryhi(address | pid);
@@ -367,6 +368,7 @@ void __update_tlb(struct vm_area_struct * vma, unsigned long address, pte_t pte)
 			tlb_write_indexed();
 	}
 	tlbw_use_hazard();
+	htw_start();
 	FLUSH_ITLB_VM(vma);
 	EXIT_CRITICAL(flags);
 }
