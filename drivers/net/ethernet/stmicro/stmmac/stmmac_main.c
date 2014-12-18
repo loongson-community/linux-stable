@@ -1617,7 +1617,7 @@ static void stmmac_init_tx_coalesce(struct stmmac_priv *priv)
  *  0 on success and an appropriate (-)ve integer as defined in errno.h
  *  file on failure.
  */
-static int stmmac_hw_setup(struct net_device *dev)
+static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	int ret;
@@ -1652,9 +1652,11 @@ static int stmmac_hw_setup(struct net_device *dev)
 
 	stmmac_mmc_setup(priv);
 
-	ret = stmmac_init_ptp(priv);
-	if (ret && ret != -EOPNOTSUPP)
-		pr_warn("%s: failed PTP initialisation\n", __func__);
+	if (init_ptp) {
+		ret = stmmac_init_ptp(priv);
+		if (ret && ret != -EOPNOTSUPP)
+			pr_warn("%s: failed PTP initialisation\n", __func__);
+	}
 
 #ifdef CONFIG_STMMAC_DEBUG_FS
 	ret = stmmac_init_fs(dev);
@@ -1729,7 +1731,7 @@ static int stmmac_open(struct net_device *dev)
 		goto dma_desc_error;
 	}
 
-	ret = stmmac_hw_setup(dev);
+	ret = stmmac_hw_setup(dev, true);
 	if (ret < 0) {
 		pr_err("%s: Hw setup failed\n", __func__);
 		goto init_error;
@@ -2921,7 +2923,7 @@ int stmmac_resume(struct net_device *ndev)
 
 	netif_device_attach(ndev);
 
-	stmmac_hw_setup(ndev);
+	stmmac_hw_setup(ndev, false);
 
 	napi_enable(&priv->napi);
 
