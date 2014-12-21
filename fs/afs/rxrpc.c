@@ -55,6 +55,7 @@ int afs_open_socket(void)
 {
 	struct sockaddr_rxrpc srx;
 	struct socket *socket;
+	unsigned int min_level;
 	int ret;
 
 	_enter("");
@@ -79,6 +80,12 @@ int afs_open_socket(void)
 	srx.transport.sin.sin_port	= htons(AFS_CM_PORT);
 	memset(&srx.transport.sin.sin_addr, 0,
 	       sizeof(srx.transport.sin.sin_addr));
+
+	min_level = RXRPC_SECURITY_ENCRYPT;
+	ret = kernel_setsockopt(socket, SOL_RXRPC, RXRPC_MIN_SECURITY_LEVEL,
+				(void *)&min_level, sizeof(min_level));
+	if (ret < 0)
+		goto error_2;
 
 	ret = kernel_bind(socket, (struct sockaddr *) &srx, sizeof(srx));
 	if (ret < 0)
@@ -377,8 +384,17 @@ int afs_make_call(struct in_addr *addr, struct afs_call *call, gfp_t gfp,
 	 */
 	tx_total_len = call->request_size;
 	if (call->send_pages) {
-		tx_total_len += call->last_to - call->first_offset;
-		tx_total_len += (call->last - call->first) * PAGE_SIZE;
+		if (call->last == call->first) {
+			tx_total_len += call->last_to - call->first_offset;
+		} else {
+			/* It looks mathematically like you should be able to
+			 * combine the following lines with the ones above, but
+			 * unsigned arithmetic is fun when it wraps...
+			 */
+			tx_total_len += PAGE_SIZE - call->first_offset;
+			tx_total_len += call->last_to;
+			tx_total_len += (call->last - call->first - 1) * PAGE_SIZE;
+		}
 	}
 
 	/* create a call */

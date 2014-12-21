@@ -4,6 +4,8 @@
 #include <linux/swap.h>
 #include <linux/memblock.h>
 #include <linux/bootmem.h>	/* for max_low_pfn */
+#include <linux/swapfile.h>
+#include <linux/swapops.h>
 
 #include <asm/set_memory.h>
 #include <asm/e820/api.h>
@@ -20,6 +22,7 @@
 #include <asm/kaslr.h>
 #include <asm/hypervisor.h>
 #include <asm/cpufeature.h>
+#include <asm/pti.h>
 
 /*
  * We need to define the tracepoints somewhere, and tlb.c
@@ -92,8 +95,7 @@ __ref void *alloc_low_pages(unsigned int num)
 		unsigned int order;
 
 		order = get_order((unsigned long)num << PAGE_SHIFT);
-		return (void *)__get_free_pages(GFP_ATOMIC | __GFP_NOTRACK |
-						__GFP_ZERO, order);
+		return (void *)__get_free_pages(GFP_ATOMIC | __GFP_ZERO, order);
 	}
 
 	if ((pgt_buf_end + num) > pgt_buf_top || !can_use_brk_pgt) {
@@ -161,15 +163,20 @@ struct map_range {
 
 static int page_size_mask;
 
+static void enable_global_pages(void)
+{
+	if (!static_cpu_has(X86_FEATURE_PTI))
+		__supported_pte_mask |= _PAGE_GLOBAL;
+}
+
 static void __init probe_page_size_mask(void)
 {
 	/*
-	 * For CONFIG_KMEMCHECK or pagealloc debugging, identity mapping will
-	 * use small pages.
+	 * For pagealloc debugging, identity mapping will use small pages.
 	 * This will simplify cpa(), which otherwise needs to support splitting
 	 * large pages into small in interrupt context, etc.
 	 */
-	if (boot_cpu_has(X86_FEATURE_PSE) && !debug_pagealloc_enabled() && !IS_ENABLED(CONFIG_KMEMCHECK))
+	if (boot_cpu_has(X86_FEATURE_PSE) && !debug_pagealloc_enabled())
 		page_size_mask |= 1 << PG_LEVEL_2M;
 	else
 		direct_gbpages = 0;
@@ -179,11 +186,11 @@ static void __init probe_page_size_mask(void)
 		cr4_set_bits_and_update_boot(X86_CR4_PSE);
 
 	/* Enable PGE if available */
+	__supported_pte_mask &= ~_PAGE_GLOBAL;
 	if (boot_cpu_has(X86_FEATURE_PGE)) {
 		cr4_set_bits_and_update_boot(X86_CR4_PGE);
-		__supported_pte_mask |= _PAGE_GLOBAL;
-	} else
-		__supported_pte_mask &= ~_PAGE_GLOBAL;
+		enable_global_pages();
+	}
 
 	/* Enable 1 GB linear kernel mappings if available: */
 	if (direct_gbpages && boot_cpu_has(X86_FEATURE_GBPAGES)) {
@@ -196,34 +203,44 @@ static void __init probe_page_size_mask(void)
 
 static void setup_pcid(void)
 {
-#ifdef CONFIG_X86_64
-	if (boot_cpu_has(X86_FEATURE_PCID)) {
-		if (boot_cpu_has(X86_FEATURE_PGE)) {
-			/*
-			 * This can't be cr4_set_bits_and_update_boot() --
-			 * the trampoline code can't handle CR4.PCIDE and
-			 * it wouldn't do any good anyway.  Despite the name,
-			 * cr4_set_bits_and_update_boot() doesn't actually
-			 * cause the bits in question to remain set all the
-			 * way through the secondary boot asm.
-			 *
-			 * Instead, we brute-force it and set CR4.PCIDE
-			 * manually in start_secondary().
-			 */
-			cr4_set_bits(X86_CR4_PCIDE);
-		} else {
-			/*
-			 * flush_tlb_all(), as currently implemented, won't
-			 * work if PCID is on but PGE is not.  Since that
-			 * combination doesn't exist on real hardware, there's
-			 * no reason to try to fully support it, but it's
-			 * polite to avoid corrupting data if we're on
-			 * an improperly configured VM.
-			 */
-			setup_clear_cpu_cap(X86_FEATURE_PCID);
-		}
+	if (!IS_ENABLED(CONFIG_X86_64))
+		return;
+
+	if (!boot_cpu_has(X86_FEATURE_PCID))
+		return;
+
+	if (boot_cpu_has(X86_FEATURE_PGE)) {
+		/*
+		 * This can't be cr4_set_bits_and_update_boot() -- the
+		 * trampoline code can't handle CR4.PCIDE and it wouldn't
+		 * do any good anyway.  Despite the name,
+		 * cr4_set_bits_and_update_boot() doesn't actually cause
+		 * the bits in question to remain set all the way through
+		 * the secondary boot asm.
+		 *
+		 * Instead, we brute-force it and set CR4.PCIDE manually in
+		 * start_secondary().
+		 */
+		cr4_set_bits(X86_CR4_PCIDE);
+
+		/*
+		 * INVPCID's single-context modes (2/3) only work if we set
+		 * X86_CR4_PCIDE, *and* we INVPCID support.  It's unusable
+		 * on systems that have X86_CR4_PCIDE clear, or that have
+		 * no INVPCID support at all.
+		 */
+		if (boot_cpu_has(X86_FEATURE_INVPCID))
+			setup_force_cpu_cap(X86_FEATURE_INVPCID_SINGLE);
+	} else {
+		/*
+		 * flush_tlb_all(), as currently implemented, won't work if
+		 * PCID is on but PGE is not.  Since that combination
+		 * doesn't exist on real hardware, there's no reason to try
+		 * to fully support it, but it's polite to avoid corrupting
+		 * data if we're on an improperly configured VM.
+		 */
+		setup_clear_cpu_cap(X86_FEATURE_PCID);
 	}
-#endif
 }
 
 #ifdef CONFIG_X86_32
@@ -624,6 +641,7 @@ void __init init_mem_mapping(void)
 {
 	unsigned long end;
 
+	pti_check_boottime_disable();
 	probe_page_size_mask();
 	setup_pcid();
 
@@ -671,7 +689,7 @@ void __init init_mem_mapping(void)
 	load_cr3(swapper_pg_dir);
 	__flush_tlb_all();
 
-	hypervisor_init_mem_mapping();
+	x86_init.hyper.init_mem_mapping();
 
 	early_memtest(0, max_pfn_mapped << PAGE_SHIFT);
 }
@@ -690,7 +708,9 @@ void __init init_mem_mapping(void)
  */
 int devmem_is_allowed(unsigned long pagenr)
 {
-	if (page_is_ram(pagenr)) {
+	if (region_intersects(PFN_PHYS(pagenr), PAGE_SIZE,
+				IORESOURCE_SYSTEM_RAM, IORES_DESC_NONE)
+			!= REGION_DISJOINT) {
 		/*
 		 * For disallowed memory regions in the low 1MB range,
 		 * request that the page be shown as all zeros.
@@ -847,12 +867,12 @@ void __init zone_sizes_init(void)
 	free_area_init_nodes(max_zone_pfns);
 }
 
-DEFINE_PER_CPU_SHARED_ALIGNED(struct tlb_state, cpu_tlbstate) = {
+__visible DEFINE_PER_CPU_SHARED_ALIGNED(struct tlb_state, cpu_tlbstate) = {
 	.loaded_mm = &init_mm,
 	.next_asid = 1,
 	.cr4 = ~0UL,	/* fail hard if we screw up cr4 shadow initialization */
 };
-EXPORT_SYMBOL_GPL(cpu_tlbstate);
+EXPORT_PER_CPU_SYMBOL(cpu_tlbstate);
 
 void update_cache_mode_entry(unsigned entry, enum page_cache_mode cache)
 {
@@ -862,3 +882,26 @@ void update_cache_mode_entry(unsigned entry, enum page_cache_mode cache)
 	__cachemode2pte_tbl[cache] = __cm_idx2pte(entry);
 	__pte2cachemode_tbl[entry] = cache;
 }
+
+#ifdef CONFIG_SWAP
+unsigned long max_swapfile_size(void)
+{
+	unsigned long pages;
+
+	pages = generic_max_swapfile_size();
+
+	if (boot_cpu_has_bug(X86_BUG_L1TF)) {
+		/* Limit the swap file size to MAX_PA/2 for L1TF workaround */
+		unsigned long l1tf_limit = l1tf_pfn_limit() + 1;
+		/*
+		 * We encode swap offsets also with 3 bits below those for pfn
+		 * which makes the usable limit higher.
+		 */
+#if CONFIG_PGTABLE_LEVELS > 2
+		l1tf_limit <<= PAGE_SHIFT - SWP_OFFSET_FIRST_BIT;
+#endif
+		pages = min_t(unsigned long, l1tf_limit, pages);
+	}
+	return pages;
+}
+#endif

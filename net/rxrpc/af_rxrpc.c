@@ -302,7 +302,7 @@ struct rxrpc_call *rxrpc_kernel_begin_call(struct socket *sock,
 	memset(&cp, 0, sizeof(cp));
 	cp.local		= rx->local;
 	cp.key			= key;
-	cp.security_level	= 0;
+	cp.security_level	= rx->min_sec_level;
 	cp.exclusive		= false;
 	cp.service_id		= srx->srx_service;
 	call = rxrpc_new_client_call(rx, &cp, srx, user_call_ID, tx_total_len,
@@ -822,6 +822,19 @@ static int rxrpc_release_sock(struct sock *sk)
 	/* declare the socket closed for business */
 	sock_orphan(sk);
 	sk->sk_shutdown = SHUTDOWN_MASK;
+
+	/* We want to kill off all connections from a service socket
+	 * as fast as possible because we can't share these; client
+	 * sockets, on the other hand, can share an endpoint.
+	 */
+	switch (sk->sk_state) {
+	case RXRPC_SERVER_BOUND:
+	case RXRPC_SERVER_BOUND2:
+	case RXRPC_SERVER_LISTENING:
+	case RXRPC_SERVER_LISTEN_DISABLED:
+		rx->local->service_closed = true;
+		break;
+	}
 
 	spin_lock_bh(&sk->sk_receive_queue.lock);
 	sk->sk_state = RXRPC_CLOSE;

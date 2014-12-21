@@ -1409,6 +1409,15 @@ static int m88e1318_set_wol(struct phy_device *phydev,
 		if (err < 0)
 			return err;
 
+		/* If WOL event happened once, the LED[2] interrupt pin
+		 * will not be cleared unless we reading the interrupt status
+		 * register. If interrupts are in use, the normal interrupt
+		 * handling will clear the WOL event. Clear the WOL event
+		 * before enabling it if !phy_interrupt_is_valid()
+		 */
+		if (!phy_interrupt_is_valid(phydev))
+			phy_read(phydev, MII_M1011_IEVENT);
+
 		/* Enable the WOL interrupt */
 		temp = phy_read(phydev, MII_88E1318S_PHY_CSIER);
 		temp |= MII_88E1318S_PHY_CSIER_WOL_EIE;
@@ -2069,7 +2078,7 @@ static struct phy_driver marvell_drivers[] = {
 		.flags = PHY_HAS_INTERRUPT,
 		.probe = marvell_probe,
 		.config_init = &m88e1145_config_init,
-		.config_aneg = &marvell_config_aneg,
+		.config_aneg = &m88e1101_config_aneg,
 		.read_status = &genphy_read_status,
 		.ack_interrupt = &marvell_ack_interrupt,
 		.config_intr = &marvell_config_intr,

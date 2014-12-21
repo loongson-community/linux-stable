@@ -889,25 +889,36 @@ struct hdmi4_features {
 	bool audio_use_mclk;
 };
 
-static const struct hdmi4_features hdmi4_es1_features = {
+static const struct hdmi4_features hdmi4430_es1_features = {
 	.cts_swmode = false,
 	.audio_use_mclk = false,
 };
 
-static const struct hdmi4_features hdmi4_es2_features = {
+static const struct hdmi4_features hdmi4430_es2_features = {
 	.cts_swmode = true,
 	.audio_use_mclk = false,
 };
 
-static const struct hdmi4_features hdmi4_es3_features = {
+static const struct hdmi4_features hdmi4_features = {
 	.cts_swmode = true,
 	.audio_use_mclk = true,
 };
 
 static const struct soc_device_attribute hdmi4_soc_devices[] = {
-	{ .family = "OMAP4", .revision = "ES1.?", .data = &hdmi4_es1_features },
-	{ .family = "OMAP4", .revision = "ES2.?", .data = &hdmi4_es2_features },
-	{ .family = "OMAP4",			  .data = &hdmi4_es3_features },
+	{
+		.machine = "OMAP4430",
+		.revision = "ES1.?",
+		.data = &hdmi4430_es1_features,
+	},
+	{
+		.machine = "OMAP4430",
+		.revision = "ES2.?",
+		.data = &hdmi4430_es2_features,
+	},
+	{
+		.family = "OMAP4",
+		.data = &hdmi4_features,
+	},
 	{ /* sentinel */ }
 };
 
@@ -915,8 +926,13 @@ int hdmi4_core_init(struct platform_device *pdev, struct hdmi_core_data *core)
 {
 	const struct hdmi4_features *features;
 	struct resource *res;
+	const struct soc_device_attribute *soc;
 
-	features = soc_device_match(hdmi4_soc_devices)->data;
+	soc = soc_device_match(hdmi4_soc_devices);
+	if (!soc)
+		return -ENODEV;
+
+	features = soc->data;
 	core->cts_swmode = features->cts_swmode;
 	core->audio_use_mclk = features->audio_use_mclk;
 

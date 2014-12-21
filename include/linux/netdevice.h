@@ -2668,10 +2668,30 @@ static inline void skb_gro_flush_final(struct sk_buff *skb, struct sk_buff **pp,
 	if (PTR_ERR(pp) != -EINPROGRESS)
 		NAPI_GRO_CB(skb)->flush |= flush;
 }
+static inline void skb_gro_flush_final_remcsum(struct sk_buff *skb,
+					       struct sk_buff **pp,
+					       int flush,
+					       struct gro_remcsum *grc)
+{
+	if (PTR_ERR(pp) != -EINPROGRESS) {
+		NAPI_GRO_CB(skb)->flush |= flush;
+		skb_gro_remcsum_cleanup(skb, grc);
+		skb->remcsum_offload = 0;
+	}
+}
 #else
 static inline void skb_gro_flush_final(struct sk_buff *skb, struct sk_buff **pp, int flush)
 {
 	NAPI_GRO_CB(skb)->flush |= flush;
+}
+static inline void skb_gro_flush_final_remcsum(struct sk_buff *skb,
+					       struct sk_buff **pp,
+					       int flush,
+					       struct gro_remcsum *grc)
+{
+	NAPI_GRO_CB(skb)->flush |= flush;
+	skb_gro_remcsum_cleanup(skb, grc);
+	skb->remcsum_offload = 0;
 }
 #endif
 
@@ -4101,6 +4121,7 @@ static inline bool net_gso_ok(netdev_features_t features, int gso_type)
 	BUILD_BUG_ON(SKB_GSO_TUNNEL_REMCSUM != (NETIF_F_GSO_TUNNEL_REMCSUM >> NETIF_F_GSO_SHIFT));
 	BUILD_BUG_ON(SKB_GSO_SCTP    != (NETIF_F_GSO_SCTP >> NETIF_F_GSO_SHIFT));
 	BUILD_BUG_ON(SKB_GSO_ESP != (NETIF_F_GSO_ESP >> NETIF_F_GSO_SHIFT));
+	BUILD_BUG_ON(SKB_GSO_UDP != (NETIF_F_GSO_UDP >> NETIF_F_GSO_SHIFT));
 
 	return (features & feature) == feature;
 }

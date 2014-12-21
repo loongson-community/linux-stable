@@ -222,7 +222,7 @@ static struct net_device *aq_nic_ndev_alloc(void)
 
 struct aq_nic_s *aq_nic_alloc_cold(const struct net_device_ops *ndev_ops,
 				   const struct ethtool_ops *et_ops,
-				   struct device *dev,
+				   struct pci_dev *pdev,
 				   struct aq_pci_func_s *aq_pci_func,
 				   unsigned int port,
 				   const struct aq_hw_ops *aq_hw_ops)
@@ -242,7 +242,7 @@ struct aq_nic_s *aq_nic_alloc_cold(const struct net_device_ops *ndev_ops,
 	ndev->netdev_ops = ndev_ops;
 	ndev->ethtool_ops = et_ops;
 
-	SET_NETDEV_DEV(ndev, dev);
+	SET_NETDEV_DEV(ndev, &pdev->dev);
 
 	ndev->if_port = port;
 	self->ndev = ndev;
@@ -254,7 +254,8 @@ struct aq_nic_s *aq_nic_alloc_cold(const struct net_device_ops *ndev_ops,
 
 	self->aq_hw = self->aq_hw_ops.create(aq_pci_func, self->port,
 						&self->aq_hw_ops);
-	err = self->aq_hw_ops.get_hw_caps(self->aq_hw, &self->aq_hw_caps);
+	err = self->aq_hw_ops.get_hw_caps(self->aq_hw, &self->aq_hw_caps,
+					  pdev->device, pdev->subsystem_device);
 	if (err < 0)
 		goto err_exit;
 
@@ -309,6 +310,8 @@ int aq_nic_ndev_init(struct aq_nic_s *self)
 
 	self->ndev->hw_features |= aq_hw_caps->hw_features;
 	self->ndev->features = aq_hw_caps->hw_features;
+	self->ndev->vlan_features |= NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
+				     NETIF_F_RXHASH | NETIF_F_SG | NETIF_F_LRO;
 	self->ndev->priv_flags = aq_hw_caps->hw_priv_flags;
 	self->ndev->mtu = aq_nic_cfg->mtu - ETH_HLEN;
 	self->ndev->max_mtu = self->aq_hw_caps.mtu - ETH_FCS_LEN - ETH_HLEN;

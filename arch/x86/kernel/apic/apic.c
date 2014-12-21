@@ -34,6 +34,7 @@
 #include <linux/dmi.h>
 #include <linux/smp.h>
 #include <linux/mm.h>
+#include <linux/irq.h>
 
 #include <asm/trace/irq_vectors.h>
 #include <asm/irq_remapping.h>
@@ -56,6 +57,7 @@
 #include <asm/hypervisor.h>
 #include <asm/cpu_device_id.h>
 #include <asm/intel-family.h>
+#include <asm/irq_regs.h>
 
 unsigned int num_processors;
 
@@ -553,7 +555,7 @@ static DEFINE_PER_CPU(struct clock_event_device, lapic_events);
 
 static u32 hsx_deadline_rev(void)
 {
-	switch (boot_cpu_data.x86_mask) {
+	switch (boot_cpu_data.x86_stepping) {
 	case 0x02: return 0x3a; /* EP */
 	case 0x04: return 0x0f; /* EX */
 	}
@@ -563,7 +565,7 @@ static u32 hsx_deadline_rev(void)
 
 static u32 bdx_deadline_rev(void)
 {
-	switch (boot_cpu_data.x86_mask) {
+	switch (boot_cpu_data.x86_stepping) {
 	case 0x02: return 0x00000011;
 	case 0x03: return 0x0700000e;
 	case 0x04: return 0x0f00000c;
@@ -575,10 +577,13 @@ static u32 bdx_deadline_rev(void)
 
 static u32 skx_deadline_rev(void)
 {
-	switch (boot_cpu_data.x86_mask) {
+	switch (boot_cpu_data.x86_stepping) {
 	case 0x03: return 0x01000136;
 	case 0x04: return 0x02000014;
 	}
+
+	if (boot_cpu_data.x86_stepping > 4)
+		return 0;
 
 	return ~0U;
 }
@@ -1481,7 +1486,7 @@ void setup_local_APIC(void)
 	 * TODO: set up through-local-APIC from through-I/O-APIC? --macro
 	 */
 	value = apic_read(APIC_LVT0) & APIC_LVT_MASKED;
-	if (!cpu && (pic_mode || !value)) {
+	if (!cpu && (pic_mode || !value || skip_ioapic_setup)) {
 		value = APIC_DM_EXTINT;
 		apic_printk(APIC_VERBOSE, "enabled ExtINT on CPU#%d\n", cpu);
 	} else {
@@ -1645,7 +1650,7 @@ static __init void try_to_enable_x2apic(int remap_mode)
 		 * under KVM
 		 */
 		if (max_physical_apicid > 255 ||
-		    !hypervisor_x2apic_available()) {
+		    !x86_init.hyper.x2apic_available()) {
 			pr_info("x2apic: IRQ remapping doesn't support X2APIC mode\n");
 			x2apic_disable();
 			return;
@@ -2088,6 +2093,23 @@ static int nr_logical_cpuids = 1;
 static int cpuid_to_apicid[] = {
 	[0 ... NR_CPUS - 1] = -1,
 };
+
+#ifdef CONFIG_SMP
+/**
+ * apic_id_is_primary_thread - Check whether APIC ID belongs to a primary thread
+ * @id:	APIC ID to check
+ */
+bool apic_id_is_primary_thread(unsigned int apicid)
+{
+	u32 mask;
+
+	if (smp_num_siblings == 1)
+		return true;
+	/* Isolate the SMT bit(s) in the APICID and check for 0 */
+	mask = (1U << (fls(smp_num_siblings) - 1)) - 1;
+	return !(apicid & mask);
+}
+#endif
 
 /*
  * Should use this API to allocate logical CPU IDs to keep nr_logical_cpuids

@@ -11,6 +11,7 @@
  * published by the Free Software Foundation.
  */
 #include <linux/interrupt.h>
+#include <linux/irq.h>
 #include <linux/init.h>
 #include <linux/compiler.h>
 #include <linux/slab.h>
@@ -369,8 +370,11 @@ static int x86_vector_alloc_irqs(struct irq_domain *domain, unsigned int virq,
 		irq_data->hwirq = virq + i;
 		err = assign_irq_vector_policy(virq + i, node, data, info,
 					       irq_data);
-		if (err)
+		if (err) {
+			irq_data->chip_data = NULL;
+			free_apic_chip_data(data);
 			goto error;
+		}
 		/*
 		 * If the apic destination mode is physical, then the
 		 * effective affinity is restricted to a single target
@@ -383,7 +387,7 @@ static int x86_vector_alloc_irqs(struct irq_domain *domain, unsigned int virq,
 	return 0;
 
 error:
-	x86_vector_free_irqs(domain, virq, i + 1);
+	x86_vector_free_irqs(domain, virq, i);
 	return err;
 }
 

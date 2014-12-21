@@ -243,6 +243,7 @@ static inline dev_t part_devt(struct hd_struct *part)
 	return part_to_dev(part)->devt;
 }
 
+extern struct hd_struct *__disk_get_part(struct gendisk *disk, int partno);
 extern struct hd_struct *disk_get_part(struct gendisk *disk, int partno);
 
 static inline void disk_put_part(struct hd_struct *part)
@@ -364,7 +365,9 @@ static inline void free_part_stats(struct hd_struct *part)
 	part_stat_add(cpu, gendiskp, field, -subnd)
 
 void part_in_flight(struct request_queue *q, struct hd_struct *part,
-			unsigned int inflight[2]);
+		    unsigned int inflight[2]);
+void part_in_flight_rw(struct request_queue *q, struct hd_struct *part,
+		       unsigned int inflight[2]);
 void part_dec_in_flight(struct request_queue *q, struct hd_struct *part,
 			int rw);
 void part_inc_in_flight(struct request_queue *q, struct hd_struct *part,

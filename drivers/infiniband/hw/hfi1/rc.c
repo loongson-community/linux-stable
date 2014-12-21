@@ -273,7 +273,7 @@ int hfi1_make_rc_req(struct rvt_qp *qp, struct hfi1_pkt_state *ps)
 
 	lockdep_assert_held(&qp->s_lock);
 	ps->s_txreq = get_txreq(ps->dev, qp);
-	if (IS_ERR(ps->s_txreq))
+	if (!ps->s_txreq)
 		goto bail_no_tx;
 
 	ps->s_txreq->phdr.hdr.hdr_type = priv->hdr_type;
@@ -815,7 +815,7 @@ static inline void hfi1_make_rc_ack_16B(struct rvt_qp *qp,
 	struct hfi1_pportdata *ppd = ppd_from_ibp(ibp);
 	struct hfi1_16b_header *hdr = &opa_hdr->opah;
 	struct ib_other_headers *ohdr;
-	u32 bth0, bth1;
+	u32 bth0, bth1 = 0;
 	u16 len, pkey;
 	u8 becn = !!is_fecn;
 	u8 l4 = OPA_16B_L4_IB_LOCAL;

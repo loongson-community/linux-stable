@@ -10,6 +10,7 @@
 #include <linux/ftrace.h>
 #include <linux/delay.h>
 #include <linux/export.h>
+#include <linux/irq.h>
 
 #include <asm/apic.h>
 #include <asm/io_apic.h>
@@ -218,18 +219,6 @@ __visible unsigned int __irq_entry do_IRQ(struct pt_regs *regs)
 	struct irq_desc * desc;
 	/* high bit used in ret_from_ code  */
 	unsigned vector = ~regs->orig_ax;
-
-	/*
-	 * NB: Unlike exception entries, IRQ entries do not reliably
-	 * handle context tracking in the low-level entry code.  This is
-	 * because syscall entries execute briefly with IRQs on before
-	 * updating context tracking state, so we can take an IRQ from
-	 * kernel mode with CONTEXT_USER.  The low-level entry code only
-	 * updates the context if we came from user mode, so we won't
-	 * switch to CONTEXT_KERNEL.  We'll fix that once the syscall
-	 * code is cleaned up enough that we can cleanly defer enabling
-	 * IRQs.
-	 */
 
 	entering_irq();
 

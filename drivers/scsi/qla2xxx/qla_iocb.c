@@ -2128,34 +2128,11 @@ __qla2x00_alloc_iocbs(struct qla_qpair *qpair, srb_t *sp)
 	req_cnt = 1;
 	handle = 0;
 
-	if (!sp)
-		goto skip_cmd_array;
-
-	/* Check for room in outstanding command list. */
-	handle = req->current_outstanding_cmd;
-	for (index = 1; index < req->num_outstanding_cmds; index++) {
-		handle++;
-		if (handle == req->num_outstanding_cmds)
-			handle = 1;
-		if (!req->outstanding_cmds[handle])
-			break;
-	}
-	if (index == req->num_outstanding_cmds) {
-		ql_log(ql_log_warn, vha, 0x700b,
-		    "No room on outstanding cmd array.\n");
-		goto queuing_error;
-	}
-
-	/* Prep command array. */
-	req->current_outstanding_cmd = handle;
-	req->outstanding_cmds[handle] = sp;
-	sp->handle = handle;
-
-	/* Adjust entry-counts as needed. */
-	if (sp->type != SRB_SCSI_CMD)
+	if (sp && (sp->type != SRB_SCSI_CMD)) {
+		/* Adjust entry-counts as needed. */
 		req_cnt = sp->iocbs;
+	}
 
-skip_cmd_array:
 	/* Check for room on request queue. */
 	if (req->cnt < req_cnt + 2) {
 		if (ha->mqenable || IS_QLA83XX(ha) || IS_QLA27XX(ha))
@@ -2179,6 +2156,28 @@ skip_cmd_array:
 	if (req->cnt < req_cnt + 2)
 		goto queuing_error;
 
+	if (sp) {
+		/* Check for room in outstanding command list. */
+		handle = req->current_outstanding_cmd;
+		for (index = 1; index < req->num_outstanding_cmds; index++) {
+			handle++;
+			if (handle == req->num_outstanding_cmds)
+				handle = 1;
+			if (!req->outstanding_cmds[handle])
+				break;
+		}
+		if (index == req->num_outstanding_cmds) {
+			ql_log(ql_log_warn, vha, 0x700b,
+			    "No room on outstanding cmd array.\n");
+			goto queuing_error;
+		}
+
+		/* Prep command array. */
+		req->current_outstanding_cmd = handle;
+		req->outstanding_cmds[handle] = sp;
+		sp->handle = handle;
+	}
+
 	/* Prep packet */
 	req->cnt -= req_cnt;
 	pkt = req->ring_ptr;
@@ -2190,6 +2189,8 @@ skip_cmd_array:
 		pkt->entry_count = req_cnt;
 		pkt->handle = handle;
 	}
+
+	return pkt;
 
 queuing_error:
 	qpair->tgt_counters.num_alloc_iocb_failed++;
@@ -2392,25 +2393,12 @@ qla2x00_els_dcmd_iocb_timeout(void *data)
 	srb_t *sp = data;
 	fc_port_t *fcport = sp->fcport;
 	struct scsi_qla_host *vha = sp->vha;
-	struct qla_hw_data *ha = vha->hw;
 	struct srb_iocb *lio = &sp->u.iocb_cmd;
-	unsigned long flags = 0;
 
 	ql_dbg(ql_dbg_io, vha, 0x3069,
 	    "%s Timeout, hdl=%x, portid=%02x%02x%02x\n",
 	    sp->name, sp->handle, fcport->d_id.b.domain, fcport->d_id.b.area,
 	    fcport->d_id.b.al_pa);
-
-	/* Abort the exchange */
-	spin_lock_irqsave(&ha->hardware_lock, flags);
-	if (ha->isp_ops->abort_command(sp)) {
-		ql_dbg(ql_dbg_io, vha, 0x3070,
-		    "mbx abort_command failed.\n");
-	} else {
-		ql_dbg(ql_dbg_io, vha, 0x3071,
-		    "mbx abort_command success.\n");
-	}
-	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 
 	complete(&lio->u.els_logo.comp);
 }

@@ -633,6 +633,7 @@ cas_action:
 	sub,<>	%r28, %r25, %r0
 2:	stw,ma	%r24, 0(%r26)
 	/* Free lock */
+	sync
 	stw,ma	%r20, 0(%sr2,%r20)
 #if ENABLE_LWS_DEBUG
 	/* Clear thread register indicator */
@@ -647,6 +648,7 @@ cas_action:
 3:		
 	/* Error occurred on load or store */
 	/* Free lock */
+	sync
 	stw	%r20, 0(%sr2,%r20)
 #if ENABLE_LWS_DEBUG
 	stw	%r0, 4(%sr2,%r20)
@@ -690,15 +692,15 @@ cas_action:
 	/* ELF32 Process entry path */
 lws_compare_and_swap_2:
 #ifdef CONFIG_64BIT
-	/* Clip the input registers */
+	/* Clip the input registers. We don't need to clip %r23 as we
+	   only use it for word operations */
 	depdi	0, 31, 32, %r26
 	depdi	0, 31, 32, %r25
 	depdi	0, 31, 32, %r24
-	depdi	0, 31, 32, %r23
 #endif
 
 	/* Check the validity of the size pointer */
-	subi,>>= 4, %r23, %r0
+	subi,>>= 3, %r23, %r0
 	b,n	lws_exit_nosys
 
 	/* Jump to the functions which will load the old and new values into
@@ -848,6 +850,7 @@ cas2_action:
 
 cas2_end:
 	/* Free lock */
+	sync
 	stw,ma	%r20, 0(%sr2,%r20)
 	/* Enable interrupts */
 	ssm	PSW_SM_I, %r0
@@ -858,6 +861,7 @@ cas2_end:
 22:
 	/* Error occurred on load or store */
 	/* Free lock */
+	sync
 	stw	%r20, 0(%sr2,%r20)
 	ssm	PSW_SM_I, %r0
 	ldo	1(%r0),%r28

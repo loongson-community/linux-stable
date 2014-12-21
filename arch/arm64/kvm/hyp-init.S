@@ -122,6 +122,10 @@ CPU_BE(	orr	x4, x4, #SCTLR_ELx_EE)
 	kern_hyp_va	x2
 	msr	vbar_el2, x2
 
+	/* copy tpidr_el1 into tpidr_el2 for use by HYP */
+	mrs	x1, tpidr_el1
+	msr	tpidr_el2, x1
+
 	/* Hello, World! */
 	eret
 ENDPROC(__kvm_hyp_init)
@@ -151,6 +155,7 @@ reset:
 	mrs	x5, sctlr_el2
 	ldr	x6, =SCTLR_ELx_FLAGS
 	bic	x5, x5, x6		// Clear SCTL_M and etc
+	pre_disable_mmu_workaround
 	msr	sctlr_el2, x5
 	isb
 
