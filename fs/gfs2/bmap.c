@@ -392,6 +392,19 @@ static int fillup_metapath(struct gfs2_inode *ip, struct metapath *mp, int h)
 	return mp->mp_aheight - x - 1;
 }
 
+static sector_t metapath_to_block(struct gfs2_sbd *sdp, struct metapath *mp)
+{
+	sector_t factor = 1, block = 0;
+	int hgt;
+
+	for (hgt = mp->mp_fheight - 1; hgt >= 0; hgt--) {
+		if (hgt < mp->mp_aheight)
+			block += mp->mp_list[hgt] * factor;
+		factor *= sdp->sd_inptrs;
+	}
+	return block;
+}
+
 static void release_metapath(struct metapath *mp)
 {
 	int i;
@@ -432,60 +445,84 @@ static inline unsigned int gfs2_extent_length(struct buffer_head *bh, __be64 *pt
 	return ptr - first;
 }
 
-typedef const __be64 *(*gfs2_metadata_walker)(
-		struct metapath *mp,
-		const __be64 *start, const __be64 *end,
-		u64 factor, void *data);
+enum walker_status { WALK_STOP, WALK_FOLLOW, WALK_CONTINUE };
 
-#define WALK_STOP ((__be64 *)0)
-#define WALK_NEXT ((__be64 *)1)
+/*
+ * gfs2_metadata_walker - walk an indirect block
+ * @mp: Metapath to indirect block
+ * @ptrs: Number of pointers to look at
+ *
+ * When returning WALK_FOLLOW, the walker must update @mp to point at the right
+ * indirect block to follow.
+ */
+typedef enum walker_status (*gfs2_metadata_walker)(struct metapath *mp,
+						   unsigned int ptrs);
 
-static int gfs2_walk_metadata(struct inode *inode, sector_t lblock,
-		u64 len, struct metapath *mp, gfs2_metadata_walker walker,
-		void *data)
+/*
+ * gfs2_walk_metadata - walk a tree of indirect blocks
+ * @inode: The inode
+ * @mp: Starting point of walk
+ * @max_len: Maximum number of blocks to walk
+ * @walker: Called during the walk
+ *
+ * Returns 1 if the walk was stopped by @walker, 0 if we went past @max_len or
+ * past the end of metadata, and a negative error code otherwise.
+ */
+
+static int gfs2_walk_metadata(struct inode *inode, struct metapath *mp,
+		u64 max_len, gfs2_metadata_walker walker)
 {
-	struct metapath clone;
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
-	const __be64 *start, *end, *ptr;
 	u64 factor = 1;
 	unsigned int hgt;
-	int ret = 0;
+	int ret;
 
-	for (hgt = ip->i_height - 1; hgt >= mp->mp_aheight; hgt--)
+	/*
+	 * The walk starts in the lowest allocated indirect block, which may be
+	 * before the position indicated by @mp.  Adjust @max_len accordingly
+	 * to avoid a short walk.
+	 */
+	for (hgt = mp->mp_fheight - 1; hgt >= mp->mp_aheight; hgt--) {
+		max_len += mp->mp_list[hgt] * factor;
+		mp->mp_list[hgt] = 0;
 		factor *= sdp->sd_inptrs;
+	}
 
 	for (;;) {
-		u64 step;
+		u16 start = mp->mp_list[hgt];
+		enum walker_status status;
+		unsigned int ptrs;
+		u64 len;
 
 		/* Walk indirect block. */
-		start = metapointer(hgt, mp);
-		end = metaend(hgt, mp);
-
-		step = (end - start) * factor;
-		if (step > len)
-			end = start + DIV_ROUND_UP_ULL(len, factor);
-
-		ptr = walker(mp, start, end, factor, data);
-		if (ptr == WALK_STOP)
+		ptrs = (hgt >= 1 ? sdp->sd_inptrs : sdp->sd_diptrs) - start;
+		len = ptrs * factor;
+		if (len > max_len)
+			ptrs = DIV_ROUND_UP_ULL(max_len, factor);
+		status = walker(mp, ptrs);
+		switch (status) {
+		case WALK_STOP:
+			return 1;
+		case WALK_FOLLOW:
+			BUG_ON(mp->mp_aheight == mp->mp_fheight);
+			ptrs = mp->mp_list[hgt] - start;
+			len = ptrs * factor;
 			break;
-		if (step >= len)
+		case WALK_CONTINUE:
 			break;
-		len -= step;
-		if (ptr != WALK_NEXT) {
-			BUG_ON(!*ptr);
-			mp->mp_list[hgt] += ptr - start;
-			goto fill_up_metapath;
 		}
+		if (len >= max_len)
+			break;
+		max_len -= len;
+		if (status == WALK_FOLLOW)
+			goto fill_up_metapath;
 
 lower_metapath:
 		/* Decrease height of metapath. */
-		if (mp != &clone) {
-			clone_metapath(&clone, mp);
-			mp = &clone;
-		}
 		brelse(mp->mp_bh[hgt]);
 		mp->mp_bh[hgt] = NULL;
+		mp->mp_list[hgt] = 0;
 		if (!hgt)
 			break;
 		hgt--;
@@ -493,55 +530,46 @@ lower_metapath:
 
 		/* Advance in metadata tree. */
 		(mp->mp_list[hgt])++;
-		start = metapointer(hgt, mp);
-		end = metaend(hgt, mp);
-		if (start >= end) {
-			mp->mp_list[hgt] = 0;
-			if (!hgt)
+		if (hgt) {
+			if (mp->mp_list[hgt] >= sdp->sd_inptrs)
+				goto lower_metapath;
+		} else {
+			if (mp->mp_list[hgt] >= sdp->sd_diptrs)
 				break;
-			goto lower_metapath;
 		}
 
 fill_up_metapath:
 		/* Increase height of metapath. */
-		if (mp != &clone) {
-			clone_metapath(&clone, mp);
-			mp = &clone;
-		}
 		ret = fillup_metapath(ip, mp, ip->i_height - 1);
 		if (ret < 0)
-			break;
+			return ret;
 		hgt += ret;
 		for (; ret; ret--)
 			do_div(factor, sdp->sd_inptrs);
 		mp->mp_aheight = hgt + 1;
 	}
-	if (mp == &clone)
-		release_metapath(mp);
-	return ret;
+	return 0;
 }
 
-struct gfs2_hole_walker_args {
-	u64 blocks;
-};
-
-static const __be64 *gfs2_hole_walker(struct metapath *mp,
-		const __be64 *start, const __be64 *end,
-		u64 factor, void *data)
+static enum walker_status gfs2_hole_walker(struct metapath *mp,
+					   unsigned int ptrs)
 {
-	struct gfs2_hole_walker_args *args = data;
-	const __be64 *ptr;
+	const __be64 *start, *ptr, *end;
+	unsigned int hgt;
+
+	hgt = mp->mp_aheight - 1;
+	start = metapointer(hgt, mp);
+	end = start + ptrs;
 
 	for (ptr = start; ptr < end; ptr++) {
 		if (*ptr) {
-			args->blocks += (ptr - start) * factor;
+			mp->mp_list[hgt] += ptr - start;
 			if (mp->mp_aheight == mp->mp_fheight)
 				return WALK_STOP;
-			return ptr;  /* increase height */
+			return WALK_FOLLOW;
 		}
 	}
-	args->blocks += (end - start) * factor;
-	return WALK_NEXT;
+	return WALK_CONTINUE;
 }
 
 /**
@@ -559,12 +587,24 @@ static const __be64 *gfs2_hole_walker(struct metapath *mp,
 static int gfs2_hole_size(struct inode *inode, sector_t lblock, u64 len,
 			  struct metapath *mp, struct iomap *iomap)
 {
-	struct gfs2_hole_walker_args args = { };
-	int ret = 0;
+	struct metapath clone;
+	u64 hole_size;
+	int ret;
 
-	ret = gfs2_walk_metadata(inode, lblock, len, mp, gfs2_hole_walker, &args);
-	if (!ret)
-		iomap->length = args.blocks << inode->i_blkbits;
+	clone_metapath(&clone, mp);
+	ret = gfs2_walk_metadata(inode, &clone, len, gfs2_hole_walker);
+	if (ret < 0)
+		goto out;
+
+	if (ret == 1)
+		hole_size = metapath_to_block(GFS2_SB(inode), &clone) - lblock;
+	else
+		hole_size = len;
+	iomap->length = hole_size << inode->i_blkbits;
+	ret = 0;
+
+out:
+	release_metapath(&clone);
 	return ret;
 }
 
@@ -826,7 +866,7 @@ static int gfs2_iomap_get(struct inode *inode, loff_t pos, loff_t length,
 	ret = gfs2_meta_inode_buffer(ip, &dibh);
 	if (ret)
 		goto unlock;
-	iomap->private = dibh;
+	mp->mp_bh[0] = dibh;
 
 	if (gfs2_is_stuffed(ip)) {
 		if (flags & IOMAP_WRITE) {
@@ -841,10 +881,9 @@ static int gfs2_iomap_get(struct inode *inode, loff_t pos, loff_t length,
 					ret = -ENOENT;
 					goto unlock;
 				} else {
-					/* report a hole */
 					iomap->offset = pos;
 					iomap->length = length;
-					goto do_alloc;
+					goto hole_found;
 				}
 			}
 			iomap->length = size;
@@ -862,9 +901,6 @@ unstuff:
 	lblock_stop = (pos + length - 1) >> inode->i_blkbits;
 	len = lblock_stop - lblock + 1;
 	iomap->length = len << inode->i_blkbits;
-
-	get_bh(dibh);
-	mp->mp_bh[0] = dibh;
 
 	height = ip->i_height;
 	while ((lblock + 1) * sdp->sd_sb.sb_bsize > sdp->sd_heightsize[height])
@@ -898,13 +934,9 @@ out:
 	iomap->bdev = inode->i_sb->s_bdev;
 unlock:
 	up_read(&ip->i_rw_mutex);
-	if (ret && dibh)
-		brelse(dibh);
 	return ret;
 
 do_alloc:
-	iomap->addr = IOMAP_NULL_ADDR;
-	iomap->type = IOMAP_HOLE;
 	if (flags & IOMAP_REPORT) {
 		if (pos >= size)
 			ret = -ENOENT;
@@ -926,6 +958,9 @@ do_alloc:
 		if (pos < size && height == ip->i_height)
 			ret = gfs2_hole_size(inode, lblock, len, mp, iomap);
 	}
+hole_found:
+	iomap->addr = IOMAP_NULL_ADDR;
+	iomap->type = IOMAP_HOLE;
 	goto out;
 }
 
@@ -980,9 +1015,9 @@ static void gfs2_iomap_journaled_page_done(struct inode *inode, loff_t pos,
 
 static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 				  loff_t length, unsigned flags,
-				  struct iomap *iomap)
+				  struct iomap *iomap,
+				  struct metapath *mp)
 {
-	struct metapath mp = { .mp_aheight = 1, };
 	struct gfs2_inode *ip = GFS2_I(inode);
 	struct gfs2_sbd *sdp = GFS2_SB(inode);
 	unsigned int data_blocks = 0, ind_blocks = 0, rblocks;
@@ -996,9 +1031,9 @@ static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 	unstuff = gfs2_is_stuffed(ip) &&
 		  pos + length > gfs2_max_stuffed_size(ip);
 
-	ret = gfs2_iomap_get(inode, pos, length, flags, iomap, &mp);
+	ret = gfs2_iomap_get(inode, pos, length, flags, iomap, mp);
 	if (ret)
-		goto out_release;
+		goto out_unlock;
 
 	alloc_required = unstuff || iomap->type == IOMAP_HOLE;
 
@@ -1013,7 +1048,7 @@ static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 
 		ret = gfs2_quota_lock_check(ip, &ap);
 		if (ret)
-			goto out_release;
+			goto out_unlock;
 
 		ret = gfs2_inplace_reserve(ip, &ap);
 		if (ret)
@@ -1038,17 +1073,15 @@ static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 		ret = gfs2_unstuff_dinode(ip, NULL);
 		if (ret)
 			goto out_trans_end;
-		release_metapath(&mp);
-		brelse(iomap->private);
-		iomap->private = NULL;
+		release_metapath(mp);
 		ret = gfs2_iomap_get(inode, iomap->offset, iomap->length,
-				     flags, iomap, &mp);
+				     flags, iomap, mp);
 		if (ret)
 			goto out_trans_end;
 	}
 
 	if (iomap->type == IOMAP_HOLE) {
-		ret = gfs2_iomap_alloc(inode, iomap, flags, &mp);
+		ret = gfs2_iomap_alloc(inode, iomap, flags, mp);
 		if (ret) {
 			gfs2_trans_end(sdp);
 			gfs2_inplace_release(ip);
@@ -1056,7 +1089,6 @@ static int gfs2_iomap_begin_write(struct inode *inode, loff_t pos,
 			goto out_qunlock;
 		}
 	}
-	release_metapath(&mp);
 	if (!gfs2_is_stuffed(ip) && gfs2_is_jdata(ip))
 		iomap->page_done = gfs2_iomap_journaled_page_done;
 	return 0;
@@ -1069,10 +1101,7 @@ out_trans_fail:
 out_qunlock:
 	if (alloc_required)
 		gfs2_quota_unlock(ip);
-out_release:
-	if (iomap->private)
-		brelse(iomap->private);
-	release_metapath(&mp);
+out_unlock:
 	gfs2_write_unlock(inode);
 	return ret;
 }
@@ -1088,10 +1117,10 @@ static int gfs2_iomap_begin(struct inode *inode, loff_t pos, loff_t length,
 
 	trace_gfs2_iomap_start(ip, pos, length, flags);
 	if ((flags & IOMAP_WRITE) && !(flags & IOMAP_DIRECT)) {
-		ret = gfs2_iomap_begin_write(inode, pos, length, flags, iomap);
+		ret = gfs2_iomap_begin_write(inode, pos, length, flags, iomap, &mp);
 	} else {
 		ret = gfs2_iomap_get(inode, pos, length, flags, iomap, &mp);
-		release_metapath(&mp);
+
 		/*
 		 * Silently fall back to buffered I/O for stuffed files or if
 		 * we've hot a hole (see gfs2_file_direct_write).
@@ -1100,6 +1129,11 @@ static int gfs2_iomap_begin(struct inode *inode, loff_t pos, loff_t length,
 		    iomap->type != IOMAP_MAPPED)
 			ret = -ENOTBLK;
 	}
+	if (!ret) {
+		get_bh(mp.mp_bh[0]);
+		iomap->private = mp.mp_bh[0];
+	}
+	release_metapath(&mp);
 	trace_gfs2_iomap_end(ip, iomap, ret);
 	return ret;
 }
@@ -1598,6 +1632,7 @@ out_unlock:
 			brelse(dibh);
 			up_write(&ip->i_rw_mutex);
 			gfs2_trans_end(sdp);
+			buf_in_tr = false;
 		}
 		gfs2_glock_dq_uninit(rd_gh);
 		cond_resched();
@@ -1908,10 +1943,16 @@ static int punch_hole(struct gfs2_inode *ip, u64 offset, u64 length)
 			if (ret < 0)
 				goto out;
 
-			/* issue read-ahead on metadata */
-			if (mp.mp_aheight > 1) {
-				for (; ret > 1; ret--) {
-					metapointer_range(&mp, mp.mp_aheight - ret,
+			/* On the first pass, issue read-ahead on metadata. */
+			if (mp.mp_aheight > 1 && strip_h == ip->i_height - 1) {
+				unsigned int height = mp.mp_aheight - 1;
+
+				/* No read-ahead for data blocks. */
+				if (mp.mp_aheight - 1 == strip_h)
+					height--;
+
+				for (; height >= mp.mp_aheight - ret; height--) {
+					metapointer_range(&mp, height,
 							  start_list, start_aligned,
 							  end_list, end_aligned,
 							  &start, &end);
@@ -2083,6 +2124,8 @@ static int do_grow(struct inode *inode, u64 size)
 	}
 
 	error = gfs2_trans_begin(sdp, RES_DINODE + RES_STATFS + RES_RG_BIT +
+				 (unstuff &&
+				  gfs2_is_jdata(ip) ? RES_JDATA : 0) +
 				 (sdp->sd_args.ar_quota == GFS2_QUOTA_OFF ?
 				  0 : RES_QUOTA), 0);
 	if (error)

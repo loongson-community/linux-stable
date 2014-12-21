@@ -77,11 +77,13 @@ static int crypto_cfb_encrypt_segment(struct skcipher_walk *walk,
 	do {
 		crypto_cfb_encrypt_one(tfm, iv, dst);
 		crypto_xor(dst, src, bsize);
-		memcpy(iv, dst, bsize);
+		iv = dst;
 
 		src += bsize;
 		dst += bsize;
 	} while ((nbytes -= bsize) >= bsize);
+
+	memcpy(walk->iv, iv, bsize);
 
 	return nbytes;
 }
@@ -144,7 +146,7 @@ static int crypto_cfb_decrypt_segment(struct skcipher_walk *walk,
 
 	do {
 		crypto_cfb_encrypt_one(tfm, iv, dst);
-		crypto_xor(dst, iv, bsize);
+		crypto_xor(dst, src, bsize);
 		iv = src;
 
 		src += bsize;
@@ -162,7 +164,7 @@ static int crypto_cfb_decrypt_inplace(struct skcipher_walk *walk,
 	const unsigned int bsize = crypto_cfb_bsize(tfm);
 	unsigned int nbytes = walk->nbytes;
 	u8 *src = walk->src.virt.addr;
-	u8 *iv = walk->iv;
+	u8 * const iv = walk->iv;
 	u8 tmp[MAX_CIPHER_BLOCKSIZE];
 
 	do {
@@ -171,8 +173,6 @@ static int crypto_cfb_decrypt_inplace(struct skcipher_walk *walk,
 		crypto_xor(src, tmp, bsize);
 		src += bsize;
 	} while ((nbytes -= bsize) >= bsize);
-
-	memcpy(walk->iv, iv, bsize);
 
 	return nbytes;
 }
@@ -286,9 +286,8 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	spawn = skcipher_instance_ctx(inst);
 	err = crypto_init_spawn(spawn, alg, skcipher_crypto_instance(inst),
 				CRYPTO_ALG_TYPE_MASK);
-	crypto_mod_put(alg);
 	if (err)
-		goto err_free_inst;
+		goto err_put_alg;
 
 	err = crypto_inst_setname(skcipher_crypto_instance(inst), "cfb", alg);
 	if (err)
@@ -298,6 +297,12 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	/* we're a stream cipher independend of the crypto cra_blocksize */
 	inst->alg.base.cra_blocksize = 1;
 	inst->alg.base.cra_alignmask = alg->cra_alignmask;
+
+	/*
+	 * To simplify the implementation, configure the skcipher walk to only
+	 * give a partial block at the very end, never earlier.
+	 */
+	inst->alg.chunksize = alg->cra_blocksize;
 
 	inst->alg.ivsize = alg->cra_blocksize;
 	inst->alg.min_keysize = alg->cra_cipher.cia_min_keysize;
@@ -317,12 +322,15 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 	err = skcipher_register_instance(tmpl, inst);
 	if (err)
 		goto err_drop_spawn;
+	crypto_mod_put(alg);
 
 out:
 	return err;
 
 err_drop_spawn:
 	crypto_drop_spawn(spawn);
+err_put_alg:
+	crypto_mod_put(alg);
 err_free_inst:
 	kfree(inst);
 	goto out;

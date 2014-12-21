@@ -707,7 +707,8 @@ void rc_repeat(struct rc_dev *dev)
 			 (dev->last_toggle ? LIRC_SCANCODE_FLAG_TOGGLE : 0)
 	};
 
-	ir_lirc_scancode_event(dev, &sc);
+	if (dev->allowed_protocols != RC_PROTO_BIT_CEC)
+		ir_lirc_scancode_event(dev, &sc);
 
 	spin_lock_irqsave(&dev->keylock, flags);
 
@@ -747,7 +748,8 @@ static void ir_do_keydown(struct rc_dev *dev, enum rc_proto protocol,
 		.keycode = keycode
 	};
 
-	ir_lirc_scancode_event(dev, &sc);
+	if (dev->allowed_protocols != RC_PROTO_BIT_CEC)
+		ir_lirc_scancode_event(dev, &sc);
 
 	if (new_event && dev->keypressed)
 		ir_do_keyup(dev, false);
@@ -1872,23 +1874,28 @@ int rc_register_device(struct rc_dev *dev)
 
 	dev->registered = true;
 
-	if (dev->driver_type != RC_DRIVER_IR_RAW_TX) {
-		rc = rc_setup_rx_device(dev);
-		if (rc)
-			goto out_dev;
-	}
-
-	/* Ensure that the lirc kfifo is setup before we start the thread */
+	/*
+	 * once the the input device is registered in rc_setup_rx_device,
+	 * userspace can open the input device and rc_open() will be called
+	 * as a result. This results in driver code being allowed to submit
+	 * keycodes with rc_keydown, so lirc must be registered first.
+	 */
 	if (dev->allowed_protocols != RC_PROTO_BIT_CEC) {
 		rc = ir_lirc_register(dev);
 		if (rc < 0)
-			goto out_rx;
+			goto out_dev;
+	}
+
+	if (dev->driver_type != RC_DRIVER_IR_RAW_TX) {
+		rc = rc_setup_rx_device(dev);
+		if (rc)
+			goto out_lirc;
 	}
 
 	if (dev->driver_type == RC_DRIVER_IR_RAW) {
 		rc = ir_raw_event_register(dev);
 		if (rc < 0)
-			goto out_lirc;
+			goto out_rx;
 	}
 
 	dev_dbg(&dev->dev, "Registered rc%u (driver: %s)\n", dev->minor,
@@ -1896,11 +1903,11 @@ int rc_register_device(struct rc_dev *dev)
 
 	return 0;
 
+out_rx:
+	rc_free_rx_device(dev);
 out_lirc:
 	if (dev->allowed_protocols != RC_PROTO_BIT_CEC)
 		ir_lirc_unregister(dev);
-out_rx:
-	rc_free_rx_device(dev);
 out_dev:
 	device_del(&dev->dev);
 out_rx_free:
@@ -1954,6 +1961,8 @@ void rc_unregister_device(struct rc_dev *dev)
 	rc_free_rx_device(dev);
 
 	mutex_lock(&dev->lock);
+	if (dev->users && dev->close)
+		dev->close(dev);
 	dev->registered = false;
 	mutex_unlock(&dev->lock);
 

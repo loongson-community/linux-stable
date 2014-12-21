@@ -1106,7 +1106,8 @@ int ice_napi_poll(struct napi_struct *napi, int budget)
 	napi_complete_done(napi, work_done);
 	if (test_bit(ICE_FLAG_MSIX_ENA, pf->flags))
 		ice_irq_dynamic_ena(&vsi->back->hw, vsi, q_vector);
-	return 0;
+
+	return min(work_done, budget - 1);
 }
 
 /* helper function for building cmd/type/offset */
@@ -1519,7 +1520,7 @@ int ice_tso(struct ice_tx_buf *first, struct ice_tx_offload_params *off)
 
 	/* update gso_segs and bytecount */
 	first->gso_segs = skb_shinfo(skb)->gso_segs;
-	first->bytecount = (first->gso_segs - 1) * off->header_len;
+	first->bytecount += (first->gso_segs - 1) * off->header_len;
 
 	cd_tso_len = skb->len - off->header_len;
 	cd_mss = skb_shinfo(skb)->gso_size;

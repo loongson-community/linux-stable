@@ -24,6 +24,7 @@
 #include "thread.h"
 #include "thread-stack.h"
 #include "stat.h"
+#include "arch/common.h"
 
 static int perf_session__deliver_event(struct perf_session *session,
 				       union perf_event *event,
@@ -149,6 +150,9 @@ struct perf_session *perf_session__new(struct perf_data *data,
 	} else  {
 		session->machines.host.env = &perf_env;
 	}
+
+	session->machines.host.single_address_space =
+		perf_env__single_address_space(session->machines.host.env);
 
 	if (!data || perf_data__is_write(data)) {
 		/*
@@ -1136,6 +1140,9 @@ static void dump_read(struct perf_evsel *evsel, union perf_event *event)
 	printf(": %d %d %s %" PRIu64 "\n", event->read.pid, event->read.tid,
 	       evsel ? perf_evsel__name(evsel) : "FAIL",
 	       event->read.value);
+
+	if (!evsel)
+		return;
 
 	read_format = evsel->attr.read_format;
 

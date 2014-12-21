@@ -478,9 +478,11 @@ ice_get_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring)
 	ring->tx_max_pending = ICE_MAX_NUM_DESC;
 	ring->rx_pending = vsi->rx_rings[0]->count;
 	ring->tx_pending = vsi->tx_rings[0]->count;
-	ring->rx_mini_pending = ICE_MIN_NUM_DESC;
+
+	/* Rx mini and jumbo rings are not supported */
 	ring->rx_mini_max_pending = 0;
 	ring->rx_jumbo_max_pending = 0;
+	ring->rx_mini_pending = 0;
 	ring->rx_jumbo_pending = 0;
 }
 
@@ -498,14 +500,23 @@ ice_set_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring)
 	    ring->tx_pending < ICE_MIN_NUM_DESC ||
 	    ring->rx_pending > ICE_MAX_NUM_DESC ||
 	    ring->rx_pending < ICE_MIN_NUM_DESC) {
-		netdev_err(netdev, "Descriptors requested (Tx: %d / Rx: %d) out of range [%d-%d]\n",
+		netdev_err(netdev, "Descriptors requested (Tx: %d / Rx: %d) out of range [%d-%d] (increment %d)\n",
 			   ring->tx_pending, ring->rx_pending,
-			   ICE_MIN_NUM_DESC, ICE_MAX_NUM_DESC);
+			   ICE_MIN_NUM_DESC, ICE_MAX_NUM_DESC,
+			   ICE_REQ_DESC_MULTIPLE);
 		return -EINVAL;
 	}
 
 	new_tx_cnt = ALIGN(ring->tx_pending, ICE_REQ_DESC_MULTIPLE);
+	if (new_tx_cnt != ring->tx_pending)
+		netdev_info(netdev,
+			    "Requested Tx descriptor count rounded up to %d\n",
+			    new_tx_cnt);
 	new_rx_cnt = ALIGN(ring->rx_pending, ICE_REQ_DESC_MULTIPLE);
+	if (new_rx_cnt != ring->rx_pending)
+		netdev_info(netdev,
+			    "Requested Rx descriptor count rounded up to %d\n",
+			    new_rx_cnt);
 
 	/* if nothing to do return success */
 	if (new_tx_cnt == vsi->tx_rings[0]->count &&
@@ -761,13 +772,6 @@ ice_set_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *pause)
 	else
 		return -EINVAL;
 
-	/* Tell the OS link is going down, the link will go back up when fw
-	 * says it is ready asynchronously
-	 */
-	ice_print_link_msg(vsi, false);
-	netif_carrier_off(netdev);
-	netif_tx_stop_all_queues(netdev);
-
 	/* Set the FC mode and only restart AN if link is up */
 	status = ice_set_fc(pi, &aq_failures, link_up);
 
@@ -786,10 +790,15 @@ ice_set_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *pause)
 	}
 
 	if (!test_bit(__ICE_DOWN, pf->state)) {
-		/* Give it a little more time to try to come back */
+		/* Give it a little more time to try to come back. If still
+		 * down, restart autoneg link or reinitialize the interface.
+		 */
 		msleep(75);
 		if (!test_bit(__ICE_DOWN, pf->state))
 			return ice_nway_reset(netdev);
+
+		ice_down(vsi);
+		ice_up(vsi);
 	}
 
 	return err;
