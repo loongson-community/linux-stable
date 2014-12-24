@@ -819,6 +819,16 @@ static const struct mips_perf_event mipsxx74Kcore_event_map
 	[PERF_COUNT_HW_BUS_CYCLES] = { UNSUPPORTED_PERF_EVENT_ID },
 };
 
+static const struct mips_perf_event loongson3_event_map[PERF_COUNT_HW_MAX] = {
+	[PERF_COUNT_HW_CPU_CYCLES] = { 0x00, CNTR_EVEN },
+	[PERF_COUNT_HW_INSTRUCTIONS] = { 0x00, CNTR_ODD },
+	[PERF_COUNT_HW_CACHE_REFERENCES] = { UNSUPPORTED_PERF_EVENT_ID },
+	[PERF_COUNT_HW_CACHE_MISSES] = { UNSUPPORTED_PERF_EVENT_ID },
+	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS] = { 0x01, CNTR_EVEN },
+	[PERF_COUNT_HW_BRANCH_MISSES] = { 0x01, CNTR_ODD },
+	[PERF_COUNT_HW_BUS_CYCLES] = { UNSUPPORTED_PERF_EVENT_ID },
+};
+
 static const struct mips_perf_event octeon_event_map[PERF_COUNT_HW_MAX] = {
 	[PERF_COUNT_HW_CPU_CYCLES] = { 0x01, CNTR_ALL },
 	[PERF_COUNT_HW_INSTRUCTIONS] = { 0x03, CNTR_ALL },
@@ -1062,6 +1072,120 @@ static const struct mips_perf_event mipsxx74Kcore_cache_map
 },
 };
 
+static const struct mips_perf_event loongson3_cache_map
+				[PERF_COUNT_HW_CACHE_MAX]
+				[PERF_COUNT_HW_CACHE_OP_MAX]
+				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
+[C(L1D)] = {
+	/*
+	 * Like some other architectures (e.g. ARM), the performance
+	 * counters don't differentiate between read and write
+	 * accesses/misses, so this isn't strictly correct, but it's the
+	 * best we can do. Writes and reads get combined.
+	 */
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x04, CNTR_ODD },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x04, CNTR_ODD },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(L1I)] = {
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x04, CNTR_EVEN },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x04, CNTR_EVEN },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		/*
+		 * Note that MIPS has only "hit" events countable for
+		 * the prefetch operation.
+		 */
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(LL)] = {
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(DTLB)] = {
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x09, CNTR_ODD },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x09, CNTR_ODD },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(ITLB)] = {
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x0c, CNTR_ODD },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { 0x0c, CNTR_ODD },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(BPU)] = {
+	/* Using the same code for *HW_BRANCH* */
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { 0x02, CNTR_EVEN },
+		[C(RESULT_MISS)]        = { 0x02, CNTR_ODD },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { 0x02, CNTR_EVEN },
+		[C(RESULT_MISS)]        = { 0x02, CNTR_ODD },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+[C(NODE)] = {
+	[C(OP_READ)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+	[C(OP_WRITE)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+	[C(OP_PREFETCH)] = {
+		[C(RESULT_ACCESS)]      = { UNSUPPORTED_PERF_EVENT_ID },
+		[C(RESULT_MISS)]        = { UNSUPPORTED_PERF_EVENT_ID },
+	},
+},
+};
 
 static const struct mips_perf_event octeon_cache_map
 				[PERF_COUNT_HW_CACHE_MAX]
@@ -1461,6 +1585,9 @@ static const struct mips_perf_event *mipsxx_pmu_map_raw_event(u64 config)
 			raw_event.range = T;
 #endif
 		break;
+	case CPU_LOONGSON3:
+		raw_event.cntr_mask = raw_id > 127 ? CNTR_ODD : CNTR_EVEN;
+	break;
 	}
 
 	return &raw_event;
@@ -1557,6 +1684,11 @@ init_hw_perf_events(void)
 		mipspmu.name = "mips/1004K";
 		mipspmu.general_event_map = &mipsxxcore_event_map;
 		mipspmu.cache_event_map = &mipsxxcore_cache_map;
+		break;
+	case CPU_LOONGSON3:
+		mipspmu.name = "mips/loongson3";
+		mipspmu.general_event_map = &loongson3_event_map;
+		mipspmu.cache_event_map = &loongson3_cache_map;
 		break;
 	case CPU_CAVIUM_OCTEON:
 	case CPU_CAVIUM_OCTEON_PLUS:
