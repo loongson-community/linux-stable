@@ -1,0 +1,134 @@
+menuconfig VIVANTE
+	tristate "Loongson-2H VIVANTE GPU Driver Support"
+	depends on FB_LS2H
+	default y
+	help
+	  This option enable Loongson-2H Vivante GPU kernel driver support.
+
+if VIVANTE
+
+config USE_POWER_MANAGEMENT 
+	int "USE_POWER_MANAGEMENT"
+	depends on VIVANTE
+	default 0
+
+config AL_VDMEMY_CACHED
+	int "FORCE_ALL_VIDEO_MEMORY_CACHED"
+	depends on VIVANTE
+	default 0
+
+config NPGD_MEM_CACHEABLE 
+	int "NONPAGED_MEMORY_CACHEABLE"
+	depends on VIVANTE
+	default 0
+
+config NPGD_MEM_BUFFABLE 
+	int "NONPAGED_MEMORY_BUFFERABLE"
+	depends on VIVANTE
+	default 0
+
+config CACHE_FUNC_UNIMPLMT 
+	int "CACHE_FUNCTION_UNIMPLEMENTED"
+	depends on VIVANTE
+	default 0
+
+config VIVANTE_ENABLE_VG 
+	int "VIVANTE_ENABLE_VG"
+	depends on VIVANTE
+	default 1
+	help
+	   VIV_ENABLE_VG          1      Built in GC350 HAL support; default value;
+	                          0      Do not build in GC350 HAL support;
+
+config NO_D_A_F_K 
+	int "NO_DIRECT_ACCESS_FROM_KERNEL"
+	depends on VIVANTE
+	default 1
+
+config VIVANTE_NO_3D 
+	int "VIVANTE_NO_3D"
+	depends on VIVANTE
+	default 0
+
+config ENABLE_OUTER_CACHE_PATCH 
+	int "ENABLE_OUTER_CACHE_PATCH"
+	depends on VIVANTE
+	default 1
+
+config USE_BANK_ALIGNMENT 
+	int "USE_BANK_ALIGNMENT"
+	depends on VIVANTE
+	default 0
+
+config BANK_BIT_START 
+	int "BANK_BIT_START"
+	depends on VIVANTE
+	default 0
+
+config BANK_BIT_END 
+	int "BANK_BIT_END"
+	depends on VIVANTE
+	default 0
+
+config BANK_CHANNEL_BIT 
+	int "BANK_CHANNEL_BIT"
+	depends on VIVANTE
+	default 0
+
+#------------------------------------------------------------------
+
+config VIV_DEBUG
+	int "Debug option"
+	depends on VIVANTE
+	default 0
+	help
+	   1 Enable debugging.  0 Disable debugging.
+
+config VIV_NO_DMA_COHERENT
+	int "DMA function coherent" 
+	depends on VIVANTE
+	default 0
+	help
+	NO_DMA_COHERENT            1      Disable coherent DMA function.
+	                           0      Enable coherent DMA function.
+
+config GPU_CLOCK 
+	int "Set GPU clock in driver"
+	depends on VIVANTE
+	default 0
+	help
+	   ENABLE_GPU_CLOCK_BY_DRIVER 1      Set the GPU clock in the driver.    
+	                              0      The GPU clock should be set by BSP.
+
+config USE_PLATFORM_DRIVER 
+	int "Platform deiver model"
+	depends on VIVANTE
+	default 1
+	help
+	   USE_PLATFORM_DRIVER        1      Use platform driver model to build kernel     
+	                                     module on linux while kernel version is 2.6.0
+				      0	     Use legecy kernel driver model.
+
+config VIV_USE_PROFILER 
+	int "Profile function"
+	depends on VIVANTE
+	default 0
+	help
+	   USE_PROFILER               0      Disable driver profiler function; 
+	                              1      Enable driver profiler function;
+
+config VIV_DIRECTFB_MAJOR_VERSION 
+	int "DFB driver Major Version" 
+	depends on VIVANTE
+	default 1
+
+config VIV_DIRECTFB_MINOR_VERSION 
+	int "DFB driver Minor Version" 
+	depends on VIVANTE
+	default 4
+
+config VIV_DIRECTFB_MICRO_VERSION 
+	int "DFB driver Micro Version" 
+	depends on VIVANTE
+	default 0
+endif
