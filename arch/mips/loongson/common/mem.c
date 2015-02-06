@@ -95,6 +95,14 @@ void __init prom_init_memory(void)
 				add_memory_region(emap->map[i].mem_start,
 					0x2000, BOOT_MEM_RESERVED);
 				break;
+			case UMA_VIDEO_RAM:
+				vram_type = VRAM_TYPE_UMA;
+				uma_vram_addr = emap->map[i].mem_start & 0xffffffff;
+				uma_vram_size = emap->map[i].mem_size;
+				add_memory_region(emap->map[i].mem_start,
+					(u64)emap->map[i].mem_size << 20,
+					BOOT_MEM_RESERVED);
+				break;
 			}
 		}
 	}

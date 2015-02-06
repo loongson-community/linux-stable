@@ -735,6 +735,10 @@ static void __init ls2h_device_initcall(void)
 		ls2h_platform_devices[i]->dev.coherent_dma_mask = platform_dma_mask;
 	}
 
+	if (vram_type == VRAM_TYPE_UMA) {
+		ls2h_gpu_resources[2].start = uma_vram_addr;
+		ls2h_gpu_resources[2].end = uma_vram_addr + (uma_vram_size << 20) - 1;
+	}
 	platform_add_devices(ls2h_platform_devices,
 			ARRAY_SIZE(ls2h_platform_devices));
 }
