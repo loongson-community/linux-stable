@@ -438,11 +438,11 @@ static void r4k_tlb_configure(void)
 		 * Enable the no read, no exec bits, and enable large virtual
 		 * address.
 		 */
-		u32 pg = PG_RIE | PG_XIE;
 #ifdef CONFIG_64BIT
-		pg |= PG_ELPA;
+		set_c0_pagegrain(PG_RIE | PG_XIE | PG_ELPA);
+#else
+		set_c0_pagegrain(PG_RIE | PG_XIE);
 #endif
-		write_c0_pagegrain(pg);
 	}
 
 	/* From this point on the ARC firmware is dead.	 */
