@@ -35,7 +35,7 @@ struct temp_range {
 struct loongson_fan_policy {
 	u8	type;
 
-	/* percent only used when type is CONSTANT_SPEED_POLICY */
+	/* CONSTANT_SPEED_POLICY: actual perenct, STEP_SPEED_POLICY: maximum percent */
 	u8	percent;
 
 	/* period between two check. (Unit: S) */

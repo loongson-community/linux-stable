@@ -14,6 +14,7 @@
 #include <linux/workqueue.h>
 #include <linux/platform_device.h>
 #include <linux/err.h>
+#include <linux/delay.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
@@ -90,8 +91,11 @@
 
 #define MAX_SBX00_FANS 3
 int sbx00_fan_enable[MAX_SBX00_FANS];
-enum fan_control_mode sbx00_fan_mode[MAX_SBX00_FANS];
+static enum fan_control_mode sbx00_fan_mode[MAX_SBX00_FANS];
 static struct loongson_fan_policy fan_policy[MAX_SBX00_FANS];
+
+/* threshold = SpeedOfPWM(0)/SpeedOfPWM(255) */
+static int speed_percent_threshold[MAX_SBX00_FANS];
 
 extern u8 pm_ioread(u8 reg);
 extern u8 pm2_ioread(u8 reg);
@@ -99,10 +103,10 @@ extern void pm_iowrite(u8 reg, u8 val);
 extern void pm2_iowrite(u8 reg, u8 val);
 
 /* up_temp & down_temp used in fan auto adjust */
-u8 fan_up_temp[MAX_SBX00_FANS];
-u8 fan_down_temp[MAX_SBX00_FANS];
-u8 fan_up_temp_level[MAX_SBX00_FANS];
-u8 fan_down_temp_level[MAX_SBX00_FANS];
+static u8 fan_up_temp[MAX_SBX00_FANS];
+static u8 fan_down_temp[MAX_SBX00_FANS];
+static u8 fan_up_temp_level[MAX_SBX00_FANS];
+static u8 fan_down_temp_level[MAX_SBX00_FANS];
 
 static void fan1_adjust(struct work_struct *work);
 static void fan2_adjust(struct work_struct *work);
@@ -149,7 +153,7 @@ static void get_up_temp(struct loongson_fan_policy *policy,
 {
 	int i;
 
-	for (i = 1; i < policy->up_step_num; i++) {
+	for (i = 0; i < policy->up_step_num; i++) {
 		if (current_temp <= policy->up_step[i].low) {
 			*up_temp = policy->up_step[i].low;
 			*up_temp_level = i;
@@ -231,7 +235,7 @@ static const struct attribute *hwmon_fan[3][4] = {
 static ssize_t get_fan_level(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
-	u8 val;
+	u8 val = 0;
 	int id = (to_sensor_dev_attr(attr))->index - 1;
 
 	if (id == 0)
@@ -274,6 +278,7 @@ static void sbx00_fan_step_mode(get_temp_fun fun,
 			struct loongson_fan_policy *policy, int id)
 {
 	u8 current_temp;
+	int init_temp_level, target_fan_level, bias;
 
 	current_temp = fun(0) / 1000;
 	get_up_temp(policy, current_temp, &fan_up_temp[id],
@@ -282,7 +287,13 @@ static void sbx00_fan_step_mode(get_temp_fun fun,
 			&fan_down_temp_level[id]);
 
 	/* current speed is not sure, setting now */
-	sbx00_set_fan_level(policy->up_step[fan_up_temp_level[id] - 1].level * 256 / 100, id);
+	init_temp_level = (fan_up_temp_level[id] + fan_down_temp_level[id]) / 2;
+	target_fan_level = policy->up_step[init_temp_level].level * 255 / 100;
+	bias = (speed_percent_threshold[id] * 255) / 100; /* bias of pwm(0) */
+	bias = bias * (255 - target_fan_level) / 255;     /* bias of pwm(target) */
+	target_fan_level = (target_fan_level > bias) ? target_fan_level - bias : 0;
+	target_fan_level = target_fan_level * fan_policy[id].percent / 100;
+	sbx00_set_fan_level(target_fan_level, id);
 
 	schedule_delayed_work_on(0, &policy->work, policy->adjust_period * HZ);
 }
@@ -326,7 +337,7 @@ static ssize_t set_fan_mode(struct device *dev,
 	new_mode = SENSORS_LIMIT(simple_strtoul(buf, NULL, 10),
 					FAN_FULL_MODE, FAN_AUTO_MODE);
 	if (new_mode == sbx00_fan_mode[id])
-		return 0;
+		return count;
 
 	switch (new_mode) {
 	case FAN_FULL_MODE:
@@ -348,12 +359,9 @@ static ssize_t set_fan_mode(struct device *dev,
 	return count;
 }
 
-static ssize_t get_fan_speed(struct device *dev,
-			struct device_attribute *attr, char *buf)
+static u32 sbx00_get_fan_speed(int id, bool warn)
 {
-	u32 val = 0;
 	int speed_lo = 0, speed_hi = 0, count = 1;
-	int id = (to_sensor_dev_attr(attr))->index - 1;
 
 	if (id == 0) {
 		speed_lo = pm2_ioread(FAN0SPEEDLO);
@@ -369,17 +377,28 @@ static ssize_t get_fan_speed(struct device *dev,
 	}
 
 	if (speed_lo & FANTOOSLOW) {
-		pr_warn("FanSpeed too slow!\n");
-		return sprintf(buf, "0\n");
+		if (warn)
+			pr_warn("FanSpeed too slow!\n");
+		return 0;
 	}
 	count = speed_hi << 8 | (speed_lo & ~FANSTATUS);
-	val = 360000 / count;
+	return 360000 / count;
+}
+
+static ssize_t get_fan_speed(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	int id = (to_sensor_dev_attr(attr))->index - 1;
+	u32 val = sbx00_get_fan_speed(id, true);
+
 	return sprintf(buf, "%d\n", val);
 }
 
-static void sbx00_fan1_init(void)
+static void sbx00_fan1_init(struct work_struct *work)
 {
 	u8 reg;
+	int ret;
+	int speed_low, speed_high;
 
 	/* Configure gpio3 as FANOUT0 */
 	reg = pm_ioread(PM_OPTION_0);
@@ -407,12 +426,31 @@ static void sbx00_fan1_init(void)
 	pm2_iowrite(FAN0SPEEDLIMLO, 0xFF); /* Set limits register */
 	pm2_iowrite(FAN0SPEEDLIMHI, 0xFF);
 
-	INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[0].work, fan1_adjust);
+	sbx00_set_fan_level(255, 0);
+	msleep(250);
+	speed_high = sbx00_get_fan_speed(0, false);
+	sbx00_set_fan_level(0, 0);
+	msleep(5000);
+	speed_low = sbx00_get_fan_speed(0, false);
+	sbx00_set_fan_level(255, 0);
+	if (speed_high >= speed_low)
+		speed_percent_threshold[0] = speed_low * 100 / speed_high;
+	pr_info("SpeedPercentThreshold of FAN1 is %d%%\n", speed_percent_threshold[0]);
+
+	/* force fans in auto mode first */
+	work->func = fan1_adjust;
+	sbx00_fan_mode[0] = FAN_AUTO_MODE;
+	sbx00_fan_start_auto(0);
+
+	ret = sysfs_create_files(&sbx00_hwmon_dev->kobj, hwmon_fan[0]);
+	if (ret)
+		printk(KERN_ERR "fail to create sysfs files\n");
 }
 
 static void fan1_adjust(struct work_struct *work)
 {
 	u8 current_temp;
+	int target_fan_level, bias;
 
 	current_temp = fan_policy[0].depend_temp(0) / 1000;
 
@@ -421,10 +459,16 @@ static void fan1_adjust(struct work_struct *work)
 		goto exit;
 
 	if (current_temp > fan_up_temp[0])
-		sbx00_set_fan_level(fan_policy[0].up_step[fan_up_temp_level[0]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[0].up_step[fan_up_temp_level[0]].level * 255 / 100;
 
 	if (current_temp < fan_down_temp[0])
-		sbx00_set_fan_level(fan_policy[0].up_step[fan_down_temp_level[0]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[0].down_step[fan_down_temp_level[0]].level * 255 / 100;
+
+	bias = (speed_percent_threshold[0] * 255) / 100;
+	bias = bias * (255 - target_fan_level) / 255;
+	target_fan_level = (target_fan_level > bias) ? target_fan_level - bias : 0;
+	target_fan_level = target_fan_level * fan_policy[0].percent / 100;
+	sbx00_set_fan_level(target_fan_level, 0);
 
 	get_up_temp(&fan_policy[0], current_temp, &fan_up_temp[0], &fan_up_temp_level[0]);
 	get_down_temp(&fan_policy[0], current_temp, &fan_down_temp[0], &fan_down_temp_level[0]);
@@ -433,9 +477,11 @@ exit:
         schedule_delayed_work_on(0, &fan_policy[0].work, fan_policy[0].adjust_period * HZ);
 }
 
-static void sbx00_fan2_init(void)
+static void sbx00_fan2_init(struct work_struct *work)
 {
 	u8 reg;
+	int ret;
+	int speed_low, speed_high;
 
 	/* Configure gpio48 as FANOUT1 */
 	reg = pm_ioread(PM_OPTION_0);
@@ -463,12 +509,31 @@ static void sbx00_fan2_init(void)
 	pm2_iowrite(FAN1SPEEDLIMLO, 0xFF); /* Set limits register */
 	pm2_iowrite(FAN1SPEEDLIMHI, 0xFF);
 
-	INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[1].work, fan2_adjust);
+	sbx00_set_fan_level(255, 1);
+	msleep(250);
+	speed_high = sbx00_get_fan_speed(1, false);
+	sbx00_set_fan_level(0, 1);
+	msleep(5000);
+	speed_low = sbx00_get_fan_speed(1, false);
+	sbx00_set_fan_level(255, 1);
+	if (speed_high >= speed_low)
+		speed_percent_threshold[1] = speed_low * 100 / speed_high;
+	pr_info("SpeedPercentThreshold of FAN2 is %d%%\n", speed_percent_threshold[1]);
+
+	/* force fans in auto mode first */
+	work->func = fan2_adjust;
+	sbx00_fan_mode[1] = FAN_AUTO_MODE;
+	sbx00_fan_start_auto(1);
+
+	ret = sysfs_create_files(&sbx00_hwmon_dev->kobj, hwmon_fan[1]);
+	if (ret)
+		printk(KERN_ERR "fail to create sysfs files\n");
 }
 
 static void fan2_adjust(struct work_struct *work)
 {
 	u8 current_temp;
+	int target_fan_level, bias;
 
 	current_temp = fan_policy[1].depend_temp(0) / 1000;
 
@@ -477,10 +542,16 @@ static void fan2_adjust(struct work_struct *work)
 		goto exit;
 
 	if (current_temp > fan_up_temp[1])
-		sbx00_set_fan_level(fan_policy[1].up_step[fan_up_temp_level[1]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[1].up_step[fan_up_temp_level[1]].level * 255 / 100;
 
 	if (current_temp < fan_down_temp[1])
-		sbx00_set_fan_level(fan_policy[1].up_step[fan_down_temp_level[1]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[1].down_step[fan_down_temp_level[1]].level * 255 / 100;
+
+	bias = (speed_percent_threshold[1] * 255) / 100;
+	bias = bias * (255 - target_fan_level) / 255;
+	target_fan_level = (target_fan_level > bias) ? target_fan_level - bias : 0;
+	target_fan_level = target_fan_level * fan_policy[1].percent / 100;
+	sbx00_set_fan_level(target_fan_level, 1);
 
 	get_up_temp(&fan_policy[1], current_temp, &fan_up_temp[1], &fan_up_temp_level[1]);
 	get_down_temp(&fan_policy[1], current_temp, &fan_down_temp[1], &fan_down_temp_level[1]);
@@ -489,9 +560,11 @@ exit:
         schedule_delayed_work_on(0, &fan_policy[1].work, fan_policy[1].adjust_period * HZ);
 }
 
-static void sbx00_fan3_init(void)
+static void sbx00_fan3_init(struct work_struct *work)
 {
 	u8 reg;
+	int ret;
+	int speed_low, speed_high;
 
 	/* Configure gpio49 as FANOUT2 */
 	reg = pm_ioread(PM_OPTION_0);
@@ -519,12 +592,31 @@ static void sbx00_fan3_init(void)
 	pm2_iowrite(FAN2SPEEDLIMLO, 0xFF); /* Set limits register */
 	pm2_iowrite(FAN2SPEEDLIMHI, 0xFF);
 
-	INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[2].work, fan3_adjust);
+	sbx00_set_fan_level(255, 2);
+	msleep(250);
+	speed_high = sbx00_get_fan_speed(2, false);
+	sbx00_set_fan_level(0, 2);
+	msleep(5000);
+	speed_low = sbx00_get_fan_speed(2, false);
+	sbx00_set_fan_level(255, 2);
+	if (speed_high >= speed_low)
+		speed_percent_threshold[2] = speed_low * 100 / speed_high;
+	pr_info("SpeedPercentThreshold of FAN3 is %d%%\n", speed_percent_threshold[2]);
+
+	/* force fans in auto mode first */
+	work->func = fan3_adjust;
+	sbx00_fan_mode[2] = FAN_AUTO_MODE;
+	sbx00_fan_start_auto(2);
+
+	ret = sysfs_create_files(&sbx00_hwmon_dev->kobj, hwmon_fan[2]);
+	if (ret)
+		printk(KERN_ERR "fail to create sysfs files\n");
 }
 
 static void fan3_adjust(struct work_struct *work)
 {
 	u8 current_temp;
+	int target_fan_level, bias;
 
 	current_temp =  fan_policy[2].depend_temp(0) / 1000;
 
@@ -533,10 +625,16 @@ static void fan3_adjust(struct work_struct *work)
 		goto exit;
 
 	if (current_temp > fan_up_temp[2])
-		sbx00_set_fan_level(fan_policy[2].up_step[fan_up_temp_level[2]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[2].up_step[fan_up_temp_level[2]].level * 255 / 100;
 
 	if (current_temp < fan_down_temp[2])
-		sbx00_set_fan_level(fan_policy[2].up_step[fan_down_temp_level[2]].level * 256 / 100, 0);
+		target_fan_level = fan_policy[2].down_step[fan_down_temp_level[2]].level * 255 / 100;
+
+	bias = (speed_percent_threshold[2] * 255) / 100;
+	bias = bias * (255 - target_fan_level) / 255;
+	target_fan_level = (target_fan_level > bias) ? target_fan_level - bias : 0;
+	target_fan_level = target_fan_level * fan_policy[2].percent / 100;
+	sbx00_set_fan_level(target_fan_level, 2);
 
 	get_up_temp(&fan_policy[2], current_temp, &fan_up_temp[2], &fan_up_temp_level[2]);
 	get_down_temp(&fan_policy[2], current_temp, &fan_down_temp[2], &fan_down_temp_level[2]);
@@ -547,7 +645,6 @@ exit:
 
 static int sbx00_fan_probe(struct platform_device *dev)
 {
-	int ret;
 	int id = dev->id - 1;
 	struct sensor_device *sdev = (struct sensor_device *)dev->dev.platform_data;
 
@@ -558,6 +655,9 @@ static int sbx00_fan_probe(struct platform_device *dev)
 		break;
 	case STEP_SPEED_POLICY:
 		memcpy(&fan_policy[id], &step_speed_policy, sizeof(struct loongson_fan_policy));
+		fan_policy[id].percent = sdev->fan_percent;
+		if (fan_policy[id].percent == 0 || fan_policy[id].percent > 100)
+			fan_policy[id].percent = 100;
 		break;
 	case CONSTANT_SPEED_POLICY:
 	default:
@@ -568,24 +668,20 @@ static int sbx00_fan_probe(struct platform_device *dev)
 		break;
 	}
 
-	if (id == 0)
-		sbx00_fan1_init();
-	if (id == 1)
-		sbx00_fan2_init();
-	if (id == 2)
-		sbx00_fan3_init();
+	if (id == 0) {
+		INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[0].work, sbx00_fan1_init);
+		schedule_delayed_work_on(0, &fan_policy[0].work, 0);
+	}
+	if (id == 1) {
+		INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[1].work, sbx00_fan2_init);
+		schedule_delayed_work_on(0, &fan_policy[1].work, 0);
+	}
+	if (id == 2) {
+		INIT_DELAYED_WORK_DEFERRABLE(&fan_policy[2].work, sbx00_fan3_init);
+		schedule_delayed_work_on(0, &fan_policy[2].work, 0);
+	}
 
 	sbx00_fan_enable[id] = 1;
-
-	/* force fans in auto mode first */
-	sbx00_fan_mode[id] = FAN_AUTO_MODE;
-	sbx00_fan_start_auto(id);
-
-	ret = sysfs_create_files(&sbx00_hwmon_dev->kobj, hwmon_fan[id]);
-	if (ret) {
-		printk(KERN_ERR "fail to create sysfs files\n");
-		return ret;
-	}
 
 	return 0;
 }

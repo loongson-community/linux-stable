@@ -3,10 +3,12 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/reboot.h>
+#include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/platform_device.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <loongson.h>
 #include <boot_param.h>
 #include <loongson_hwmon.h>
 
@@ -123,6 +125,14 @@ fail:
 	return r;
 }
 
+static void emc1412_shutdown(struct platform_device *dev)
+{
+	int id = dev->id - 1;
+
+	emc1412_client[id] = NULL;
+	msleep(15); /* Release I2C/SMBus resources */
+}
+
 /*
  * emc1412 provide 2 temprature data
  * Internal temprature: reg0.reg29
@@ -182,7 +192,7 @@ static ssize_t get_emc1412_temp(struct device *dev,
 	return sprintf(buf, "%d\n", value);
 }
 
-#define EMC1412_THERMAL_THRESHOLD 105000
+#define EMC1412_THERMAL_THRESHOLD 90000
 static struct delayed_work thermal_work;
 
 static void do_thermal_timer(struct work_struct *work)
@@ -201,8 +211,69 @@ static void do_thermal_timer(struct work_struct *work)
 		orderly_poweroff(true);
 }
 
+int fixup_cpu_temp(int cpu, int cputemp)
+{
+	static int printed[MAX_PACKAGES] = {0, 0, 0, 0};
+	int i, value, temp_min = 50000, temp_max = -20000;
+
+	for (i=0; i<MAX_EMC1412_CLIENTS; i++) {
+		value = emc1412_internal_temp(i);
+		if (value == NOT_VALID_TEMP)
+			continue;
+		if (value < temp_min)
+			temp_min = value;
+		if (value > temp_max)
+			temp_max = value;
+	}
+	for (i=0; i<MAX_EMC1412_CLIENTS; i++) {
+		value = emc1412_external_temp(i);
+		if (value == NOT_VALID_TEMP)
+			continue;
+		if (value < temp_min)
+			temp_min = value;
+		if (value > temp_max)
+			temp_max = value;
+	}
+
+	if (temp_min > temp_max) {
+		printk_once("EMC1412: No valid reference.\n");
+		return cputemp;
+	}
+	if (cputemp < 0 && temp_max < 2000) {
+		printk_once("EMC1412: No valid reference.\n");
+		return cputemp;
+	}
+
+	if (cputemp < temp_min - 5000) {
+		if(!printed[cpu]) {
+			printed[cpu] = 1;
+			printk("EMC1412: Original CPU#%d temperature too low, "
+				"fixup with reference: (%d -> %d).\n",
+				cpu, cputemp, temp_min - 5000);
+		}
+		return temp_min - 5000;
+	}
+	if (cputemp > temp_max + 15000) {
+		if(!printed[cpu]) {
+			printed[cpu] = 1;
+			printk("EMC1412: Original CPU#%d temperature too high, "
+				"fixup with reference: (%d -> %d).\n",
+				cpu, cputemp, temp_max + 10000);
+		}
+		return temp_max + 15000;
+	}
+	if(!printed[cpu]) {
+		printed[cpu] = 1;
+		printk("EMC1412: Original CPU#%d temperature is OK: (%d:%d:%d).\n",
+			cpu, cputemp, temp_min, temp_max);
+	}
+
+	return cputemp;
+}
+
 static struct platform_driver emc1412_driver = {
 	.probe		= emc1412_probe,
+	.shutdown	= emc1412_shutdown,
 	.driver		= {
 		.name	= "emc1412",
 		.owner	= THIS_MODULE,

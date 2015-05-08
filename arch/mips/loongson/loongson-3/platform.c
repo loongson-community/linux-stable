@@ -41,11 +41,11 @@ struct loongson_fan_policy kernel_helper_policy = {
  *
  * up_step array    |   down_step array
  *                  |
- * [min, 60), 50%   |   (min, 57), 50%
- * [60, 65),  60%   |   [57, 62),  60%
- * [65, 70),  70%   |   [62, 70),  70%
- * [70, 80),  80%   |   [70, 75),  80%
- * [80, max), 100%  |   [75, max),  100%
+ * [min, 50),  50%  |   (min, 45),  50%
+ * [50,  60),  60%  |   [45,  55),  60%
+ * [60,  70),  70%  |   [55,  65),  70%
+ * [70,  80),  80%  |   [65,  75),  80%
+ * [80,  max), 100% |   [75,  max), 100%
  *
  */
 struct loongson_fan_policy step_speed_policy = {
@@ -55,17 +55,17 @@ struct loongson_fan_policy step_speed_policy = {
 	.up_step_num = 5,
 	.down_step_num = 5,
 	.up_step = {
-			{MIN_TEMP,    60,   50},
-			{   60,       65,   60},
-			{   65,       70,   70},
-			{   70,       80,   80},
-			{   80,    MAX_TEMP,100},
+			{MIN_TEMP, 50,    50},
+			{   50,    60,    60},
+			{   60,    70,    70},
+			{   70,    80,    80},
+			{   80, MAX_TEMP, 100},
 		   },
 	.down_step = {
-			{MIN_TEMP, 57,    50},
-			{   57,    62,    60},
-			{   62,    70,    70},
-			{   70,    75,    80},
+			{MIN_TEMP, 45,    50},
+			{   45,    55,    60},
+			{   55,    65,    70},
+			{   65,    75,    80},
 			{   75, MAX_TEMP, 100},
 		     },
 };
