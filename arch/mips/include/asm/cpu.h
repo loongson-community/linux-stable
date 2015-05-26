@@ -388,6 +388,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_BP_GHIST	0x8000000000ull /* R12K+ Branch Prediction Global History */
 #define MIPS_CPU_SP		0x10000000000ull /* Small (1KB) page support */
 #define MIPS_CPU_FTLB		0x20000000000ull /* CPU has Fixed-page-size TLB */
+#define MIPS_CPU_LDPTE		0x40000000000ull /* CPU has ldpte/lddir instructions */
 
 /*
  * CPU ASE encodings
