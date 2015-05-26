@@ -137,12 +137,11 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	clk->rate = rate;
 
-	if (cputype == Loongson_3A) {
+	if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R1) {
 		regval = LOONGSON_CHIPCFG(0);
 		regval = (regval & ~0x7) | (loongson3_clockmod_table[i].index - 1);
 		LOONGSON_CHIPCFG(0) = regval;
-	}
-	else if (cputype == Loongson_3B) {
+	} else {
 		int cpu = clk - cpu_clks;
 		uint64_t core_id = cpu_data[cpu].core;
 		uint64_t package_id = cpu_data[cpu].package;

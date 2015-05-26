@@ -18,6 +18,7 @@
  * option) any later version.
  */
 #include <linux/module.h>
+#include <asm/time.h>
 #include <asm/bootinfo.h>
 #include <loongson.h>
 #include <boot_param.h>
@@ -63,6 +64,7 @@ struct sensor_device loongson_sensors[MAX_SENSORS];
 
 u32 cpu_clock_freq;
 EXPORT_SYMBOL(cpu_clock_freq);
+char cpu_full_name[64];
 
 #define parse_even_earlier(res, option, p)				\
 do {									\
@@ -75,6 +77,7 @@ do {									\
 void __init prom_init_env(void)
 {
 	/* pmon passes arguments in 32bit pointers */
+	char freq[12];
 	unsigned int processor_id;
 
 #ifndef CONFIG_UEFI_FIRMWARE_INTERFACE
@@ -122,6 +125,10 @@ void __init prom_init_env(void)
 		loongson_chiptemp[1] = 0x900010001fe0019c;
 		loongson_chiptemp[2] = 0x900020001fe0019c;
 		loongson_chiptemp[3] = 0x900030001fe0019c;
+		loongson_freqctrl[0] = 0x900000001fe001d0;
+		loongson_freqctrl[1] = 0x900010001fe001d0;
+		loongson_freqctrl[2] = 0x900020001fe001d0;
+		loongson_freqctrl[3] = 0x900030001fe001d0;
 		loongson_workarounds = WORKAROUND_CPUFREQ;
 	}
 	else if (cputype == Loongson_3B) {
@@ -159,6 +166,10 @@ void __init prom_init_env(void)
 	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
 		nr_cpus_loongson = NR_CPUS;
 	nr_nodes_loongson = (nr_cpus_loongson + cores_per_node - 1) / cores_per_node;
+	if (!strncmp(ecpu->cpuname, "Loongson", 8))
+		strncpy(cpu_full_name, ecpu->cpuname, sizeof(cpu_full_name));
+	if (cpu_full_name[0] == 0)
+		strncpy(cpu_full_name, __cpu_full_name[0], sizeof(cpu_full_name));
 
 	pci_mem_start_addr = eirq_source->pci_mem_start_addr;
 	pci_mem_end_addr = eirq_source->pci_mem_end_addr;
@@ -201,7 +212,8 @@ void __init prom_init_env(void)
 		case PRID_REV_LOONGSON2F:
 			cpu_clock_freq = 797000000;
 			break;
-		case PRID_REV_LOONGSON3A:
+		case PRID_REV_LOONGSON3A_R1:
+		case PRID_REV_LOONGSON3A_R2:
 			cpu_clock_freq = 900000000;
 			break;
 		case PRID_REV_LOONGSON3B_R1:
@@ -213,5 +225,11 @@ void __init prom_init_env(void)
 			break;
 		}
 	}
+	mips_cpu_frequency = cpu_clock_freq;
 	pr_info("CpuClock = %u\n", cpu_clock_freq);
+
+	/* Append default cpu frequency with round-off */
+	sprintf(freq, " @ %uMHz", (cpu_clock_freq + 500000) / 1000000);
+	strncat(cpu_full_name, freq, sizeof(cpu_full_name));
+	__cpu_full_name[0] = cpu_full_name;
 }
