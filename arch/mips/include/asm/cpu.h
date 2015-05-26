@@ -382,6 +382,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_XPA		0x2000000000ull /* CPU supports Extended Physical Addressing */
 #define MIPS_CPU_CDMM		0x4000000000ull	/* CPU has Common Device Memory Map */
 #define MIPS_CPU_FTLB		0x8000000000ull /* CPU has Fixed-page-size TLB */
+#define MIPS_CPU_LDPTE		0x10000000000ull /* CPU has ldpte/lddir instructions */
 
 /*
  * CPU ASE encodings
