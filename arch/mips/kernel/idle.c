@@ -172,6 +172,11 @@ void __init check_wait(void)
 		cpu_wait = r4k_wait;
 		break;
 
+	case CPU_LOONGSON3:
+		if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R2)
+			cpu_wait = r4k_wait;
+		break;
+
 	case CPU_RM7000:
 		cpu_wait = rm7k_wait_irqoff;
 		break;
