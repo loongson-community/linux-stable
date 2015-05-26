@@ -14,13 +14,19 @@
 #include <asm/stackframe.h>
 
 	.extern cmos_write64
-	.extern suspend_addr
-	.extern cores_per_node
-	.extern nr_nodes_loongson
+	.extern loongson_nr_nodes
+	.extern loongson_suspend_addr
+	.extern loongson_pcache_ways
+	.extern loongson_pcache_sets
+	.extern loongson_pcache_linesz
+	.extern loongson_scache_ways
+	.extern loongson_scache_sets
+	.extern loongson_scache_linesz
 
 	.text
-	.set noreorder
+	.set push
 	.set noat
+	.set reorder
 	.align	5
 	.set	mips64
 
@@ -49,16 +55,16 @@
 	sd	$31, PT_R31(sp)
 	mfc0	k0, CP0_STATUS
 	sw	k0, PT_R8(sp)
-	mfc0	k0, CP0_CONTEXT
-	sd	k0, PT_R9(sp)
-	mfc0	k0, CP0_XCONTEXT
-	sd	k0, PT_R10(sp)
-	mfc0	k0, CP0_PAGEMASK, 0  /* Loongson-3 has sub-registers */
-	sw	k0, PT_R11(sp)
-	mfc0	k0, CP0_PAGEMASK, 1  /* Loongson-3 has sub-registers */
-	sw	k0, PT_R12(sp)
 	mfc0	k0, CP0_CONFIG, 0
-	sw	k0, PT_R13(sp)
+	sw	k0, PT_R9(sp)
+	mfc0	k0, CP0_PAGEMASK, 0  /* Loongson-3 has sub-registers */
+	sw	k0, PT_R10(sp)
+	mfc0	k0, CP0_PAGEMASK, 1  /* Loongson-3 has sub-registers */
+	sw	k0, PT_R11(sp)
+	dmfc0	k0, CP0_CONTEXT
+	sd	k0, PT_R12(sp)
+	dmfc0	k0, CP0_XCONTEXT
+	sd	k0, PT_R13(sp)
 
 	/* Now set up the "wakeup vector" in  RTC space so the boot rom will
 	 * return to this point upon wakeup.
@@ -67,55 +73,55 @@
 	daddi	a0, sp, 0
 	li      a1, 0x48
 	jal     cmos_write64
-	nop
 	dla	a0, wakeup_start	/* resume path */
 	li      a1, 0x40
 	jal     cmos_write64
-	nop
 .endm
 
 /* sleep code for Loongson-3A memory controller type */
 LEAF(loongson_suspend_lowlevel)
 	SETUP_SLEEP
 
-	/* t0:address t1:L1 entries */
-	li t0, 0x80000000
-	li t1, 512
+	/* a0:address a1:L1_sets a2:L1_ways a3:L1_linesize */
+	li a0, 0x80000000
+	lw a1, loongson_pcache_sets
+	lw a2, loongson_pcache_ways
+	lw a3, loongson_pcache_linesz
 flushL1:
-	cache 0, 0(t0)
-	cache 0, 1(t0)
-	cache 0, 2(t0)
-	cache 0, 3(t0)
-	cache 1, 0(t0)
-	cache 1, 1(t0)
-	cache 1, 2(t0)
-	cache 1, 3(t0)
-	addiu t0, t0, 0x20
-	bnez  t1, flushL1
-	addiu t1, t1, -1
+	move  t0, a2
+1:	cache 0, (a0)
+	cache 1, (a0)
+	addiu a0, a0, 1
+	addiu t0, t0, -1
+	bnez  t0, 1b
+	subu  a0, a0, a2
+	addu  a0, a0, a3
+	addiu a1, a1, -1
+	bnez  a1, flushL1
 
-	/* t0:nr_nodes t1:address t2:L2 entries */
-	lw  t0, nr_nodes_loongson
-	dli t1, 0x9800000000000000
+	/* a0:nr_nodes a1:address a2:L2_sets a3:L2_ways t8:L2_linesize */
+	lw  a0, loongson_nr_nodes
+	dli a1, 0x9800000000000000
+	lw  a3, loongson_scache_ways
+	lw  t8, loongson_scache_linesz
 flushL2_all:
-	lw  t2, cores_per_node
-	li  t3, 8192
-	mult t2, t3
-	mflo t2
+	lw  a2, loongson_scache_sets
+	dli t9, 0x100000000000
 flushL2_node:
-	cache  3, 0(t1)
-	cache  3, 1(t1)
-	cache  3, 2(t1)
-	cache  3, 3(t1)
-	daddiu t1, t1, 0x20
-	bnez   t2, flushL2_node
-	addiu  t2, t2, -1
-	dli    t8, 0x100000000000
-	daddu  t1, t1, t8
-	bnez   t0, flushL2_all
+	move   t0, a3
+1:	cache  3, (a1)
+	daddiu a1, a1, 1
 	addiu  t0, t0, -1
+	bnez   t0, 1b
+	dsubu  a1, a1, a3
+	daddu  a1, a1, t8
+	addiu  a2, a2, -1
+	bnez   a2, flushL2_node
+	daddu  a1, a1, t9
+	addiu  a0, a0, -1
+	bnez   a0, flushL2_all
 
-	ld  v0, suspend_addr /* Call BIOS's STR sleep routine */
+	ld  v0, loongson_suspend_addr /* Call BIOS's STR sleep routine */
 	jr  v0
 	nop
 END(loongson_suspend_lowlevel)
@@ -126,16 +132,16 @@ END(loongson_suspend_lowlevel)
 LEAF(wakeup_start)
 	lw	k0, PT_R8(sp)
 	mtc0	k0, CP0_STATUS
-	ld	k0, PT_R9(sp)
-	mtc0	k0, CP0_CONTEXT
-	ld	k0, PT_R10(sp)
-	mtc0	k0, CP0_XCONTEXT
-	lw	k0, PT_R11(sp)
-	mtc0	k0, CP0_PAGEMASK, 0
-	lw	k0, PT_R12(sp)
-	mtc0	k0, CP0_PAGEMASK, 1
-	lw	k0, PT_R13(sp)
+	lw	k0, PT_R9(sp)
 	mtc0	k0, CP0_CONFIG, 0
+	lw	k0, PT_R10(sp)
+	mtc0	k0, CP0_PAGEMASK, 0
+	lw	k0, PT_R11(sp)
+	mtc0	k0, CP0_PAGEMASK, 1
+	ld	k0, PT_R12(sp)
+	dmtc0	k0, CP0_CONTEXT
+	ld	k0, PT_R13(sp)
+	dmtc0	k0, CP0_XCONTEXT
 
 	nop
 	ld	$1, PT_R1(sp)
@@ -159,7 +165,8 @@ LEAF(wakeup_start)
 	ld	$30, PT_R30(sp)
 	ld	$31, PT_R31(sp)
 
-	jr	ra
 	daddiu	sp, PT_SIZE
+	jr	ra
 END(wakeup_start)
-	.set mips0
+
+	.set pop

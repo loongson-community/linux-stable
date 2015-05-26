@@ -209,6 +209,11 @@ void __init check_wait(void)
 		cpu_wait = r4k_wait;
 		break;
 
+	case CPU_LOONGSON3:
+		if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R2)
+			cpu_wait = r4k_wait;
+		break;
+
 	case CPU_RM7000:
 		cpu_wait = rm7k_wait_irqoff;
 		break;
@@ -638,28 +643,41 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		switch (c->processor_id & PRID_REV_MASK) {
 		case PRID_REV_LOONGSON2E:
 			c->cputype = CPU_LOONGSON2;
-			__cpu_name[cpu] = "ICT Loongson-2E";
+			__cpu_name[cpu] = "Loongson-2";
 			set_elf_platform(cpu, "loongson2e");
+			c->isa_level = MIPS_CPU_ISA_III;
+			__cpu_full_name[cpu] = "Loongson-2E";
 			break;
 		case PRID_REV_LOONGSON2F:
 			c->cputype = CPU_LOONGSON2;
-			__cpu_name[cpu] = "ICT Loongson-2F";
+			__cpu_name[cpu] = "Loongson-2";
 			set_elf_platform(cpu, "loongson2f");
+			c->isa_level = MIPS_CPU_ISA_III;
+			__cpu_full_name[cpu] = "Loongson-2F";
 			break;
-		case PRID_REV_LOONGSON3A:
+		case PRID_REV_LOONGSON3A_R1:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3A";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
+			c->isa_level = MIPS_CPU_ISA_M64R1;
+			__cpu_full_name[cpu] = "Loongson-3A R1 (Loongson-3A1000)";
 			break;
 		case PRID_REV_LOONGSON3B_R1:
+			c->cputype = CPU_LOONGSON3;
+			__cpu_name[cpu] = "Loongson-3";
+			set_elf_platform(cpu, "loongson3b");
+			c->isa_level = MIPS_CPU_ISA_M64R1;
+			__cpu_full_name[cpu] = "Loongson-3B R1 (Loongson-3B1000)";
+			break;
 		case PRID_REV_LOONGSON3B_R2:
 			c->cputype = CPU_LOONGSON3;
-			__cpu_name[cpu] = "ICT Loongson-3B";
+			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3b");
+			c->isa_level = MIPS_CPU_ISA_M64R1;
+			__cpu_full_name[cpu] = "Loongson-3B R2 (Loongson-3B1500)";
 			break;
 		}
 
-		c->isa_level = MIPS_CPU_ISA_III;
 		c->options = R4K_OPTS |
 			     MIPS_CPU_FPU | MIPS_CPU_LLSC |
 			     MIPS_CPU_32FPR;
@@ -686,6 +704,19 @@ static void set_ftlb_enable(struct cpuinfo_mips *c, int enable)
 		else
 			/* Disable FTLB */
 			write_c0_config6(config6 &  ~MIPS_CONF6_FTLBEN);
+		back_to_back_c0_hazard();
+	}
+	if (c->cputype == CPU_LOONGSON3) {
+		/* Flush ITLB, DTLB, VTLB and FTLB */
+		write_c0_diag(1<<2 | 1<<3 | 1<<12 | 1<<13);
+		/* Loongson-3 cores use Config6 to enable the FTLB */
+		config6 = read_c0_config6();
+		if (enable)
+			/* Enable FTLB */
+			write_c0_config6(config6 & ~MIPS_CONF6_FTLBDIS);
+		else
+			/* Disable FTLB */
+			write_c0_config6(config6 | MIPS_CONF6_FTLBDIS);
 		back_to_back_c0_hazard();
 	}
 }
@@ -1152,6 +1183,29 @@ platform:
 	}
 }
 
+static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
+{
+	switch (c->processor_id & 0xff00) {
+	case PRID_IMP_LOONGSON2:  /* Loongson-2/3 */
+		switch (c->processor_id & PRID_REV_MASK) {
+		case PRID_REV_LOONGSON3A_R2:
+			c->cputype = CPU_LOONGSON3;
+			__cpu_name[cpu] = "Loongson-3";
+			set_elf_platform(cpu, "loongson3a");
+			__cpu_full_name[cpu] = "Loongson-3A R2 (Loongson-3A2000)";
+			break;
+		}
+
+		c->isa_level = MIPS_CPU_ISA_M64R2;
+		decode_configs(c);
+		c->options |= MIPS_CPU_TLBINV;
+		break;
+	default:
+		panic("Unknown Loongson Processor ID!");
+		break;
+	}
+}
+
 static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	decode_configs(c);
@@ -1249,6 +1303,7 @@ EXPORT_SYMBOL(__ua_limit);
 #endif
 
 const char *__cpu_name[NR_CPUS];
+const char *__cpu_full_name[NR_CPUS];
 const char *__elf_platform;
 
 __cpuinit void cpu_probe(void)
@@ -1285,6 +1340,9 @@ __cpuinit void cpu_probe(void)
 		break;
 	case PRID_COMP_CAVIUM:
 		cpu_probe_cavium(c, cpu);
+		break;
+	case PRID_COMP_LOONGSON:
+		cpu_probe_loongson(c, cpu);
 		break;
 	case PRID_COMP_INGENIC:
 		cpu_probe_ingenic(c, cpu);

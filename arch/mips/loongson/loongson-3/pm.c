@@ -23,6 +23,7 @@
 #include <asm/i8259.h>
 #include <asm/mipsregs.h>
 #include <asm/bootinfo.h>
+#include <asm/tlbflush.h>
 
 #include <loongson.h>
 #include <ec_wpce775l.h>
@@ -36,6 +37,8 @@ extern void acpi_sleep_prepare(void);
 extern void acpi_sleep_complete(void);
 extern void acpi_registers_setup(void);
 
+static u32 loongson_config4;
+static u32 loongson_config6;
 static unsigned char i8042_ctr;
 
 static int i8042_enable_kbd_port(void)
@@ -84,8 +87,14 @@ int wakeup_loongson(void)
 
 void mach_suspend(suspend_state_t state)
 {
-	if (state == PM_SUSPEND_MEM)
+	if (state == PM_SUSPEND_MEM) {
 		acpi_sleep_prepare();
+
+		if (cpu_has_ftlb) {
+			loongson_config4 = read_c0_config4();
+			loongson_config6 = read_c0_config6();
+		}
+	}
 
 	/* Workaround: disable spurious IRQ1 via EC */
 	if (state == PM_SUSPEND_STANDBY) {
@@ -97,6 +106,13 @@ void mach_suspend(suspend_state_t state)
 void mach_resume(suspend_state_t state)
 {
 	if (state == PM_SUSPEND_MEM) {
+		local_flush_tlb_all();
+
+		if (cpu_has_ftlb) {
+			write_c0_config4(loongson_config4);
+			write_c0_config6(loongson_config6);
+		}
+
 		irq_router_init();
 		acpi_registers_setup();
 		acpi_sleep_complete();

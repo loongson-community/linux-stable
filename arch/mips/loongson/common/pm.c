@@ -21,11 +21,20 @@
 #include <loongson.h>
 #include <mc146818rtc.h>
 
-extern enum loongson_cpu_type cputype;
+extern u64 suspend_addr;
+extern u32 nr_cpus_loongson;
 static unsigned int __maybe_unused cached_master_mask;	/* i8259A */
 static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
 static unsigned int __maybe_unused cached_autoplug_enabled;
+u32 loongson_nr_nodes;
+u64 loongson_suspend_addr;
+u32 loongson_pcache_ways;
+u32 loongson_scache_ways;
+u32 loongson_pcache_sets;
+u32 loongson_scache_sets;
+u32 loongson_pcache_linesz;
+u32 loongson_scache_linesz;
 
 uint64_t cmos_read64(unsigned long addr)
 {
@@ -103,13 +112,16 @@ int __weak wakeup_loongson(void)
 static void wait_for_wakeup_events(void)
 {
 	while (!wakeup_loongson())
-		switch(cputype) {
-		case Loongson_2F:
-		case Loongson_3A:
+		switch (read_c0_prid() & PRID_REV_MASK) {
+		case PRID_REV_LOONGSON2E:
+		case PRID_REV_LOONGSON2F:
+		case PRID_REV_LOONGSON3A_R1:
 		default:
 			LOONGSON_CHIPCFG(0) &= ~0x7;
 			break;
-		case Loongson_3B:
+		case PRID_REV_LOONGSON3A_R2:
+		case PRID_REV_LOONGSON3B_R1:
+		case PRID_REV_LOONGSON3B_R2:
 			LOONGSON_FREQCTRL(0) &= ~0x7;
 			break;
 		}
@@ -122,12 +134,24 @@ static void wait_for_wakeup_events(void)
  */
 static inline void stop_perf_counters(void)
 {
-#ifdef CONFIG_CPU_LOONGSON3
-	__write_64bit_c0_register($25, 0, 0xc0000000);
-	__write_64bit_c0_register($25, 2, 0x40000000);
-#else
-	__write_64bit_c0_register($24, 0, 0);
-#endif
+	switch (read_c0_prid() & PRID_REV_MASK) {
+	case PRID_REV_LOONGSON2E:
+	case PRID_REV_LOONGSON2F:
+		__write_64bit_c0_register($24, 0, 0);
+		break;
+	case PRID_REV_LOONGSON3A_R1:
+	case PRID_REV_LOONGSON3B_R1:
+	case PRID_REV_LOONGSON3B_R2:
+		__write_64bit_c0_register($25, 0, 0xc0000000);
+		__write_64bit_c0_register($25, 2, 0x40000000);
+		break;
+	case PRID_REV_LOONGSON3A_R2:
+		__write_64bit_c0_register($25, 0, 0xc0000000);
+		__write_64bit_c0_register($25, 2, 0xc0000000);
+		__write_64bit_c0_register($25, 4, 0xc0000000);
+		__write_64bit_c0_register($25, 6, 0x40000000);
+		break;
+	}
 }
 
 
@@ -140,10 +164,10 @@ static void loongson_suspend_enter(void)
 
 	stop_perf_counters();
 
-	switch(cputype) {
-	case Loongson_2F:
-	case Loongson_3A:
-	default:
+	switch (read_c0_prid() & PRID_REV_MASK) {
+	case PRID_REV_LOONGSON2E:
+	case PRID_REV_LOONGSON2F:
+	case PRID_REV_LOONGSON3A_R1:
 		cached_cpu_freq = LOONGSON_CHIPCFG(0);
 		/* Put CPU into wait mode */
 		LOONGSON_CHIPCFG(0) &= ~0x7;
@@ -151,7 +175,9 @@ static void loongson_suspend_enter(void)
 		wait_for_wakeup_events();
 		LOONGSON_CHIPCFG(0) = cached_cpu_freq;
 		break;
-	case Loongson_3B:
+	case PRID_REV_LOONGSON3A_R2:
+	case PRID_REV_LOONGSON3B_R1:
+	case PRID_REV_LOONGSON3B_R2:
 		cached_cpu_freq = LOONGSON_FREQCTRL(0);
 		/* Put CPU into wait mode */
 		LOONGSON_FREQCTRL(0) &= ~0x7;
@@ -182,6 +208,14 @@ static int loongson_pm_enter(suspend_state_t state)
 		break;
 	case PM_SUSPEND_MEM:
 #ifdef CONFIG_CPU_LOONGSON3
+		loongson_nr_nodes = nr_nodes_loongson;
+		loongson_suspend_addr = suspend_addr;
+		loongson_pcache_ways = cpu_data[0].dcache.ways;
+		loongson_scache_ways = cpu_data[0].scache.ways;
+		loongson_pcache_sets = cpu_data[0].dcache.sets;
+		loongson_scache_sets = cpu_data[0].scache.sets*4;
+		loongson_pcache_linesz = cpu_data[0].dcache.linesz;
+		loongson_scache_linesz = cpu_data[0].scache.linesz;
 		loongson_suspend_lowlevel();
 		cmos_write64(0x0, 0x40);  /* clear pc in cmos */
 		cmos_write64(0x0, 0x48);  /* clear sp in cmos */
@@ -198,8 +232,6 @@ static int loongson_pm_enter(suspend_state_t state)
 
 static int loongson_pm_valid_state(suspend_state_t state)
 {
-	extern u32 suspend_addr;
-
 	switch (state) {
 	case PM_SUSPEND_ON:
 		return 1;
