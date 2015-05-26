@@ -333,6 +333,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_HTW		0x020000000ull /* CPU support Hardware Page Table Walker */
 #define MIPS_CPU_RIXIEX		0x040000000ull /* CPU has unique exception codes for {Read, Execute}-Inhibit exceptions */
 #define MIPS_CPU_FTLB		0x080000000ull /* CPU has Fixed-page-size TLB */
+#define MIPS_CPU_LDPTE		0x100000000ull /* CPU has ldpte/lddir instructions */
 
 /*
  * CPU ASE encodings
