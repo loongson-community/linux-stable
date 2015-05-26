@@ -22,7 +22,8 @@
 	or	t0, (0x1 << 7)
 	mtc0	t0, $16, 3
 	/* Set ELPA on LOONGSON3 pagegrain */
-	li	t0, (0x1 << 29)
+	mfc0	t0, $5, 1
+	or	t0, (0x1 << 29)
 	mtc0	t0, $5, 1
 	_ehb
 	.set	pop
@@ -41,7 +42,8 @@
 	or	t0, (0x1 << 7)
 	mtc0	t0, $16, 3
 	/* Set ELPA on LOONGSON3 pagegrain */
-	li	t0, (0x1 << 29)
+	mfc0	t0, $5, 1
+	or	t0, (0x1 << 29)
 	mtc0	t0, $5, 1
 	_ehb
 	.set	pop

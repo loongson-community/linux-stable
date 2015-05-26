@@ -69,6 +69,7 @@ static inline void r4k_on_each_cpu(void (*func) (void *info), void *info)
  */
 static unsigned long icache_size __read_mostly;
 static unsigned long dcache_size __read_mostly;
+static unsigned long vcache_size __read_mostly;
 static unsigned long scache_size __read_mostly;
 
 /*
@@ -918,7 +919,9 @@ static inline void alias_74k_erratum(struct cpuinfo_mips *c)
 }
 
 static char *way_string[] = { NULL, "direct mapped", "2-way",
-	"3-way", "4-way", "5-way", "6-way", "7-way", "8-way"
+	"3-way", "4-way", "5-way", "6-way", "7-way", "8-way",
+	"9-way", "10-way", "11-way", "12-way", "13-way", "14-way",
+	"15-way", "16-way"
 };
 
 static void probe_pcache(void)
@@ -1295,6 +1298,32 @@ static void probe_pcache(void)
 		       c->dcache.linesz);
 }
 
+static void probe_vcache(void)
+{
+	struct cpuinfo_mips *c = &current_cpu_data;
+	unsigned int config2, lsize;
+
+	if (current_cpu_type() != CPU_LOONGSON3)
+		return;
+
+	config2 = read_c0_config2();
+	if ((lsize = ((config2 >> 20) & 15)))
+		c->vcache.linesz = 2 << lsize;
+	else
+		c->vcache.linesz = lsize;
+
+	c->vcache.sets = 64 << ((config2 >> 24) & 15);
+	c->vcache.ways = 1 + ((config2 >> 16) & 15);
+
+	vcache_size = c->vcache.sets * c->vcache.ways * c->vcache.linesz;
+
+	c->vcache.waybit = 0;
+
+	if (system_state == SYSTEM_BOOTING)
+		pr_info("Unified victim cache %ldkB %s, linesize %d bytes.\n",
+			vcache_size >> 10, way_string[c->vcache.ways], c->vcache.linesz);
+}
+
 /*
  * If you even _breathe_ on this function, look at the gcc output and make sure
  * it does not pop things on and off the stack for the cache sizing loop that
@@ -1616,6 +1645,7 @@ void r4k_cache_init(void)
 	struct cpuinfo_mips *c = &current_cpu_data;
 
 	probe_pcache();
+	probe_vcache();
 	setup_scache();
 
 	r4k_blast_dcache_page_setup();
