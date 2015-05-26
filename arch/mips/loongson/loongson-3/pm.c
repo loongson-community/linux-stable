@@ -37,9 +37,21 @@ extern void acpi_sleep_prepare(void);
 extern void acpi_sleep_complete(void);
 extern void acpi_registers_setup(void);
 
-static u32 loongson_config4;
-static u32 loongson_config6;
+struct loongson_registers {
+	u32 config4;
+	u32 config6;
+	u64 pgd;
+	u64 kpgd;
+	u32 pwctl;
+	u64 pwbase;
+	u64 pwsize;
+	u64 pwfield;
+	u32 hwrena;
+	u64 userlocal;
+};
+
 static unsigned char i8042_ctr;
+static struct loongson_registers loongson_regs;
 
 static int i8042_enable_kbd_port(void)
 {
@@ -91,8 +103,22 @@ void mach_suspend(suspend_state_t state)
 		acpi_sleep_prepare();
 
 		if (cpu_has_ftlb) {
-			loongson_config4 = read_c0_config4();
-			loongson_config6 = read_c0_config6();
+			loongson_regs.config4 = read_c0_config4();
+			loongson_regs.config6 = read_c0_config6();
+		}
+
+		if (cpu_has_ldpte) {
+			loongson_regs.pgd = read_c0_pgd();
+			loongson_regs.kpgd = read_c0_kpgd();
+			loongson_regs.pwctl = read_c0_pwctl();
+			loongson_regs.pwbase = read_c0_pwbase();
+			loongson_regs.pwsize = read_c0_pwsize();
+			loongson_regs.pwfield = read_c0_pwfield();
+		}
+
+		if (cpu_has_userlocal) {
+			loongson_regs.hwrena = read_c0_hwrena();
+			loongson_regs.userlocal = read_c0_userlocal();
 		}
 	}
 
@@ -109,8 +135,22 @@ void mach_resume(suspend_state_t state)
 		local_flush_tlb_all();
 
 		if (cpu_has_ftlb) {
-			write_c0_config4(loongson_config4);
-			write_c0_config6(loongson_config6);
+			write_c0_config4(loongson_regs.config4);
+			write_c0_config6(loongson_regs.config6);
+		}
+
+		if (cpu_has_ldpte) {
+			write_c0_pgd(loongson_regs.pgd);
+			write_c0_kpgd(loongson_regs.kpgd);
+			write_c0_pwctl(loongson_regs.pwctl);
+			write_c0_pwbase(loongson_regs.pwbase);
+			write_c0_pwsize(loongson_regs.pwsize);
+			write_c0_pwfield(loongson_regs.pwfield);
+		}
+
+		if (cpu_has_userlocal) {
+			write_c0_hwrena(loongson_regs.hwrena);
+			write_c0_userlocal(loongson_regs.userlocal);
 		}
 
 		irq_router_init();
