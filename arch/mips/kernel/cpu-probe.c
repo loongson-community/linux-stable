@@ -400,6 +400,18 @@ static int set_ftlb_enable(struct cpuinfo_mips *c, int enable)
 		write_c0_config7(config | (calculate_ftlb_probability(c)
 					   << MIPS_CONF7_FTLBP_SHIFT));
 		break;
+	case CPU_LOONGSON3:
+		/* Flush ITLB, DTLB, VTLB and FTLB */
+		write_c0_diag(1<<2 | 1<<3 | 1<<12 | 1<<13);
+		/* Loongson-3 cores use Config6 to enable the FTLB */
+		config = read_c0_config6();
+		if (enable)
+			/* Enable FTLB */
+			write_c0_config6(config & ~MIPS_CONF6_FTLBDIS);
+		else
+			/* Disable FTLB */
+			write_c0_config6(config | MIPS_CONF6_FTLBDIS);
+		break;
 	default:
 		return 1;
 	}
@@ -1013,7 +1025,7 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 			c->fpu_msk31 |= FPU_CSR_CONDX;
 			__cpu_full_name[cpu] = "Loongson-2F";
 			break;
-		case PRID_REV_LOONGSON3A:
+		case PRID_REV_LOONGSON3A_R1:
 			c->cputype = CPU_LOONGSON3;
 			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
@@ -1342,6 +1354,30 @@ platform:
 	}
 }
 
+static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
+{
+	switch (c->processor_id & PRID_IMP_MASK) {
+	case PRID_IMP_LOONGSON_64:  /* Loongson-2/3 */
+		switch (c->processor_id & PRID_REV_MASK) {
+		case PRID_REV_LOONGSON3A_R2:
+			c->cputype = CPU_LOONGSON3;
+			__cpu_name[cpu] = "Loongson-3";
+			set_elf_platform(cpu, "loongson3a");
+			set_isa(c, MIPS_CPU_ISA_M64R2);
+			__cpu_full_name[cpu] = "Loongson-3A R2 (Loongson-3A2000)";
+			break;
+		}
+
+		decode_configs(c);
+		c->options |= MIPS_CPU_TLBINV;
+		c->writecombine = _CACHE_UNCACHED_ACCELERATED;
+		break;
+	default:
+		panic("Unknown Loongson Processor ID!");
+		break;
+	}
+}
+
 static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	decode_configs(c);
@@ -1489,6 +1525,9 @@ void cpu_probe(void)
 		break;
 	case PRID_COMP_CAVIUM:
 		cpu_probe_cavium(c, cpu);
+		break;
+	case PRID_COMP_LOONGSON:
+		cpu_probe_loongson(c, cpu);
 		break;
 	case PRID_COMP_INGENIC_D0:
 	case PRID_COMP_INGENIC_D1:

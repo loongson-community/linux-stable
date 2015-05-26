@@ -22,7 +22,7 @@
 
 #include <loongson.h>
 
-static uint nowait;
+static uint nowait = 1;
 static spinlock_t cpufreq_reg_lock[MAX_PACKAGES];
 
 static void (*saved_cpu_wait)(void);
@@ -114,7 +114,7 @@ static int loongson3_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	policy->cpuinfo.transition_latency = 1000;
 
 	/* Loongson-3A: all cores in a package share one clock */
-	if (loongson_sysconf.cputype == Loongson_3A)
+	if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R1)
 		cpumask_copy(policy->cpus, topology_core_cpumask(policy->cpu));
 
 	return cpufreq_table_validate_and_show(policy,
@@ -172,11 +172,11 @@ void loongson3_cpu_wait(void)
 	if (shared_cpus > 1)
 		goto out;
 
-	if (loongson_sysconf.cputype == Loongson_3A) {
+	if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R1) {
 		cpu_freq = LOONGSON_CHIPCFG(package_id);
 		LOONGSON_CHIPCFG(package_id) &= ~0x7;    /* Put CPU into wait mode */
 		LOONGSON_CHIPCFG(package_id) = cpu_freq; /* Restore CPU state */
-	} else if (loongson_sysconf.cputype == Loongson_3B) {
+	} else {
 		cpu_freq = LOONGSON_FREQCTRL(package_id);
 		LOONGSON_FREQCTRL(package_id) &= ~(0x7 << (core_id*4)); /* Put CPU into wait mode */
 		LOONGSON_FREQCTRL(package_id) = cpu_freq;               /* Restore CPU state */
