@@ -639,6 +639,8 @@
 
 /* proAptiv FTLB on/off bit */
 #define MIPS_CONF6_FTLBEN	(_ULCAST_(1) << 15)
+/* Loongson-3 FTLB on/off bit */
+#define MIPS_CONF6_FTLBDIS	(_ULCAST_(1) << 22)
 
 #define MIPS_CONF7_WII		(_ULCAST_(1) << 31)
 

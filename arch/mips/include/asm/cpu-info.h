@@ -57,6 +57,7 @@ struct cpuinfo_mips {
 	int			tlbsizeftlbways;
 	struct cache_desc	icache;	/* Primary I-cache */
 	struct cache_desc	dcache;	/* Primary D or combined I/D cache */
+	struct cache_desc	vcache; /* Victim cache, between pcache and scache */
 	struct cache_desc	scache;	/* Secondary cache */
 	struct cache_desc	tcache;	/* Tertiary/split secondary cache */
 	int			srsets;	/* Shadow register sets */
@@ -93,6 +94,8 @@ extern void cpu_probe(void);
 extern void cpu_report(void);
 
 extern const char *__cpu_name[];
+extern const char *__cpu_full_name[];
 #define cpu_name_string()	__cpu_name[raw_smp_processor_id()]
+#define cpu_full_name_string()	__cpu_full_name[raw_smp_processor_id()]
 
 #endif /* __ASM_CPU_INFO_H */

@@ -28,7 +28,7 @@ int cpufreq_enabled = 0;
 EXPORT_SYMBOL(cpufreq_enabled);
 extern struct clk *cpu_clk_get(int cpu);
 
-static uint nowait;
+static uint nowait = 1;
 
 static void (*saved_cpu_wait) (void);
 
@@ -210,12 +210,12 @@ void loongson3_cpu_wait(void)
 		return;
 
 	local_irq_save(flags);
-	if (cputype == Loongson_3A) {
+	if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R1) {
 		cpu_freq = LOONGSON_CHIPCFG(0);
 		LOONGSON_CHIPCFG(0) &= ~0x7;	/* Put CPU into wait mode */
 		LOONGSON_CHIPCFG(0) = cpu_freq;	/* Restore CPU state */
 	}
-	else if (cputype == Loongson_3B) {
+	else {
 		int cpu = smp_processor_id();
 		uint64_t core_id = cpu_data[cpu].core;
 		uint64_t package_id = cpu_data[cpu].package;

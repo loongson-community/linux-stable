@@ -1,4 +1,5 @@
 /* for Loongson-3A smp support */
+extern char cpu_full_name[64];
 extern unsigned long long smp_group[4];
 
 /* 4 groups(nodes) in maximum in numa case */

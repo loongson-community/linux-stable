@@ -16,6 +16,7 @@
  */
 #define Index_Invalidate_I      0x00
 #define Index_Writeback_Inv_D   0x01
+#define Index_Writeback_Inv_V   0x02
 #define Index_Load_Tag_I	0x04
 #define Index_Load_Tag_D	0x05
 #define Index_Store_Tag_I	0x08
