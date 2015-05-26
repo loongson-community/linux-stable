@@ -30,7 +30,7 @@ EXPORT_SYMBOL(cpufreq_enabled);
 extern struct clk *cpu_clk_get(int cpu);
 DECLARE_PER_CPU(struct cpufreq_policy *, cpufreq_cpu_data);
 
-static uint nowait;
+static uint nowait = 1;
 
 static void (*saved_cpu_wait) (void);
 
@@ -211,12 +211,12 @@ void loongson3_cpu_wait(void)
 	if (!cpufreq_enabled || system_state != SYSTEM_RUNNING)
 		goto out;
 
-	if (cputype == Loongson_3A) {
+	if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R1) {
 		cpu_freq = LOONGSON_CHIPCFG(0);
 		LOONGSON_CHIPCFG(0) &= ~0x7;	/* Put CPU into wait mode */
 		LOONGSON_CHIPCFG(0) = cpu_freq;	/* Restore CPU state */
 	}
-	else if (cputype == Loongson_3B) {
+	else {
 		int cpu = smp_processor_id();
 		uint64_t core_id = cpu_data[cpu].core;
 		uint64_t package_id = cpu_data[cpu].package;
