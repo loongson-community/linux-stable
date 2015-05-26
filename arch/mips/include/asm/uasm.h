@@ -121,6 +121,8 @@ Ip_u1u2s3(_bbit0);
 Ip_u1u2s3(_bbit1);
 Ip_u3u1u2(_lwx);
 Ip_u3u1u2(_ldx);
+Ip_u1u2(_ldpte);
+Ip_u2u1u3(_lddir);
 
 /* Handle labels. */
 struct uasm_label {
