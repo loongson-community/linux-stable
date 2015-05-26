@@ -1174,7 +1174,7 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 		}
 
 		decode_configs(c);
-		c->options |= MIPS_CPU_TLBINV;
+		c->options |= MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
 		break;
 	default:
 		panic("Unknown Loongson Processor ID!");
