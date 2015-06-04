@@ -221,7 +221,7 @@ void loongson3_ipi_interrupt(struct pt_regs *regs)
 	if (action & SMP_ASK_C0COUNT) {
 		BUG_ON(cpu != 0);
 		c0count = read_c0_count();
-		for (i=1; i < nr_cpus_loongson; i++)
+		for (i = 1; i < num_possible_cpus(); i++)
 			per_cpu(core0_c0count, i) = c0count;
 	}
 
