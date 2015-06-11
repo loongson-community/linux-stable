@@ -1148,6 +1148,9 @@ static int pci_eg20t_init(struct pci_dev *dev)
 #endif
 }
 
+#define PCI_DEVICE_ID_EXAR_XR17V4358	0x4358
+#define PCI_DEVICE_ID_EXAR_XR17V8358	0x8358
+
 static int
 pci_xr17c154_setup(struct serial_private *priv,
 		  const struct pciserial_board *board,
@@ -1155,6 +1158,15 @@ pci_xr17c154_setup(struct serial_private *priv,
 {
 	port->flags |= UPF_EXAR_EFR;
 	return pci_default_setup(priv, board, port, idx);
+}
+
+static inline int
+xr17v35x_has_slave(struct serial_private *priv)
+{
+	const int dev_id = priv->dev->device;
+
+	return ((dev_id == PCI_DEVICE_ID_EXAR_XR17V4358) ||
+	        (dev_id == PCI_DEVICE_ID_EXAR_XR17V8358));
 }
 
 static int
@@ -1213,6 +1225,13 @@ pci_fastcom335_setup(struct serial_private *priv,
 		return -ENOMEM;
 
 	port->port.flags |= UPF_EXAR_EFR;
+
+	/*
+	 * Setup the uart clock for the devices on expansion slot to
+	 * half the clock speed of the main chip (which is 125MHz)
+	 */
+	if (xr17v35x_has_slave(priv) && idx >= 8)
+		port->port.uartclk = (7812500 * 16 / 2);
 
 	/*
 	 * Setup Multipurpose Input/Output pins.
@@ -1280,9 +1299,6 @@ pci_fastcom335_setup(struct serial_private *priv,
 #define PCI_DEVICE_ID_COMMTECH_4224PCIE	0x0020
 #define PCI_DEVICE_ID_COMMTECH_4228PCIE	0x0021
 #define PCI_DEVICE_ID_COMMTECH_4222PCIE	0x0022
-
-#define PCI_DEVICE_ID_EXAR_XR17V4358	0x4358
-#define PCI_DEVICE_ID_EXAR_XR17V8358	0x8358
 
 
 /* Unknown vendors/cards - this should not be in linux/pci_ids.h */
