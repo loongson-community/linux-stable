@@ -44,9 +44,9 @@ static struct irq_chip i8259A_chip = {
 	.irq_disable		= disable_8259A_irq,
 	.irq_unmask		= enable_8259A_irq,
 	.irq_mask_ack		= mask_and_ack_8259A,
-#ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
+#if defined(CONFIG_MIPS_MT_SMTC_IRQAFF) || defined(CONFIG_CPU_LOONGSON3)
 	.irq_set_affinity	= plat_set_irq_affinity,
-#endif /* CONFIG_MIPS_MT_SMTC_IRQAFF */
+#endif
 };
 
 /*
