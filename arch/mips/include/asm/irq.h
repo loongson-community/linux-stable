@@ -11,6 +11,7 @@
 
 #include <linux/linkage.h>
 #include <linux/smp.h>
+#include <linux/cpumask.h>
 #include <linux/irqdomain.h>
 
 #include <asm/mipsmtregs.h>
@@ -48,11 +49,13 @@ static inline void smtc_im_ack_irq(unsigned int irq)
 
 #endif /* CONFIG_MIPS_MT_SMTC */
 
-#ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
-#include <linux/cpumask.h>
+struct irq_data;
 
 extern int plat_set_irq_affinity(struct irq_data *d,
 				 const struct cpumask *affinity, bool force);
+
+#ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
+
 extern void smtc_forward_irq(struct irq_data *d);
 
 /*
