@@ -45,7 +45,7 @@ typedef int (*PROC_SPEC_INITHW)(struct lynx_share*, struct pci_dev*);
 
 
 /* common var for all device */
-static int g_hwcursor = 1;
+static int g_hwcursor;
 static int g_noaccel;
 #ifdef CONFIG_MTRR
 static int g_nomtrr;
@@ -1022,7 +1022,7 @@ static void sm750fb_setup(struct lynx_share *share, char *src)
 	spec_share->state.initParm.resetMemory = 1;
 
 	/* defaultly turn g_hwcursor on for both view */
-	g_hwcursor = 3;
+	g_hwcursor = 0;
 
 	if (!src || !*src) {
 		pr_warn("no specific g_option.\n");
