@@ -33,7 +33,7 @@
  */
 
 /* common var for all device */
-static int g_hwcursor = 1;
+static int g_hwcursor;
 static int g_noaccel;
 static int g_nomtrr;
 static const char *g_fbmode[] = {NULL, NULL};
@@ -941,7 +941,7 @@ static void sm750fb_setup(struct sm750_dev *sm750_dev, char *src)
 	sm750_dev->initParm.resetMemory = 1;
 
 	/* defaultly turn g_hwcursor on for both view */
-	g_hwcursor = 3;
+	g_hwcursor = 0;
 
 	if (!src || !*src) {
 		pr_warn("no specific g_option.\n");
