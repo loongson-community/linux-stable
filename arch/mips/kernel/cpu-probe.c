@@ -703,16 +703,18 @@ static inline unsigned int page_size_ftlb(unsigned int mmuextdef)
 static inline unsigned int decode_config0(struct cpuinfo_mips *c)
 {
 	unsigned int config0;
-	int isa;
+	int isa, mt;
 
 	config0 = read_c0_config();
 
 	/*
 	 * Look for Standard TLB or Dual VTLB and FTLB
 	 */
-	if ((((config0 & MIPS_CONF_MT) >> 7) == 1) ||
-	    (((config0 & MIPS_CONF_MT) >> 7) == 4))
+	mt = config0 & MIPS_CONF_MT;
+	if (mt == MIPS_CONF_MT_TLB)
 		c->options |= MIPS_CPU_TLB;
+	else if (mt == MIPS_CONF_MT_FTLB)
+		c->options |= MIPS_CPU_TLB | MIPS_CPU_FTLB;
 
 	isa = (config0 & MIPS_CONF_AT) >> 13;
 	switch (isa) {
