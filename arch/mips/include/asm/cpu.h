@@ -365,6 +365,7 @@ enum cpu_type_enum {
 #define MIPS_CPU_EVA		0x80000000ull /* CPU supports Enhanced Virtual Addressing */
 #define MIPS_CPU_HTW		0x100000000ull /* CPU support Hardware Page Table Walker */
 #define MIPS_CPU_RIXIEX		0x200000000ull /* CPU has unique exception codes for {Read, Execute}-Inhibit exceptions */
+#define MIPS_CPU_FTLB		0x400000000ull /* CPU has Fixed-page-size TLB */
 
 /*
  * CPU ASE encodings
