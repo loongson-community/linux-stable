@@ -42,7 +42,12 @@ __asm__(
 	"	.set	push						\n"
 	"	.set	reorder						\n"
 	"	.set	noat						\n"
+#if defined(CONFIG_LOONGSON3_ENHANCEMENT)
+	"	mfc0	\\result, $12					\n"
+	"	di							\n"
+#else
 	"	di	\\result					\n"
+#endif
 	"	andi	\\result, 1					\n"
 	"	irq_disable_hazard					\n"
 	"	.set	pop						\n"
