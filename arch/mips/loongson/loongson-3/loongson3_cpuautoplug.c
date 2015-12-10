@@ -22,7 +22,7 @@
 /*
  * CPU Autoplug enabled ?
  */
-int autoplug_enabled = 1;
+int autoplug_enabled = 0;
 int autoplug_verbose = 0;
 int autoplug_adjusting = 0;
 
@@ -381,7 +381,7 @@ static int __init cpuautoplug_init(void)
 	if (ret)
 		return ret;
 
-	pr_info("cpuautoplug: Loongson-3A CPU autoplug driver.\n");
+	pr_info("cpuautoplug: Loongson-3 CPU autoplug driver.\n");
 
 	ap_info.maxcpus = setup_max_cpus > nr_cpu_ids ? nr_cpu_ids : setup_max_cpus;
 	ap_info.mincpus = 1;
