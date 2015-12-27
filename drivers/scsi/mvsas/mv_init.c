@@ -94,6 +94,8 @@ static struct sas_domain_function_template mvs_transport_ops = {
 	.lldd_port_formed	= mvs_port_formed,
 	.lldd_port_deformed     = mvs_port_deformed,
 
+	.lldd_write_gpio	= mvs_gpio_write,
+
 };
 
 static void __devinit mvs_phy_init(struct mvs_info *mvi, int phy_id)
