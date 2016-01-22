@@ -314,7 +314,7 @@ static struct pci_device_id rtl8168_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, rtl8168_pci_tbl);
 
-static int rx_copybreak = 0;
+static int rx_copybreak = 1515;
 static int use_dac = 1;
 static int timer_count = 0x2600;
 
@@ -25003,7 +25003,7 @@ rtl8168_init_one(struct pci_dev *pdev,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
                 tp->cp_cmd |= RxChkSum;
 #else
-                dev->features |= NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_TSO;
+                dev->features |= NETIF_F_RXCSUM | NETIF_F_SG;
                 dev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO |
                                    NETIF_F_RXCSUM | NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
                 dev->vlan_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO |
@@ -27475,14 +27475,14 @@ rtl8168_try_rx_copy(struct rtl8168_private *tp,
         if (pkt_size < rx_copybreak) {
                 struct sk_buff *skb;
 
-                skb = RTL_ALLOC_SKB_INTR(tp, pkt_size + RTK_RX_ALIGN);
+                skb = RTL_ALLOC_SKB_INTR(tp, pkt_size + NET_IP_ALIGN);
                 if (skb) {
                         u8 *data;
 
                         data = sk_buff[0]->data;
-                        skb_reserve(skb, RTK_RX_ALIGN);
+                        skb_reserve(skb, NET_IP_ALIGN);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
-                        prefetch(data - RTK_RX_ALIGN);
+                        prefetch(data - NET_IP_ALIGN);
 #endif
                         eth_copy_and_sum(skb, data, pkt_size, 0);
                         *sk_buff = skb;
