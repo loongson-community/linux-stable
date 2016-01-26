@@ -315,7 +315,6 @@ static int set_multidrop_mode(struct sb_uart_port *port, unsigned int mode)
 	sb1054_set_register(port, PAGE_1, SB105XA_MDR, mdr);
 	port->mdmode &= ~0x6;
 	port->mdmode |= mode;
-	printk("[%d] multidrop init: %x\n", port->line, port->mdmode);
 
 	return 0;
 }
@@ -494,7 +493,6 @@ static void mp_tasklet_action(unsigned long data)
 	struct sb_uart_state *state = (struct sb_uart_state *)data;
 	struct tty_struct *tty;
 
-	printk("tasklet is called!\n");
 	tty = state->info->tty;
 	tty_wakeup(tty);
 }
@@ -1315,26 +1313,21 @@ static void mp_close(struct tty_struct *tty, struct file *filp)
 	struct sb_uart_state *state = tty->driver_data;
 	struct sb_uart_port *port;
 
-	printk("mp_close!\n");
 	if (!state || !state->port)
 		return;
 
 	port = state->port;
 
-	printk("close1 %d\n", __LINE__);
 	MP_STATE_LOCK(state);
 
-	printk("close2 %d\n", __LINE__);
 	if (tty_hung_up_p(filp))
 		goto done;
 
-	printk("close3 %d\n", __LINE__);
 	if ((tty->count == 1) && (state->count != 1)) {
 		printk("mp_close: bad serial port count; tty->count is 1, "
 				"state->count is %d\n", state->count);
 		state->count = 1;
 	}
-	printk("close4 %d\n", __LINE__);
 	if (--state->count < 0) {
 		printk("rs_close: bad serial port count for ttyMP%d: %d\n",
 				port->line, state->count);
@@ -1345,11 +1338,9 @@ static void mp_close(struct tty_struct *tty, struct file *filp)
 
 	tty->closing = 1;
 
-	printk("close5 %d\n", __LINE__);
 	if (state->closing_wait != USF_CLOSING_WAIT_NONE)
 		tty_wait_until_sent(tty, state->closing_wait);
 
-	printk("close6 %d\n", __LINE__);
 	if (state->info->flags & UIF_INITIALIZED) {
 		unsigned long flags;
 		spin_lock_irqsave(&port->lock, flags);
@@ -1357,10 +1348,8 @@ static void mp_close(struct tty_struct *tty, struct file *filp)
 		spin_unlock_irqrestore(&port->lock, flags);
 		mp_wait_until_sent(tty, port->timeout);
 	}
-	printk("close7 %d\n", __LINE__);
 
 	mp_shutdown(state);
-	printk("close8 %d\n", __LINE__);
 	mp_flush_buffer(tty);
 	tty_ldisc_flush(tty);
 	tty->closing = 0;
@@ -1377,13 +1366,11 @@ static void mp_close(struct tty_struct *tty, struct file *filp)
 	{
 		mp_change_pm(state, 3);
 	}
-	printk("close8 %d\n", __LINE__);
 
 	state->info->flags &= ~UIF_NORMAL_ACTIVE;
 	wake_up_interruptible(&state->info->open_wait);
 
 done:
-	printk("close done\n");
 	MP_STATE_UNLOCK(state);
 	module_put(THIS_MODULE);
 }
@@ -1705,7 +1692,7 @@ static void mp_unconfigure_port(struct uart_driver *drv, struct sb_uart_state *s
 
 	MP_STATE_UNLOCK(state);
 }
-static struct tty_operations mp_ops = {
+static struct tty_operations sb_mp_ops = {
 	.open		= mp_open,
 	.close		= mp_close,
 	.write		= mp_write,
@@ -1770,7 +1757,7 @@ static int mp_register_driver(struct uart_driver *drv)
 	normal->flags		= TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV;
 	normal->driver_state    = drv;
 
-	tty_set_operations(normal, &mp_ops);
+	tty_set_operations(normal, &sb_mp_ops);
 
 for (i = 0; i < drv->nr; i++) {
 	struct sb_uart_state *state = drv->state + i;
@@ -1839,6 +1826,8 @@ static int mp_add_one_port(struct uart_driver *drv, struct sb_uart_port *port)
 	port->info = state->info;
 
 	mp_configure_port(drv, state, port);
+
+	tty_port_link_device(&tt_port[port->line],drv->tty_driver,port->line);
 
 	tty_register_device(drv->tty_driver, port->line, port->dev);
 
@@ -2155,7 +2144,6 @@ static _INLINE_ void transmit_chars(struct mp_port *mtpt)
 		count = mtpt->port.fifosize;
 	}
 
-	printk("[%d] mdmode: %x\n", mtpt->port.line, mtpt->port.mdmode);
 	do {
 #if 0
 		/* check multi-drop mode */
@@ -2248,10 +2236,8 @@ static irqreturn_t multi_interrupt(int irq, void *dev_id)
 		mtpt = list_entry(lhead, struct mp_port, list);
 		
 		iir = serial_in(mtpt, UART_IIR);
-		printk("intrrupt! port %d, iir 0x%x\n", mtpt->port.line, iir); //wlee
 		if (!(iir & UART_IIR_NO_INT)) 
 		{
-			printk("interrupt handle\n");
 			spin_lock(&mtpt->port.lock);
 			multi_handle_port(mtpt);
 			spin_unlock(&mtpt->port.lock);
@@ -2848,7 +2834,6 @@ static void __init multi_init_ports(void)
 			else
 			{
 				b_ret = read_option_register(mtpt,(MP_OPTR_IIR0 + i/8));
-				printk("IIR_RET = %x\n",b_ret);
 			}
 
 			if(IIR_RS232 == (b_ret & IIR_RS232))
@@ -2880,6 +2865,7 @@ static void __init multi_register_ports(struct uart_driver *drv)
 		mtpt->port.ops = &multi_pops;
 		init_timer(&mtpt->timer);
 		mtpt->timer.function = multi_timeout;
+		tty_port_init(&tt_port[i]);
 		mp_add_one_port(drv, &mtpt->port);
 	}
 }
@@ -3155,7 +3141,10 @@ printk("FOUND~~~\n");
 //			if (mp_pciboards[i].device_id & 0x0800)
 			{
 				int status;
-	        		pci_disable_device(dev);
+
+				if (pci_is_enabled(dev))
+					pci_disable_device(dev);
+
 	        		status = pci_enable_device(dev);
             
 	   		     	if (status != 0)
