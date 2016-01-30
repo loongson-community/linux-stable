@@ -109,7 +109,9 @@ void __init prom_init_env(void)
 	eirq_source = (struct irq_source_routing_table *)((u64)loongson_p + loongson_p->irq_offset);
 
 	cputype = ecpu->cputype;
-	if (cputype == Loongson_3A) {
+	switch (cputype) {
+	case Legacy_3A:
+	case Loongson_3A:
 		cores_per_node = 4;
 		cores_per_package = 4;
 		smp_group[0] = 0x900000003ff01000;
@@ -130,8 +132,9 @@ void __init prom_init_env(void)
 		loongson_freqctrl[2] = 0x900020001fe001d0;
 		loongson_freqctrl[3] = 0x900030001fe001d0;
 		loongson_workarounds = WORKAROUND_CPUFREQ;
-	}
-	else if (cputype == Loongson_3B) {
+		break;
+	case Legacy_3B:
+	case Loongson_3B:
 		cores_per_node = 4; /* Loongson 3B has two node in one package */
 		cores_per_package = 8;
 		smp_group[0] = 0x900000003ff01000;
@@ -152,8 +155,8 @@ void __init prom_init_env(void)
 		loongson_freqctrl[2] = 0x900040001fe001d0;
 		loongson_freqctrl[3] = 0x900060001fe001d0;
 		loongson_workarounds = WORKAROUND_CPUHOTPLUG;
-	}
-	else {
+		break;
+	default:
 		cores_per_node = 1;
 		cores_per_package = 1;
 		loongson_chipcfg[0] = 0x900000001fe00180;
