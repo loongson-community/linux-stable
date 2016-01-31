@@ -197,6 +197,37 @@ static inline int mips_atomic_set(struct pt_regs *regs,
 		  [new] "r" (new),
 		  [efault] "i" (-EFAULT)
 		: "memory");
+	} else if (cpu_has_llsc && LOONGSON_LLSC_WAR) {
+		__asm__ __volatile__ (
+		"	.set	mips3					\n"
+		"	li	%[err], 0				\n"
+		"1:							\n"
+		__WEAK_LLSC_MB
+		"	ll	%[old], (%[addr])			\n"
+		"	move	%[tmp], %[new]				\n"
+		"2:	sc	%[tmp], (%[addr])			\n"
+		"	beqz	%[tmp], 4f				\n"
+		"3:							\n"
+		"	.subsection 2					\n"
+		"4:	b	1b					\n"
+		"	.previous					\n"
+		"							\n"
+		"	.section .fixup,\"ax\"				\n"
+		"5:	li	%[err], %[efault]			\n"
+		"	j	3b					\n"
+		"	.previous					\n"
+		"	.section __ex_table,\"a\"			\n"
+		"	"STR(PTR)"	(1b + 4), 5b			\n"
+		"	"STR(PTR)"	(2b + 0), 5b			\n"
+		"	.previous					\n"
+		"	.set	mips0					\n"
+		: [old] "=&r" (old),
+		  [err] "=&r" (err),
+		  [tmp] "=&r" (tmp)
+		: [addr] "r" (addr),
+		  [new] "r" (new),
+		  [efault] "i" (-EFAULT)
+		: "memory");
 	} else if (cpu_has_llsc) {
 		__asm__ __volatile__ (
 		"	.set	mips3					\n"
