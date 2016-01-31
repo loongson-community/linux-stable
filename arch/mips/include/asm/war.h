@@ -227,6 +227,14 @@
 #endif
 
 /*
+ * On the Loongson-2G/2H/3A/3B there is a bug that ll / sc and lld / scd is
+ * very weak ordering.
+ */
+#ifndef LOONGSON_LLSC_WAR
+#error Check setting of LOONGSON_LLSC_WAR for your platform
+#endif
+
+/*
  * 34K core erratum: "Problems Executing the TLBR Instruction"
  */
 #ifndef MIPS34K_MISSED_ITLB_WAR

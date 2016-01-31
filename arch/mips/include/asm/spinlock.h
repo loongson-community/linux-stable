@@ -99,6 +99,41 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 		  [ticket] "=&r" (tmp),
 		  [my_ticket] "=&r" (my_ticket)
 		: [inc] "r" (inc));
+	} else if (LOONGSON_LLSC_WAR) {
+		__asm__ __volatile__ (
+		"	.set push		# arch_spin_lock	\n"
+		"	.set noreorder					\n"
+		"							\n"
+		"1:							\n"
+		__WEAK_LLSC_MB
+		"	ll	%[ticket], %[ticket_ptr]		\n"
+		"	addu	%[my_ticket], %[ticket], %[inc]		\n"
+		"	sc	%[my_ticket], %[ticket_ptr]		\n"
+		"	beqz	%[my_ticket], 1b			\n"
+		"	 srl	%[my_ticket], %[ticket], 16		\n"
+		"	andi	%[ticket], %[ticket], 0xffff		\n"
+		"	bne	%[ticket], %[my_ticket], 4f		\n"
+		"	 subu	%[ticket], %[my_ticket], %[ticket]	\n"
+		"2:							\n"
+		"	.subsection 2					\n"
+		"4:	andi	%[ticket], %[ticket], 0x1fff		\n"
+		"	sll	%[ticket], 5				\n"
+		"							\n"
+		"6:	bnez	%[ticket], 6b				\n"
+		"	 subu	%[ticket], 1				\n"
+		"							\n"
+		"	lhu	%[ticket], %[serving_now_ptr]		\n"
+		"	beq	%[ticket], %[my_ticket], 2b		\n"
+		"	 subu	%[ticket], %[my_ticket], %[ticket]	\n"
+		"	b	4b					\n"
+		"	 subu	%[ticket], %[ticket], 1			\n"
+		"	.previous					\n"
+		"	.set pop					\n"
+		: [ticket_ptr] "+" GCC_OFF_SMALL_ASM() (lock->lock),
+		  [serving_now_ptr] "+m" (lock->h.serving_now),
+		  [ticket] "=&r" (tmp),
+		  [my_ticket] "=&r" (my_ticket)
+		: [inc] "r" (inc));
 	} else {
 		__asm__ __volatile__ (
 		"	.set push		# arch_spin_lock	\n"
@@ -162,6 +197,32 @@ static inline unsigned int arch_spin_trylock(arch_spinlock_t *lock)
 		"	 addu	%[ticket], %[ticket], %[inc]		\n"
 		"	sc	%[ticket], %[ticket_ptr]		\n"
 		"	beqzl	%[ticket], 1b				\n"
+		"	 li	%[ticket], 1				\n"
+		"2:							\n"
+		"	.subsection 2					\n"
+		"3:	b	2b					\n"
+		"	 li	%[ticket], 0				\n"
+		"	.previous					\n"
+		"	.set pop					\n"
+		: [ticket_ptr] "+" GCC_OFF_SMALL_ASM() (lock->lock),
+		  [ticket] "=&r" (tmp),
+		  [my_ticket] "=&r" (tmp2),
+		  [now_serving] "=&r" (tmp3)
+		: [inc] "r" (inc));
+	} if (LOONGSON_LLSC_WAR) {
+		__asm__ __volatile__ (
+		"	.set push		# arch_spin_trylock	\n"
+		"	.set noreorder					\n"
+		"							\n"
+		"1:							\n"
+		__WEAK_LLSC_MB
+		"	ll	%[ticket], %[ticket_ptr]		\n"
+		"	srl	%[my_ticket], %[ticket], 16		\n"
+		"	andi	%[now_serving], %[ticket], 0xffff	\n"
+		"	bne	%[my_ticket], %[now_serving], 3f	\n"
+		"	 addu	%[ticket], %[ticket], %[inc]		\n"
+		"	sc	%[ticket], %[ticket_ptr]		\n"
+		"	beqz	%[ticket], 1b				\n"
 		"	 li	%[ticket], 1				\n"
 		"2:							\n"
 		"	.subsection 2					\n"
@@ -243,6 +304,19 @@ static inline void arch_read_lock(arch_rwlock_t *rw)
 		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
 		: GCC_OFF_SMALL_ASM() (rw->lock)
 		: "memory");
+	} else if (LOONGSON_LLSC_WAR) {
+		do {
+			__asm__ __volatile__(
+			"1:			# arch_read_lock	\n"
+			__WEAK_LLSC_MB
+			"	ll	%1, %2				\n"
+			"	bltz	%1, 1b				\n"
+			"	 addu	%1, 1				\n"
+			"2:	sc	%1, %0				\n"
+			: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
+			: GCC_OFF_SMALL_ASM() (rw->lock)
+			: "memory");
+		} while (unlikely(!tmp));
 	} else {
 		do {
 			__asm__ __volatile__(
@@ -274,6 +348,20 @@ static inline void arch_read_unlock(arch_rwlock_t *rw)
 		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
 		: GCC_OFF_SMALL_ASM() (rw->lock)
 		: "memory");
+	} else if (LOONGSON_LLSC_WAR) {
+		do {
+			__asm__ __volatile__(
+			"1:			# arch_read_unlock	\n"
+			__WEAK_LLSC_MB
+			"	ll	%1, %2				\n"
+			"	addiu	%1, -1				\n"
+			"	sc	%1, %0				\n"
+			: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
+			: GCC_OFF_SMALL_ASM() (rw->lock)
+			: "memory");
+		} while (unlikely(!tmp));
+
+		smp_llsc_mb();
 	} else {
 		do {
 			__asm__ __volatile__(
@@ -304,6 +392,19 @@ static inline void arch_write_lock(arch_rwlock_t *rw)
 		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
 		: GCC_OFF_SMALL_ASM() (rw->lock)
 		: "memory");
+	} else if (LOONGSON_LLSC_WAR) {
+		do {
+			__asm__ __volatile__(
+			"1:			# arch_write_lock	\n"
+			__WEAK_LLSC_MB
+			"	ll	%1, %2				\n"
+			"	bnez	%1, 1b				\n"
+			"	 lui	%1, 0x8000			\n"
+			"2:	sc	%1, %0				\n"
+			: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp)
+			: GCC_OFF_SMALL_ASM() (rw->lock)
+			: "memory");
+		} while (unlikely(!tmp));
 	} else {
 		do {
 			__asm__ __volatile__(
@@ -330,6 +431,8 @@ static inline void arch_write_unlock(arch_rwlock_t *rw)
 	: "=m" (rw->lock)
 	: "m" (rw->lock)
 	: "memory");
+
+	nudge_writes();
 }
 
 static inline int arch_read_trylock(arch_rwlock_t *rw)
@@ -354,6 +457,27 @@ static inline int arch_read_trylock(arch_rwlock_t *rw)
 		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp), "=&r" (ret)
 		: GCC_OFF_SMALL_ASM() (rw->lock)
 		: "memory");
+	} else if (LOONGSON_LLSC_WAR) {
+		__asm__ __volatile__(
+		"	.set	noreorder	# arch_read_trylock	\n"
+		"	li	%2, 0					\n"
+		"1:							\n"
+		__WEAK_LLSC_MB
+		"	ll	%1, %3					\n"
+		"	bltz	%1, 2f					\n"
+		"	 addu	%1, 1					\n"
+		"	sc	%1, %0					\n"
+		"	beqz	%1, 1b					\n"
+		"	 nop						\n"
+		"	.set	reorder					\n"
+		__WEAK_LLSC_MB
+		"	li	%2, 1					\n"
+		"2:							\n"
+		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp), "=&r" (ret)
+		: GCC_OFF_SMALL_ASM() (rw->lock)
+		: "memory");
+
+		smp_llsc_mb();
 	} else {
 		__asm__ __volatile__(
 		"	.set	noreorder	# arch_read_trylock	\n"
@@ -398,6 +522,24 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 		: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp), "=&r" (ret)
 		: GCC_OFF_SMALL_ASM() (rw->lock)
 		: "memory");
+	} else if (LOONGSON_LLSC_WAR) {
+		do {
+			__asm__ __volatile__(
+			__WEAK_LLSC_MB
+			"	ll	%1, %3	# arch_write_trylock	\n"
+			"	li	%2, 0				\n"
+			"	bnez	%1, 2f				\n"
+			"	lui	%1, 0x8000			\n"
+			"	sc	%1, %0				\n"
+			"	li	%2, 1				\n"
+			"2:						\n"
+			: "=" GCC_OFF_SMALL_ASM() (rw->lock), "=&r" (tmp),
+			  "=&r" (ret)
+			: GCC_OFF_SMALL_ASM() (rw->lock)
+			: "memory");
+		} while (unlikely(!tmp));
+
+		smp_llsc_mb();
 	} else {
 		do {
 			__asm__ __volatile__(
