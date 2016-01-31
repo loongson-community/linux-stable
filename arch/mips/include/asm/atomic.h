@@ -56,6 +56,22 @@ static __inline__ void atomic_##op(int i, atomic_t * v)			      \
 		"	.set	mips0					\n"   \
 		: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (v->counter)	      \
 		: "Ir" (i));						      \
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {		      \
+		int temp;						      \
+									      \
+		do {							      \
+			__asm__ __volatile__(				      \
+			"	.set	"MIPS_ISA_LEVEL"		\n"   \
+			__WEAK_LLSC_MB					      \
+			"	ll	%0, %1		# atomic_" #op "\n"   \
+			"	" #asm_op " %0, %2			\n"   \
+			"	sc	%0, %1				\n"   \
+			"	.set	mips0				\n"   \
+			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (v->counter)      \
+			: "Ir" (i));					      \
+		} while (unlikely(!temp));				      \
+									      \
+		smp_llsc_mb();						      \
 	} else if (kernel_uses_llsc) {					      \
 		int temp;						      \
 									      \
@@ -99,6 +115,23 @@ static __inline__ int atomic_##op##_return(int i, atomic_t * v)		      \
 		: "=&r" (result), "=&r" (temp),				      \
 		  "+" GCC_OFF_SMALL_ASM() (v->counter)			      \
 		: "Ir" (i));						      \
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {		      \
+		int temp;						      \
+									      \
+		do {							      \
+			__asm__ __volatile__(				      \
+			"	.set	"MIPS_ISA_LEVEL"		\n"   \
+			__WEAK_LLSC_MB					      \
+			"	ll	%1, %2	# atomic_" #op "_return	\n"   \
+			"	" #asm_op " %0, %1, %3			\n"   \
+			"	sc	%0, %2				\n"   \
+			"	.set	mips0				\n"   \
+			: "=&r" (result), "=&r" (temp),			      \
+			  "+" GCC_OFF_SMALL_ASM() (v->counter)		      \
+			: "Ir" (i));					      \
+		} while (unlikely(!result));				      \
+									      \
+		result = temp; result c_op i;				      \
 	} else if (kernel_uses_llsc) {					      \
 		int temp;						      \
 									      \
@@ -178,6 +211,26 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
 		  "+" GCC_OFF_SMALL_ASM() (v->counter)
 		: "Ir" (i), GCC_OFF_SMALL_ASM() (v->counter)
 		: "memory");
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {
+		int temp;
+
+		__asm__ __volatile__(
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"1:				# atomic_sub_if_positive\n"
+		__WEAK_LLSC_MB
+		"	ll	%1, %2					\n"
+		"	subu	%0, %1, %3				\n"
+		"	bltz	%0, 1f					\n"
+		"	sc	%0, %2					\n"
+		"	.set	noreorder				\n"
+		"	beqz	%0, 1b					\n"
+		"	 subu	%0, %1, %3				\n"
+		"	.set	reorder					\n"
+		"1:							\n"
+		"	.set	mips0					\n"
+		: "=&r" (result), "=&r" (temp),
+		  "+" GCC_OFF_SMALL_ASM() (v->counter)
+		: "Ir" (i));
 	} else if (kernel_uses_llsc) {
 		int temp;
 
@@ -339,6 +392,22 @@ static __inline__ void atomic64_##op(long i, atomic64_t * v)		      \
 		"	.set	mips0					\n"   \
 		: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (v->counter)	      \
 		: "Ir" (i));						      \
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {		      \
+		long temp;						      \
+									      \
+		do {							      \
+			__asm__ __volatile__(				      \
+			"	.set	"MIPS_ISA_LEVEL"		\n"   \
+			__WEAK_LLSC_MB					      \
+			"	lld	%0, %1		# atomic64_" #op "\n" \
+			"	" #asm_op " %0, %2			\n"   \
+			"	scd	%0, %1				\n"   \
+			"	.set	mips0				\n"   \
+			: "=&r" (temp), "+" GCC_OFF_SMALL_ASM() (v->counter)      \
+			: "Ir" (i));					      \
+		} while (unlikely(!temp));				      \
+									      \
+		smp_llsc_mb();						      \
 	} else if (kernel_uses_llsc) {					      \
 		long temp;						      \
 									      \
@@ -382,6 +451,24 @@ static __inline__ long atomic64_##op##_return(long i, atomic64_t * v)	      \
 		: "=&r" (result), "=&r" (temp),				      \
 		  "+" GCC_OFF_SMALL_ASM() (v->counter)			      \
 		: "Ir" (i));						      \
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {		      \
+		long temp;						      \
+									      \
+		do {							      \
+			__asm__ __volatile__(				      \
+			"	.set	"MIPS_ISA_LEVEL"		\n"   \
+			__WEAK_LLSC_MB					      \
+			"	lld	%1, %2	# atomic64_" #op "_return\n"  \
+			"	" #asm_op " %0, %1, %3			\n"   \
+			"	scd	%0, %2				\n"   \
+			"	.set	mips0				\n"   \
+			: "=&r" (result), "=&r" (temp),			      \
+			  "=" GCC_OFF_SMALL_ASM() (v->counter)		      \
+			: "Ir" (i), GCC_OFF_SMALL_ASM() (v->counter)	      \
+			: "memory");					      \
+		} while (unlikely(!result));				      \
+									      \
+		result = temp; result c_op i;				      \
 	} else if (kernel_uses_llsc) {					      \
 		long temp;						      \
 									      \
@@ -462,6 +549,26 @@ static __inline__ long atomic64_sub_if_positive(long i, atomic64_t * v)
 		  "=" GCC_OFF_SMALL_ASM() (v->counter)
 		: "Ir" (i), GCC_OFF_SMALL_ASM() (v->counter)
 		: "memory");
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {
+		long temp;
+
+		__asm__ __volatile__(
+		"	.set	"MIPS_ISA_LEVEL"			\n"
+		"1:				# atomic64_sub_if_positive\n"
+		__WEAK_LLSC_MB
+		"	lld	%1, %2					\n"
+		"	dsubu	%0, %1, %3				\n"
+		"	bltz	%0, 1f					\n"
+		"	scd	%0, %2					\n"
+		"	.set	noreorder				\n"
+		"	beqz	%0, 1b					\n"
+		"	 dsubu	%0, %1, %3				\n"
+		"	.set	reorder					\n"
+		"1:							\n"
+		"	.set	mips0					\n"
+		: "=&r" (result), "=&r" (temp),
+		  "+" GCC_OFF_SMALL_ASM() (v->counter)
+		: "Ir" (i));
 	} else if (kernel_uses_llsc) {
 		long temp;
 

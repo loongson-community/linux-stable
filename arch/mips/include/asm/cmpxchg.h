@@ -34,6 +34,24 @@ static inline unsigned long __xchg_u32(volatile int * m, unsigned int val)
 		: "=&r" (retval), "=" GCC_OFF_SMALL_ASM() (*m), "=&r" (dummy)
 		: GCC_OFF_SMALL_ASM() (*m), "Jr" (val)
 		: "memory");
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {
+		unsigned long dummy;
+
+		do {
+			__asm__ __volatile__(
+			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
+			__WEAK_LLSC_MB
+			"	ll	%0, %3		# xchg_u32	\n"
+			"	.set	mips0				\n"
+			"	move	%2, %z4				\n"
+			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
+			"	sc	%2, %1				\n"
+			"	.set	mips0				\n"
+			: "=&r" (retval), "=" GCC_OFF_SMALL_ASM() (*m),
+			  "=&r" (dummy)
+			: GCC_OFF_SMALL_ASM() (*m), "Jr" (val)
+			: "memory");
+		} while (unlikely(!dummy));
 	} else if (kernel_uses_llsc) {
 		unsigned long dummy;
 
@@ -85,6 +103,22 @@ static inline __u64 __xchg_u64(volatile __u64 * m, __u64 val)
 		: "=&r" (retval), "=" GCC_OFF_SMALL_ASM() (*m), "=&r" (dummy)
 		: GCC_OFF_SMALL_ASM() (*m), "Jr" (val)
 		: "memory");
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {
+		unsigned long dummy;
+
+		do {
+			__asm__ __volatile__(
+			"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"
+			__WEAK_LLSC_MB
+			"	lld	%0, %3		# xchg_u64	\n"
+			"	move	%2, %z4				\n"
+			"	scd	%2, %1				\n"
+			"	.set	mips0				\n"
+			: "=&r" (retval), "=" GCC_OFF_SMALL_ASM() (*m),
+			  "=&r" (dummy)
+			: GCC_OFF_SMALL_ASM() (*m), "Jr" (val)
+			: "memory");
+		} while (unlikely(!dummy));
 	} else if (kernel_uses_llsc) {
 		unsigned long dummy;
 
@@ -156,6 +190,26 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
 		"	beqzl	$1, 1b				\n"	\
 		"2:						\n"	\
 		"	.set	pop				\n"	\
+		: "=&r" (__ret), "=" GCC_OFF_SMALL_ASM() (*m)		\
+		: GCC_OFF_SMALL_ASM() (*m), "Jr" (old), "Jr" (new)		\
+		: "memory");						\
+	} else if (kernel_uses_llsc && LOONGSON_LLSC_WAR) {		\
+		__asm__ __volatile__(					\
+		"	.set	push				\n"	\
+		"	.set	noat				\n"	\
+		"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"	\
+		"1:				# __cmpxchg_asm \n"	\
+		__WEAK_LLSC_MB						\
+		"	" ld "	%0, %2				\n"	\
+		"	bne	%0, %z3, 2f			\n"	\
+		"	.set	mips0				\n"	\
+		"	move	$1, %z4				\n"	\
+		"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"	\
+		"	" st "	$1, %1				\n"	\
+		"	beqz	$1, 1b				\n"	\
+		"	.set	pop				\n"	\
+		"2:						\n"	\
+		__WEAK_LLSC_MB						\
 		: "=&r" (__ret), "=" GCC_OFF_SMALL_ASM() (*m)		\
 		: GCC_OFF_SMALL_ASM() (*m), "Jr" (old), "Jr" (new)		\
 		: "memory");						\
