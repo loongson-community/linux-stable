@@ -77,8 +77,6 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 	int bit = nr & SZLONG_MASK;
 	unsigned long temp;
 
-	smp_mb__before_llsc();
-
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__(
 		"	.set	mips3					\n"
@@ -113,8 +111,6 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 		} while (unlikely(!temp));
 	} else
 		__mips_set_bit(nr, addr);
-
-	smp_llsc_mb();
 }
 
 /*
@@ -132,8 +128,6 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 	unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
 	int bit = nr & SZLONG_MASK;
 	unsigned long temp;
-
-	smp_mb__before_llsc();
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__(
@@ -169,8 +163,6 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 		} while (unlikely(!temp));
 	} else
 		__mips_clear_bit(nr, addr);
-
-	smp_llsc_mb();
 }
 
 /*
@@ -199,8 +191,6 @@ static inline void clear_bit_unlock(unsigned long nr, volatile unsigned long *ad
 static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 {
 	int bit = nr & SZLONG_MASK;
-
-	smp_mb__before_llsc();
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);
@@ -231,8 +221,6 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 		} while (unlikely(!temp));
 	} else
 		__mips_change_bit(nr, addr);
-
-	smp_llsc_mb();
 }
 
 /*
@@ -304,8 +292,6 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 {
 	int bit = nr & SZLONG_MASK;
 	unsigned long res;
-
-	smp_mb__before_llsc();
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		unsigned long *m = ((unsigned long *) addr) + (nr >> SZLONG_LOG);

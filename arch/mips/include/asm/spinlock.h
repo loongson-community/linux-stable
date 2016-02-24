@@ -59,8 +59,6 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 	int tmp;
 	int inc = 0x10000;
 
-	smp_mb__before_llsc();
-
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__ (
 		"	.set push		# arch_spin_lock	\n"
@@ -148,8 +146,6 @@ static inline unsigned int arch_spin_trylock(arch_spinlock_t *lock)
 	int tmp, tmp2, tmp3;
 	int inc = 0x10000;
 
-	smp_mb__before_llsc();
-
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__ (
 		"	.set push		# arch_spin_trylock	\n"
@@ -232,8 +228,6 @@ static inline void arch_read_lock(arch_rwlock_t *rw)
 {
 	unsigned int tmp;
 
-	smp_mb__before_llsc();
-
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__(
 		"	.set	noreorder	# arch_read_lock	\n"
@@ -307,14 +301,11 @@ static inline void arch_read_unlock(arch_rwlock_t *rw)
 		: "m" (rw->lock)
 		: "memory");
 	}
-	nudge_writes();
 }
 
 static inline void arch_write_lock(arch_rwlock_t *rw)
 {
 	unsigned int tmp;
-
-	smp_mb__before_llsc();
 
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__(
@@ -364,15 +355,12 @@ static inline void arch_write_unlock(arch_rwlock_t *rw)
 	: "=m" (rw->lock)
 	: "m" (rw->lock)
 	: "memory");
-	nudge_writes();
 }
 
 static inline int arch_read_trylock(arch_rwlock_t *rw)
 {
 	unsigned int tmp;
 	int ret;
-
-	smp_mb__before_llsc();
 
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__(
@@ -410,7 +398,6 @@ static inline int arch_read_trylock(arch_rwlock_t *rw)
 		: "memory");
 	}
 
-	smp_llsc_mb();
 	return ret;
 }
 
@@ -418,8 +405,6 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 {
 	unsigned int tmp;
 	int ret;
-
-	smp_mb__before_llsc();
 
 	if (R10000_LLSC_WAR) {
 		__asm__ __volatile__(
@@ -459,7 +444,6 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 		: "m" (rw->lock)
 		: "memory");
 	}
-	smp_llsc_mb();
 
 	return ret;
 }
