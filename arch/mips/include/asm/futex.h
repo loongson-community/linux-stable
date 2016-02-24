@@ -18,7 +18,6 @@
 
 #define __futex_atomic_op(insn, ret, oldval, uaddr, oparg)		\
 {									\
-	smp_mb__before_llsc();						\
 	if (cpu_has_llsc && R10000_LLSC_WAR) {				\
 		__asm__ __volatile__(					\
 		"	.set	push				\n"	\
@@ -141,8 +140,6 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 
 	if (!access_ok(VERIFY_WRITE, uaddr, sizeof(u32)))
 		return -EFAULT;
-
-	smp_mb__before_llsc();
 
 	if (cpu_has_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__(

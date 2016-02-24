@@ -16,7 +16,6 @@ static inline void atomic_scrub(void *va, u32 size)
 		 *
 		 * Intel: asm("lock; addl $0, %0"::"m"(*virt_addr));
 		 */
-		smp_mb__before_llsc();
 
 		__asm__ __volatile__ (
 		"	.set	mips2					\n"
@@ -28,7 +27,6 @@ static inline void atomic_scrub(void *va, u32 size)
 		: "=&r" (temp), "=m" (*virt_addr)
 		: "m" (*virt_addr));
 
-		smp_llsc_mb();
 		virt_addr++;
 	}
 }
