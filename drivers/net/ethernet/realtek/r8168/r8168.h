@@ -178,6 +178,8 @@
 #define true  1
 #endif
 
+#define ENABLE_S5WOL	1
+
 //Hardware will continue interrupt 10 times after interrupt finished.
 #define RTK_KEEP_INTERRUPT_COUNT (10)
 
