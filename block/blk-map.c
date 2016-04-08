@@ -95,6 +95,7 @@ int blk_rq_map_user_iov(struct request_queue *q, struct request *rq,
 
 	iov_for_each(iov, i, *iter) {
 		unsigned long uaddr = (unsigned long) iov.iov_base;
+		unsigned long ulen = (unsigned long) iov.iov_len;
 
 		if (!iov.iov_len)
 			return -EINVAL;
@@ -103,7 +104,7 @@ int blk_rq_map_user_iov(struct request_queue *q, struct request *rq,
 		 * Keep going so we check length of all segments
 		 */
 		if ((uaddr & queue_dma_alignment(q)) ||
-		    iovec_gap_to_prv(q, &prv, &iov))
+		    (ulen & queue_dma_alignment(q)) || iovec_gap_to_prv(q, &prv, &iov))
 			unaligned = 1;
 
 		prv.iov_base = iov.iov_base;
