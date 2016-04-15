@@ -20,24 +20,9 @@
 #include <asm/bug.h>
 #include <asm/byteorder.h>		/* sigh ... */
 #include <asm/cpu-features.h>
+#include <asm/llsc.h>
 #include <asm/sgidefs.h>
 #include <asm/war.h>
-
-#if _MIPS_SZLONG == 32
-#define SZLONG_LOG 5
-#define SZLONG_MASK 31UL
-#define __LL		"ll	"
-#define __SC		"sc	"
-#define __INS		"ins    "
-#define __EXT		"ext    "
-#elif _MIPS_SZLONG == 64
-#define SZLONG_LOG 6
-#define SZLONG_MASK 63UL
-#define __LL		"lld	"
-#define __SC		"scd	"
-#define __INS		"dins    "
-#define __EXT		"dext    "
-#endif
 
 /*
  * clear_bit() doesn't provide any barrier for the compiler.
