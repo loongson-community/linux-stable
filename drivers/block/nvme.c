@@ -1700,7 +1700,7 @@ static int __devinit nvme_probe(struct pci_dev *pdev,
 	nvme_release_prp_pools(dev);
  disable:
 	pci_disable_device(pdev);
-	pci_release_regions(pdev);
+        pci_release_selected_regions(pdev, bars);
  free:
 	kfree(dev->queues);
 	kfree(dev->entry);
@@ -1711,13 +1711,14 @@ static int __devinit nvme_probe(struct pci_dev *pdev,
 static void __devexit nvme_remove(struct pci_dev *pdev)
 {
 	struct nvme_dev *dev = pci_get_drvdata(pdev);
+	int bars = pci_select_bars(pdev, IORESOURCE_MEM);
 	nvme_dev_remove(dev);
 	pci_disable_msix(pdev);
 	iounmap(dev->bar);
 	nvme_release_instance(dev);
 	nvme_release_prp_pools(dev);
 	pci_disable_device(pdev);
-	pci_release_regions(pdev);
+	pci_release_selected_regions(pdev, bars);
 	kfree(dev->queues);
 	kfree(dev->entry);
 	kfree(dev);
