@@ -1891,6 +1891,8 @@ static void nvme_release_instance(struct nvme_dev *dev)
 static void nvme_free_dev(struct kref *kref)
 {
 	struct nvme_dev *dev = container_of(kref, struct nvme_dev, kref);
+	int bars = pci_select_bars(dev->pci_dev, IORESOURCE_MEM);
+
 	nvme_dev_remove(dev);
 	if (dev->pci_dev->msi_enabled)
 		pci_disable_msi(dev->pci_dev);
@@ -1900,7 +1902,7 @@ static void nvme_free_dev(struct kref *kref)
 	nvme_release_instance(dev);
 	nvme_release_prp_pools(dev);
 	pci_disable_device(dev->pci_dev);
-	pci_release_regions(dev->pci_dev);
+	pci_release_selected_regions(dev->pci_dev, bars);
 	kfree(dev->queues);
 	kfree(dev->entry);
 	kfree(dev);
@@ -2036,7 +2038,7 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	nvme_release_prp_pools(dev);
  disable:
 	pci_disable_device(pdev);
-	pci_release_regions(pdev);
+        pci_release_selected_regions(pdev, bars);
  free:
 	kfree(dev->queues);
 	kfree(dev->entry);
