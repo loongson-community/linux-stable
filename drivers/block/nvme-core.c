@@ -2400,7 +2400,7 @@ static int nvme_dev_map(struct nvme_dev *dev)
 	iounmap(dev->bar);
 	dev->bar = NULL;
  disable:
-	pci_release_regions(pdev);
+        pci_release_selected_regions(pdev, bars);
  disable_pci:
 	pci_disable_device(pdev);
 	return result;
@@ -2408,6 +2408,9 @@ static int nvme_dev_map(struct nvme_dev *dev)
 
 static void nvme_dev_unmap(struct nvme_dev *dev)
 {
+	struct pci_dev *pdev = dev->pci_dev;
+	int bars;
+
 	if (dev->pci_dev->msi_enabled)
 		pci_disable_msi(dev->pci_dev);
 	else if (dev->pci_dev->msix_enabled)
@@ -2416,7 +2419,8 @@ static void nvme_dev_unmap(struct nvme_dev *dev)
 	if (dev->bar) {
 		iounmap(dev->bar);
 		dev->bar = NULL;
-		pci_release_regions(dev->pci_dev);
+		bars = pci_select_bars(pdev, IORESOURCE_MEM);
+		pci_release_selected_regions(pdev, bars);
 	}
 
 	if (pci_is_enabled(dev->pci_dev))
