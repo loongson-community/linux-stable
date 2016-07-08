@@ -203,12 +203,6 @@ int __cpuinit r4k_clockevent_init(void)
 	cd->name		= "MIPS";
 	cd->features		= CLOCK_EVT_FEAT_ONESHOT;
 
-	clockevent_set_clock(cd, mips_hpt_frequency);
-
-	/* Calculate the min / max delta */
-	cd->max_delta_ns	= clockevent_delta2ns(0x7fffffff, cd);
-	cd->min_delta_ns	= clockevent_delta2ns(0x300, cd);
-
 	cd->rating		= 300;
 	cd->irq			= irq;
 	cd->cpumask		= cpumask_of(cpu);
@@ -216,7 +210,7 @@ int __cpuinit r4k_clockevent_init(void)
 	cd->set_mode		= mips_set_clock_mode;
 	cd->event_handler	= mips_event_handler;
 
-	clockevents_register_device(cd);
+	clockevents_config_and_register(cd, mips_hpt_frequency, 0x300, 0x7fffffff);
 
 	if (cp0_timer_irq_installed)
 		return 0;
