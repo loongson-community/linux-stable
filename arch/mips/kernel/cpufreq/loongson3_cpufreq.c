@@ -15,9 +15,11 @@
 #include <linux/module.h>
 #include <linux/sched.h>	/* set_cpus_allowed() */
 #include <linux/delay.h>
+#include <linux/clockchips.h>
 #include <linux/platform_device.h>
 
 #include <asm/clock.h>
+#include <asm/cevt-r4k.h>
 
 #include <loongson.h>
 #include <workarounds.h>
@@ -67,10 +69,13 @@ static int loongson3_cpu_freq_notifier(struct notifier_block *nb,
 {
 	struct cpufreq_freqs *freqs = (struct cpufreq_freqs *)data;
 	int cpu = freqs->cpu;
+	struct clock_event_device *cd = &per_cpu(mips_clockevent_device, cpu);
 
-	if (val == CPUFREQ_POSTCHANGE)
+	if (val == CPUFREQ_POSTCHANGE) {
 		cpu_data[cpu].udelay_val =
 			cpufreq_scale(cpu_data[cpu].udelay_val, freqs->old, freqs->new);
+		clockevents_update_freq(cd, freqs->new * 1000 / 2);
+	}
 
 	return 0;
 }
