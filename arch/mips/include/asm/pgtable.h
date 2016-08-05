@@ -161,7 +161,7 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 #else
 
 #define pte_none(pte)		(!(pte_val(pte) & ~_PAGE_GLOBAL))
-#define pte_present(pte)	(pte_val(pte) & _PAGE_PRESENT)
+#define pte_present(pte)	(pte_val(pte) & (_PAGE_PRESENT | _PAGE_PROTNONE))
 
 /*
  * Certain architectures need to do special things when pte's
@@ -407,8 +407,8 @@ static inline pte_t pte_mkhuge(pte_t pte)
 }
 #endif /* _PAGE_HUGE */
 #endif
-static inline int pte_special(pte_t pte)	{ return 0; }
-static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
+static inline int pte_special(pte_t pte)	{ return pte_val(pte) & _PAGE_SPECIAL; }
+static inline pte_t pte_mkspecial(pte_t pte)	{ pte_val(pte) |= _PAGE_SPECIAL; return pte; }
 
 /*
  * Macro to make mark a page protection value as "uncacheable".	 Note
@@ -517,9 +517,6 @@ static inline pmd_t pmd_mksplitting(pmd_t pmd)
 	return pmd;
 }
 
-extern void set_pmd_at(struct mm_struct *mm, unsigned long addr,
-		       pmd_t *pmdp, pmd_t pmd);
-
 #define __HAVE_ARCH_PMDP_SPLITTING_FLUSH
 /* Extern to avoid header file madness */
 extern void pmdp_splitting_flush(struct vm_area_struct *vma,
@@ -622,7 +619,7 @@ static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
 
 static inline pmd_t pmd_mknotpresent(pmd_t pmd)
 {
-	pmd_val(pmd) &= ~(_PAGE_PRESENT | _PAGE_VALID | _PAGE_DIRTY);
+	pmd_val(pmd) &= ~(_PAGE_PRESENT | _PAGE_VALID | _PAGE_DIRTY | _PAGE_PROTNONE);
 
 	return pmd;
 }
@@ -643,6 +640,61 @@ static inline pmd_t pmdp_get_and_clear(struct mm_struct *mm,
 }
 
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+
+extern void set_pmd_at(struct mm_struct *mm, unsigned long addr,
+		       pmd_t *pmdp, pmd_t pmd);
+
+#ifdef CONFIG_NUMA_BALANCING
+
+#define pte_numa pte_numa
+static inline int pte_numa(pte_t pte)
+{
+	return (pte_val(pte) &
+		(_PAGE_PROTNONE|_PAGE_PRESENT)) == _PAGE_PROTNONE;
+}
+
+#define pte_mknonnuma pte_mknonnuma
+static inline pte_t pte_mknonnuma(pte_t pte)
+{
+	pte_val(pte) &= ~_PAGE_PROTNONE;
+	pte_val(pte) |=  _PAGE_PRESENT | _PAGE_ACCESSED;
+	return pte;
+}
+
+#define pte_mknuma pte_mknuma
+static inline pte_t pte_mknuma(pte_t pte)
+{
+	pte_val(pte) |= _PAGE_PROTNONE;
+	pte_val(pte) &= ~(_PAGE_PRESENT | _PAGE_VALID);
+
+	return pte;
+}
+
+#define pmd_numa pmd_numa
+static inline int pmd_numa(pmd_t pmd)
+{
+	return (pmd_val(pmd) &
+		(_PAGE_PROTNONE|_PAGE_PRESENT)) == _PAGE_PROTNONE;
+}
+
+#define pmd_mknonnuma pmd_mknonnuma
+static inline pmd_t pmd_mknonnuma(pmd_t pmd)
+{
+	pmd_val(pmd) &= ~_PAGE_PROTNONE;
+	pmd_val(pmd) |=  _PAGE_PRESENT | _PAGE_ACCESSED;
+	return pmd;
+}
+
+#define pmd_mknuma pmd_mknuma
+static inline pmd_t pmd_mknuma(pmd_t pmd)
+{
+	pmd_val(pmd) |= _PAGE_PROTNONE;
+	pmd_val(pmd) &= ~(_PAGE_PRESENT | _PAGE_VALID);
+
+	return pmd;
+}
+
+#endif
 
 #include <asm-generic/pgtable.h>
 
