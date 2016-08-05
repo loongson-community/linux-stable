@@ -146,8 +146,19 @@
 #define _PAGE_SPLITTING		({BUG(); 1; })	/* Dummy value */
 #endif
 
+#if defined(_PAGE_SPLITTING_SHIFT)
+#define _PAGE_PROTNONE_SHIFT	(_PAGE_SPLITTING_SHIFT + 1)
+#else
+#define _PAGE_PROTNONE_SHIFT	(_PAGE_MODIFIED_SHIFT + 1)
+#endif
+#define _PAGE_PROTNONE		(1<<_PAGE_PROTNONE_SHIFT)
+#define _PAGE_NUMA		_PAGE_PROTNONE
+#define _PAGE_SPECIAL_SHIFT	(_PAGE_PROTNONE_SHIFT + 1)
+#define _PAGE_SPECIAL		(1<<_PAGE_SPECIAL_SHIFT)
+#define __HAVE_ARCH_PTE_SPECIAL
+
 /* Page cannot be executed */
-#define _PAGE_NO_EXEC_SHIFT	(cpu_has_rixi ? _PAGE_SPLITTING_SHIFT + 1 : _PAGE_SPLITTING_SHIFT)
+#define _PAGE_NO_EXEC_SHIFT	(cpu_has_rixi ? _PAGE_SPECIAL_SHIFT + 1 : _PAGE_SPECIAL_SHIFT)
 #define _PAGE_NO_EXEC		({BUG_ON(!cpu_has_rixi); 1 << _PAGE_NO_EXEC_SHIFT; })
 
 /* Page cannot be read */
@@ -259,6 +270,6 @@ static inline uint64_t pte_to_entrylo(unsigned long pte_val)
 #define __READABLE	(_PAGE_SILENT_READ | _PAGE_ACCESSED | (cpu_has_rixi ? 0 : _PAGE_READ))
 #define __WRITEABLE	(_PAGE_WRITE | _PAGE_SILENT_WRITE | _PAGE_MODIFIED)
 
-#define _PAGE_CHG_MASK	(_PFN_MASK | _PAGE_ACCESSED | _PAGE_MODIFIED | _CACHE_MASK)
+#define _PAGE_CHG_MASK	(_PFN_MASK | _PAGE_ACCESSED | _PAGE_MODIFIED | _PAGE_SPECIAL | _CACHE_MASK)
 
 #endif /* _ASM_PGTABLE_BITS_H */
