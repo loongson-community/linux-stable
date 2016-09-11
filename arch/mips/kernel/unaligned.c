@@ -87,9 +87,6 @@
 #include <asm/inst.h>
 #include <asm/uaccess.h>
 
-#define STR(x)  __STR(x)
-#define __STR(x)  #x
-
 enum {
 	UNALIGNED_ACTION_QUIET,
 	UNALIGNED_ACTION_SIGNAL,
