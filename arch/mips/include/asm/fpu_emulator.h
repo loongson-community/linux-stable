@@ -68,8 +68,6 @@ extern int fpu_emulator_cop1Handler(struct pt_regs *xcp,
 				    void *__user *fault_addr);
 int process_fpemu_return(int sig, void __user *fault_addr,
 			 unsigned long fcr31);
-int mm_isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
-		     unsigned long *contpc);
 
 /*
  * Instruction inserted following the badinst to further tag the sequence
