@@ -1501,7 +1501,8 @@ void __cpuinit r4k_cache_init(void)
 	local_flush_icache_range	= local_r4k_flush_icache_range;
 
 #if defined(CONFIG_DMA_NONCOHERENT)
-	if (coherentio) {
+	if ((coherentio == IO_COHERENCE_ENABLED) ||
+	    ((coherentio == IO_COHERENCE_DEFAULT) && hw_coherentio)) {
 		_dma_cache_wback_inv	= (void *)cache_noop;
 		_dma_cache_wback	= (void *)cache_noop;
 		_dma_cache_inv		= (void *)cache_noop;
