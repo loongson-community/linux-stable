@@ -173,7 +173,7 @@ void __init check_wait(void)
 		break;
 
 	case CPU_LOONGSON3:
-		if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R2)
+		if ((c->processor_id & PRID_REV_MASK) >= PRID_REV_LOONGSON3A_R2)
 			cpu_wait = r4k_wait;
 		break;
 
