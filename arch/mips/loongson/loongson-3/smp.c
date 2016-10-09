@@ -475,7 +475,7 @@ static void loongson3a_r1_play_dead(int *state_addr)
 		: "a1");
 }
 
-static void loongson3a_r2_play_dead(int *state_addr)
+static void loongson3a_r2r3_play_dead(int *state_addr)
 {
 	register int val;
 	register long cpuid, core, node, count;
@@ -635,7 +635,8 @@ void play_dead(void)
 		play_dead_at_ckseg1 = (void *)CKSEG1ADDR((unsigned long)loongson3a_r1_play_dead);
 		break;
 	case PRID_REV_LOONGSON3A_R2:
-		play_dead_at_ckseg1 = (void *)CKSEG1ADDR((unsigned long)loongson3a_r2_play_dead);
+	case PRID_REV_LOONGSON3A_R3:
+		play_dead_at_ckseg1 = (void *)CKSEG1ADDR((unsigned long)loongson3a_r2r3_play_dead);
 		break;
 	case PRID_REV_LOONGSON3B_R1:
 	case PRID_REV_LOONGSON3B_R2:
