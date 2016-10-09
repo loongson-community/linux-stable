@@ -211,7 +211,7 @@ void __init check_wait(void)
 		break;
 
 	case CPU_LOONGSON3:
-		if ((read_c0_prid() & 0xf) == PRID_REV_LOONGSON3A_R2)
+		if ((c->processor_id & PRID_REV_MASK) >= PRID_REV_LOONGSON3A_R2)
 			cpu_wait = r4k_wait;
 		break;
 
@@ -1186,6 +1186,12 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 			__cpu_name[cpu] = "Loongson-3";
 			set_elf_platform(cpu, "loongson3a");
 			__cpu_full_name[cpu] = "Loongson-3A R2 (Loongson-3A2000)";
+			break;
+		case PRID_REV_LOONGSON3A_R3:
+			c->cputype = CPU_LOONGSON3;
+			__cpu_name[cpu] = "Loongson-3";
+			set_elf_platform(cpu, "loongson3a");
+			__cpu_full_name[cpu] = "Loongson-3A R3 (Loongson-3A3000)";
 			break;
 		}
 
