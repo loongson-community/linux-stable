@@ -1189,7 +1189,7 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 
 		c->isa_level = MIPS_CPU_ISA_M64R2;
 		decode_configs(c);
-		c->options |= MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
+		c->options |= MIPS_CPU_FTLB | MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
 		break;
 	default:
 		panic("Unknown Loongson Processor ID!");
