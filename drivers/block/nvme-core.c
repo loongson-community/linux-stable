@@ -2237,22 +2237,24 @@ static int nvme_dev_add(struct nvme_dev *dev)
 	struct nvme_ns *ns;
 	struct nvme_id_ctrl *ctrl;
 	struct nvme_id_ns *id_ns;
-	void *mem;
-	dma_addr_t dma_addr;
+	void *mem1, *mem2;
+	dma_addr_t dma_addr1, dma_addr2;
 	int shift = NVME_CAP_MPSMIN(readq(&dev->bar->cap)) + 12;
 
-	mem = dma_alloc_coherent(&pdev->dev, 8192, &dma_addr, GFP_KERNEL);
-	if (!mem)
+	/* This is needed for dev_page_size != 4KB */
+	mem1 = dma_alloc_coherent(&pdev->dev, 4096, &dma_addr1, GFP_KERNEL);
+	mem2 = dma_alloc_coherent(&pdev->dev, 4096, &dma_addr2, GFP_KERNEL);
+	if (!mem1 || !mem2)
 		return -ENOMEM;
 
-	res = nvme_identify(dev, 0, 1, dma_addr);
+	res = nvme_identify(dev, 0, 1, dma_addr1);
 	if (res) {
 		dev_err(&pdev->dev, "Identify Controller failed (%d)\n", res);
 		res = -EIO;
 		goto out;
 	}
 
-	ctrl = mem;
+	ctrl = mem1;
 	nn = le32_to_cpup(&ctrl->nn);
 	dev->oncs = le16_to_cpup(&ctrl->oncs);
 	dev->abort_limit = ctrl->acl + 1;
@@ -2266,9 +2268,9 @@ static int nvme_dev_add(struct nvme_dev *dev)
 			(pdev->device == 0x0953) && ctrl->vs[3])
 		dev->stripe_size = 1 << (ctrl->vs[3] + shift);
 
-	id_ns = mem;
+	id_ns = mem1;
 	for (i = 1; i <= nn; i++) {
-		res = nvme_identify(dev, i, 0, dma_addr);
+		res = nvme_identify(dev, i, 0, dma_addr1);
 		if (res)
 			continue;
 
@@ -2276,11 +2278,11 @@ static int nvme_dev_add(struct nvme_dev *dev)
 			continue;
 
 		res = nvme_get_features(dev, NVME_FEAT_LBA_RANGE, i,
-							dma_addr + 4096, NULL);
+							dma_addr2, NULL);
 		if (res)
-			memset(mem + 4096, 0, 4096);
+			memset(mem2, 0, 4096);
 
-		ns = nvme_alloc_ns(dev, i, mem, mem + 4096);
+		ns = nvme_alloc_ns(dev, i, mem1, mem2);
 		if (ns)
 			list_add_tail(&ns->list, &dev->namespaces);
 	}
@@ -2289,7 +2291,8 @@ static int nvme_dev_add(struct nvme_dev *dev)
 	res = 0;
 
  out:
-	dma_free_coherent(&dev->pci_dev->dev, 8192, mem, dma_addr);
+	dma_free_coherent(&dev->pci_dev->dev, 4096, mem1, dma_addr1);
+	dma_free_coherent(&dev->pci_dev->dev, 4096, mem2, dma_addr2);
 	return res;
 }
 
