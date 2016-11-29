@@ -56,32 +56,6 @@ static void trigger_softirq(void *data)
 /*
  * Setup and invoke a run of 'trigger_softirq' on the given cpu.
  */
-#ifdef CONFIG_LOONGSON3A_CPUAUTOPLUG
-static int raise_blk_irq(int cpu, struct request *rq)
-{
-	int cached_autoplug_enabled;
-	extern int autoplug_enabled, autoplug_adjusting;
-
-	cached_autoplug_enabled = autoplug_enabled;
-	autoplug_enabled = 0;
-
-	if (cpu_online(cpu) && !autoplug_adjusting) {
-		struct call_single_data *data = &rq->csd;
-
-		data->func = trigger_softirq;
-		data->info = rq;
-		data->flags = 0;
-
-		__smp_call_function_single(cpu, data, 0);
-		autoplug_enabled = cached_autoplug_enabled;
-		return 0;
-	}
-
-	autoplug_enabled = cached_autoplug_enabled;
-
-	return 1;
-}
-#else
 static int raise_blk_irq(int cpu, struct request *rq)
 {
 	if (cpu_online(cpu)) {
@@ -97,8 +71,6 @@ static int raise_blk_irq(int cpu, struct request *rq)
 
 	return 1;
 }
-#endif
-
 #else /* CONFIG_SMP && CONFIG_USE_GENERIC_SMP_HELPERS */
 static int raise_blk_irq(int cpu, struct request *rq)
 {
