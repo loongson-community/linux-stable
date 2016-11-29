@@ -26,9 +26,6 @@ int autoplug_enabled = 1;
 int autoplug_verbose = 0;
 int autoplug_adjusting = 0;
 
-/* 0: normal, 1: being online, -1: being offline */
-DEFINE_PER_CPU(int, cpu_adjusting);
-
 struct cpu_autoplug_info {
 	cputime64_t prev_idle;
 	cputime64_t prev_wall;
@@ -267,11 +264,9 @@ static void increase_cores(int cur_cpus)
 		return;
 
 	target_cpu = cpumask_next_zero(0, cpu_online_mask);
-	per_cpu(cpu_adjusting, target_cpu) = 1;
 	cpu_hotplug_driver_lock();
 	cpu_up(target_cpu);
 	cpu_hotplug_driver_unlock();
-	per_cpu(cpu_adjusting, target_cpu) = 0;
 }
 
 
@@ -283,11 +278,9 @@ static void decrease_cores(int cur_cpus)
 		return;
 
 	target_cpu = find_last_bit(cpumask_bits(cpu_online_mask), num_possible_cpus());
-	per_cpu(cpu_adjusting, target_cpu) = -1;
 	cpu_hotplug_driver_lock();
 	cpu_down(target_cpu);
 	cpu_hotplug_driver_unlock();
-	per_cpu(cpu_adjusting, target_cpu) = 0;
 }
 
 #define INC_THRESHOLD 95
@@ -303,7 +296,7 @@ static void do_autoplug_timer(struct work_struct *work)
 
 	BUG_ON(smp_processor_id() != 0);
 	delay = msecs_to_jiffies(ap_info.sampling_rate);
-	if (!autoplug_enabled || system_state != SYSTEM_RUNNING || atomic_read(&global_cfd_refcount) != 0)
+	if (!autoplug_enabled || system_state != SYSTEM_RUNNING)
 		goto out;
 
 	autoplug_adjusting = 1;
@@ -377,7 +370,7 @@ static struct platform_driver platform_driver = {
 
 static int __init cpuautoplug_init(void)
 {
-	int i, ret, delay;
+	int ret, delay;
 
 	ret = sysfs_create_group(&cpu_subsys.dev_root->kobj, &cpuclass_attr_group);
 	if (ret)
@@ -400,9 +393,6 @@ static int __init cpuautoplug_init(void)
 	}
 	if (setup_max_cpus > num_possible_cpus())
 		ap_info.maxcpus = num_possible_cpus();
-
-	for_each_possible_cpu(i)
-		per_cpu(cpu_adjusting, i) = 0;
 #ifndef MODULE
 	delay = msecs_to_jiffies(ap_info.sampling_rate * 24);
 #else

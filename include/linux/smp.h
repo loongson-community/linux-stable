@@ -25,7 +25,6 @@ struct call_single_data {
 
 /* total number of cpus in this system (may exceed NR_CPUS) */
 extern unsigned int total_cpus;
-extern atomic_t global_cfd_refcount;
 
 int smp_call_function_single(int cpuid, smp_call_func_t func, void *info,
 			     int wait);
