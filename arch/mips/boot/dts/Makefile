@@ -4,6 +4,7 @@ dts-dirs	+= cavium-octeon
 dts-dirs	+= img
 dts-dirs	+= ingenic
 dts-dirs	+= lantiq
+dts-dirs	+= loongson
 dts-dirs	+= mti
 dts-dirs	+= netlogic
 dts-dirs	+= ni

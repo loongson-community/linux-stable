@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+#include "loongson3.dtsi"
+/ {
+	model = "loongson,generic";
+	compatible = "loongson,loongson3";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+	};
+
+	cpuic: interrupt-controller {
+		compatible = "mti,cpu-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+	};
+
+	platic: interrupt-controller@1bd00040 {
+		compatible = "loongson,ls2h-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupts = <3>;
+		interrupt-parent = <&cpuic>;
+	};
+
+	aliases {
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		ethernet0 = &gmac0;
+		ethernet1 = &gmac1;
+	};
+
+	platform {
+		compatible = "loongson,nbus", "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <1>;
+		ranges = <0x000 0x00000000 0x000 0x00000000 0x20000000
+			  0x000 0x40000000 0x000 0x40000000 0x40000000
+			  0xe00 0x00000000 0xe00 0x00000000 0x80000000>;
+
+		uart0: serial@0x1be80000 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x1be80000 0x1000>;
+			clock-frequency = <125000000>;
+			interrupts = <66>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart1: serial@0x1be81000 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x1be81000 0x1000>;
+			clock-frequency = <125000000>;
+			interrupts = <67>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart2: serial@0x1be82000 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x1be82000 0x1000>;
+			clock-frequency = <125000000>;
+			interrupts = <68>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart3: serial@0x1be83000 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x1be83000 0x1000>;
+			clock-frequency = <125000000>;
+			interrupts = <69>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		i2c0: i2c@1be90000 {
+			compatible = "loongson,ls2h-i2c";
+			reg = <0 0x1be90000 0x8>;
+			interrupts = <71>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@1be91000 {
+			compatible = "loongson,ls2h-i2c";
+			reg = <0 0x1be91000 0x8>;
+			interrupts = <72>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		rtc0: rtc@1bef8000 {
+			compatible = "loongson,ls2h-rtc";
+			reg = <0 0x1bef8000 0x100>;
+			interrupts = <78>;
+			interrupt-parent = <&platic>;
+		};
+
+		nand@0x1bee0000 {
+			compatible = "loongson,ls2h-nand";
+			reg =  <0 0x1bee0000 0x20
+				0 0x1bd00100 0x01>;
+			interrupts = <86>;
+			interrupt-parent = <&platic>;
+			status = "disabled";
+
+			partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				partition@0x00000000 {
+					label = "kernel_partition";
+					reg = <0x00000000 0x01400000>;
+				};
+
+				partition@0x01400000 {
+					label = "os_partition";
+					reg = <0x01400000 0x00000000>;
+				};
+			};
+		};
+
+		ehci@0x1be00000 {
+			compatible = "generic-ehci", "usb-ehci";
+			reg = <0 0x1be00000 0x1000>;
+			interrupts = <96>;
+			interrupt-parent = <&platic>;
+		};
+
+		ohci@0x1be08000 {
+			compatible = "generic-ohci", "usb-ohci";
+			reg = <0 0x1be08000 0x1000>;
+			interrupts = <97>;
+			interrupt-parent = <&platic>;
+			num-ports = <6>;
+		};
+
+		otg@0x1be60000 {
+			compatible = "loongson,dwc2", "usb-otg";
+			reg = <0 0x1be60000 0x20000>;
+			interrupts = <98>;
+			interrupt-parent = <&platic>;
+			dr_mode = "host";
+		};
+
+		gmac0: ethernet@0x1be10000 {
+			compatible = "snps,dwmac-3.70a", "loongson,stmmaceth";
+			reg = <0 0x1be10000 0x1000>;
+			interrupts = <99>;
+			interrupt-names = "macirq";
+			interrupt-parent = <&platic>;
+			phy-mode = "rgmii";
+			bus_id = <0x0>;
+			phy_addr = <0x0>;
+			dma-mask = <0xffffffff 0xffffffff>;
+		};
+
+		gmac1: ethernet@0x1be18000 {
+			compatible = "snps,dwmac-3.70a", "loongson,stmmaceth";
+			reg = <0 0x1be18000 0x1000>;
+			interrupts = <100>;
+			interrupt-names = "macirq";
+			interrupt-parent = <&platic>;
+			phy-mode = "rgmii";
+			bus_id = <0x1>;
+			phy_addr = <0x1>;
+			dma-mask = <0xffffffff 0xffffffff>;
+		};
+
+		ahci@0x1be30000 {
+			compatible = "generic-ahci";
+			reg = <0 0x1be30000 0x200>;
+			interrupts = <101>;
+			interrupt-parent = <&platic>;
+		};
+
+		gpu@0x1be40000 {
+			compatible = "loongson,galcore";
+			reg = <0x000 0x1be40000 0x0001000
+			       0xe00 0x04000000 0x8000000>;
+			reg-names = "gpu_base", "gpu_mem";
+			interrupts = <102>;
+			interrupt-names = "gpu_irq";
+			interrupt-parent = <&platic>;
+		};
+
+		dc@0x1be50000 {
+			compatible = "loongson,ls2h-fb";
+			reg = <0 0x1be50000 0x2000>;
+			interrupts = <103>;
+			interrupt-parent = <&platic>;
+		};
+
+		audio: audio@0x1be20000 {
+			compatible = "loongson,ls2h-audio";
+			reg = <0 0x1be20000 0x180>;
+			interrupts = <121>;
+			interrupt-parent = <&platic>;
+		};
+	};
+};

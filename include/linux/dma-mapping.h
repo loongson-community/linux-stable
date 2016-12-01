@@ -71,6 +71,12 @@
 #define DMA_ATTR_PRIVILEGED		(1UL << 9)
 
 /*
+ * DMA_ATTR_FORCE_SWIOTLB: Forces device to use swiotlb because of some
+ * DMA alignment requirement.
+ */
+#define DMA_ATTR_FORCE_SWIOTLB		(1UL << 10)
+
+/*
  * A dma_addr_t can hold any valid DMA or bus address for the platform.
  * It can be given to a device to use as a DMA source or target.  A CPU cannot
  * reference a dma_addr_t directly because there may be translation between
