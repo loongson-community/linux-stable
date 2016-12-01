@@ -912,8 +912,8 @@ static int fsp_activate_protocol(struct psmouse *psmouse)
 		pad->flags |= FSPDRV_FLAG_EN_OPC;
 
 		/* Enable on-pad vertical and horizontal scrolling */
-		fsp_onpad_vscr(psmouse, true);
-		fsp_onpad_hscr(psmouse, true);
+		fsp_onpad_vscr(psmouse, pad->vscroll);
+		fsp_onpad_hscr(psmouse, pad->hscroll);
 	} else {
 		/* Enable absolute coordinates output for Cx/Dx hardware */
 		if (fsp_reg_write(psmouse, FSP_REG_SWC1,
