@@ -19,15 +19,30 @@ static inline void edac_atomic_scrub(void *va, u32 size)
 		 * Intel: asm("lock; addl $0, %0"::"m"(*virt_addr));
 		 */
 
-		__asm__ __volatile__ (
-		"	.set	mips2					\n"
-		"1:	ll	%0, %1		# edac_atomic_scrub	\n"
-		"	addu	%0, $0					\n"
-		"	sc	%0, %1					\n"
-		"	beqz	%0, 1b					\n"
-		"	.set	mips0					\n"
-		: "=&r" (temp), "=" GCC_OFF_SMALL_ASM() (*virt_addr)
-		: GCC_OFF_SMALL_ASM() (*virt_addr));
+		if (LOONGSON_LLSC_WAR) {
+			__asm__ __volatile__ (
+			"	.set	mips2					\n"
+			"1:				# edac_atomic_scrub	\n"
+			__WEAK_LLSC_MB
+			"	ll	%0, %1					\n"
+			"	addu	%0, $0					\n"
+			"	sc	%0, %1					\n"
+			"	beqz	%0, 1b					\n"
+			"	.set	mips0					\n"
+			: "=&r" (temp), "=" GCC_OFF_SMALL_ASM() (*virt_addr)
+			: GCC_OFF_SMALL_ASM() (*virt_addr));
+			smp_llsc_mb();
+		} else {
+			__asm__ __volatile__ (
+			"	.set	mips2					\n"
+			"1:	ll	%0, %1		# edac_atomic_scrub	\n"
+			"	addu	%0, $0					\n"
+			"	sc	%0, %1					\n"
+			"	beqz	%0, 1b					\n"
+			"	.set	mips0					\n"
+			: "=&r" (temp), "=" GCC_OFF_SMALL_ASM() (*virt_addr)
+			: GCC_OFF_SMALL_ASM() (*virt_addr));
+		}
 
 		virt_addr++;
 	}
