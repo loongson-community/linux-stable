@@ -75,6 +75,12 @@ config MTD_NAND_AMS_DELTA
 	help
 	  Support for NAND flash on Amstrad E3 (Delta).
 
+config MTD_NAND_LS2H
+	tristate "NAND Flash device on Loongson-2H"
+	depends on CPU_LOONGSON3
+	help
+          Support for NAND flash on Loongson-2H Platform-Bridge.
+
 config MTD_NAND_OMAP2
 	tristate "NAND Flash device on OMAP2, OMAP3, OMAP4 and Keystone"
 	depends on ARCH_OMAP2PLUS || ARCH_KEYSTONE || COMPILE_TEST

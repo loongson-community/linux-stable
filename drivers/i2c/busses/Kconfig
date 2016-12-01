@@ -766,6 +766,13 @@ config I2C_OWL
 	  Say Y here if you want to use the I2C bus controller on
 	  the Actions Semiconductor Owl SoC's.
 
+config I2C_LS2H
+	tristate "Loongson-2H I2C adapter"
+	depends on CPU_LOONGSON3
+	help
+	  If you say yes to this option, support will be included for the
+	  I2C interface on the Loongson-2H Platform-Bridge.
+
 config I2C_PASEMI
 	tristate "PA Semi SMBus interface"
 	depends on PPC_PASEMI && PCI

@@ -7,6 +7,7 @@
 #define _ASM_MIPS_DEVICE_H
 
 struct dev_archdata {
+	unsigned long dma_attrs;
 #ifdef CONFIG_DMA_PERDEV_COHERENT
 	/* Non-zero if DMA is coherent with CPU caches */
 	bool dma_coherent;

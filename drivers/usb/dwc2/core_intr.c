@@ -312,6 +312,7 @@ static void dwc2_handle_conn_id_status_change_intr(struct dwc2_hsotg *hsotg)
 static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
 {
 	int ret;
+	struct usb_hcd *hcd = (struct usb_hcd *)hsotg->priv;
 
 	/* Clear interrupt */
 	dwc2_writel(hsotg, GINTSTS_SESSREQINT, GINTSTS);
@@ -332,6 +333,12 @@ static void dwc2_handle_session_req_intr(struct dwc2_hsotg *hsotg)
 		 * established
 		 */
 		dwc2_hsotg_disconnect(hsotg);
+	} else {
+		if (!hsotg->params.power_down)
+			return;
+
+		if (hcd->state == HC_STATE_SUSPENDED)
+			usb_hcd_resume_root_hub(hcd);
 	}
 }
 

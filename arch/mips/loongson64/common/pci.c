@@ -12,22 +12,23 @@
 #include <pci.h>
 #include <loongson.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 
-static struct resource loongson_pci_mem_resource = {
+static struct resource __maybe_unused loongson_pci_mem_resource = {
 	.name	= "pci memory space",
 	.start	= LOONGSON_PCI_MEM_START,
 	.end	= LOONGSON_PCI_MEM_END,
 	.flags	= IORESOURCE_MEM,
 };
 
-static struct resource loongson_pci_io_resource = {
+static struct resource __maybe_unused loongson_pci_io_resource = {
 	.name	= "pci io space",
 	.start	= LOONGSON_PCI_IO_START,
 	.end	= IO_SPACE_LIMIT,
 	.flags	= IORESOURCE_IO,
 };
 
-static struct pci_controller  loongson_pci_controller = {
+static struct pci_controller __maybe_unused loongson_pci_controller = {
 	.pci_ops	= &loongson_pci_ops,
 	.io_resource	= &loongson_pci_io_resource,
 	.mem_resource	= &loongson_pci_mem_resource,
@@ -35,7 +36,7 @@ static struct pci_controller  loongson_pci_controller = {
 	.io_offset	= 0x00000000UL,
 };
 
-static void __init setup_pcimap(void)
+static void __init __maybe_unused setup_pcimap(void)
 {
 	/*
 	 * local to PCI mapping for CPU accessing PCI space
@@ -78,21 +79,18 @@ static void __init setup_pcimap(void)
 #endif
 }
 
-extern int sbx00_acpi_init(void);
+extern int loongson_acpi_init(void);
 
 static int __init pcibios_init(void)
 {
+#ifndef CONFIG_LEFI_FIRMWARE_INTERFACE
 	setup_pcimap();
-
 	loongson_pci_controller.io_map_base = mips_io_port_base;
-#ifdef CONFIG_LEFI_FIRMWARE_INTERFACE
-	loongson_pci_mem_resource.start = loongson_sysconf.pci_mem_start_addr;
-	loongson_pci_mem_resource.end = loongson_sysconf.pci_mem_end_addr;
-#endif
 	register_pci_controller(&loongson_pci_controller);
+#endif
 
 #ifdef CONFIG_CPU_LOONGSON3
-	sbx00_acpi_init();
+	loongson_acpi_init();
 #endif
 
 	return 0;

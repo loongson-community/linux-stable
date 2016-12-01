@@ -143,6 +143,14 @@ static void dwc2_set_stm32f7_hsotg_params(struct dwc2_hsotg *hsotg)
 	p->host_perio_tx_fifo_size = 256;
 }
 
+static void dwc2_set_loongson_params(struct dwc2_hsotg *hsotg)
+{
+	struct dwc2_core_params *p = &hsotg->params;
+
+	p->phy_utmi_width = 8;
+	p->power_down = DWC2_POWER_DOWN_PARAM_HIBERNATION;
+}
+
 const struct of_device_id dwc2_of_match_table[] = {
 	{ .compatible = "brcm,bcm2835-usb", .data = dwc2_set_bcm_params },
 	{ .compatible = "hisilicon,hi6220-usb", .data = dwc2_set_his_params  },
@@ -163,6 +171,7 @@ const struct of_device_id dwc2_of_match_table[] = {
 	{ .compatible = "st,stm32f4x9-hsotg" },
 	{ .compatible = "st,stm32f7-hsotg",
 	  .data = dwc2_set_stm32f7_hsotg_params },
+	{ .compatible = "loongson,dwc2", .data = dwc2_set_loongson_params },
 	{},
 };
 MODULE_DEVICE_TABLE(of, dwc2_of_match_table);

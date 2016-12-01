@@ -142,6 +142,9 @@ static void __init szmem(unsigned int node)
 
 		switch (mem_type) {
 		case SYSTEM_RAM_LOW:
+			if (node_id == 0)
+				loongson_sysconf.low_physmem_start =
+					loongson_memmap->map[i].mem_start;
 			start_pfn = ((node_id << 44) + mem_start) >> PAGE_SHIFT;
 			node_psize = (mem_size << 20) >> PAGE_SHIFT;
 			end_pfn  = start_pfn + node_psize;
@@ -156,6 +159,9 @@ static void __init szmem(unsigned int node)
 				PFN_PHYS(end_pfn - start_pfn), node);
 			break;
 		case SYSTEM_RAM_HIGH:
+			if (node_id == 0)
+				loongson_sysconf.high_physmem_start =
+					loongson_memmap->map[i].mem_start;
 			start_pfn = ((node_id << 44) + mem_start) >> PAGE_SHIFT;
 			node_psize = (mem_size << 20) >> PAGE_SHIFT;
 			end_pfn  = start_pfn + node_psize;
