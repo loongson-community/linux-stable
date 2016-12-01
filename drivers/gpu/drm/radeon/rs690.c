@@ -110,7 +110,7 @@ void rs690_pm_info(struct radeon_device *rdev)
 			rdev->pm.igp_system_mclk.full = dfixed_const(200);
 			rdev->pm.igp_ht_link_clk.full = dfixed_const(1000);
 			rdev->pm.igp_ht_link_width.full = dfixed_const(8);
-			DRM_ERROR("No integrated system info for your GPU, using safe default\n");
+			DRM_INFO("No integrated system info for your GPU, using safe default\n");
 			break;
 		}
 	} else {
