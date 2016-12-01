@@ -144,6 +144,13 @@ enum swc2_op {
 };
 
 /*
+ * func field of spec opcode.
+ */
+enum lwc2_op {
+	gslq_op = 0x20,
+};
+
+/*
  * rt field of bcond opcodes.
  */
 enum rt_op {
