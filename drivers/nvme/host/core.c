@@ -1771,19 +1771,23 @@ EXPORT_SYMBOL_GPL(nvme_disable_ctrl);
 
 int nvme_enable_ctrl(struct nvme_ctrl *ctrl, u64 cap)
 {
-	/*
-	 * Default to a 4K page size, with the intention to update this
-	 * path in the future to accomodate architectures with differing
-	 * kernel and IO page sizes.
-	 */
-	unsigned dev_page_min = NVME_CAP_MPSMIN(cap) + 12, page_shift = 12;
 	int ret;
+	unsigned page_shift = PAGE_SHIFT;
+	unsigned dev_page_min = NVME_CAP_MPSMIN(cap) + 12;
+	unsigned dev_page_max = NVME_CAP_MPSMAX(cap) + 12;
 
 	if (page_shift < dev_page_min) {
 		dev_err(ctrl->device,
 			"Minimum device page size %u too large for host (%u)\n",
 			1 << dev_page_min, 1 << page_shift);
 		return -ENODEV;
+	}
+	if (page_shift > dev_page_max) {
+		dev_info(ctrl->dev,
+			 "Device maximum page size (%u) smaller than "
+			 "host (%u); enabling work-around\n",
+			 1 << dev_page_max, 1 << page_shift);
+		page_shift = dev_page_max;
 	}
 
 	ctrl->page_size = 1 << page_shift;
