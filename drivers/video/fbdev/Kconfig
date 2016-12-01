@@ -1903,6 +1903,8 @@ config FB_LS7A
 	---help---
 	  Frame buffer driver for the Loongson-7A Platform-Bridge.
 
+source "drivers/video/fbdev/vivante/Kconfig"
+
 config FB_SH_MOBILE_LCDC
 	tristate "SuperH Mobile LCDC framebuffer support"
 	depends on FB && (SUPERH || ARCH_RENESAS) && HAVE_CLK
