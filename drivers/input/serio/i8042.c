@@ -938,7 +938,7 @@ static int i8042_controller_selftest(void)
 	do {
 
 		if (i8042_command(&param, I8042_CMD_CTL_TEST)) {
-			pr_err("i8042 controller selftest timeout\n");
+			pr_info("i8042 controller selftest timeout\n");
 			return -ENODEV;
 		}
 
