@@ -11,7 +11,11 @@
 #define ADAPTER_ROM		8
 #define ACPI_TABLE		9
 #define SMBIOS_TABLE		10
-#define MAX_MEMORY_TYPE		11
+#define UMA_VIDEO_RAM		11
+#define MAX_MEMORY_TYPE		12
+
+#define VRAM_TYPE_SP	0
+#define VRAM_TYPE_UMA	1
 
 #define LOONGSON3_BOOT_MEM_MAP_MAX 128
 struct efi_memory_map_loongson {
@@ -211,6 +215,9 @@ struct loongson_system_configuration {
 	u64 low_physmem_start;
 	u64 high_physmem_start;
 	u32 dma_mask_bits;
+	u32 vram_type;
+	u64 uma_vram_addr;
+	u64 uma_vram_size;
 	u32 ec_sci_irq;
 	char ecname[32];
 	u32 nr_uarts;

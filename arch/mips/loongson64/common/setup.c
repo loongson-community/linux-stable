@@ -62,8 +62,34 @@ void __init plat_mem_setup(void)
 
 void __init device_tree_init(void)
 {
+	int len, gpu_node;
+	u32 mem_regs[NR_CELLS];
+	const u32 *gpu_mem_regs;
+
 	if (!initial_boot_params)
 		return;
 
-	unflatten_and_copy_device_tree();
+	gpu_node = fdt_node_offset_by_compatible(initial_boot_params,
+						 -1, "loongson,galcore");
+	if (gpu_node >= 0) {
+		gpu_mem_regs = fdt_getprop(initial_boot_params,
+					   gpu_node, "reg", &len);
+		memcpy(mem_regs, gpu_mem_regs, sizeof(u32) * NR_CELLS);
+
+		/* mem_regs[0,1,2]: MMIO, mem_regs[3,4,5]: VRAM */
+		if (loongson_sysconf.vram_type == VRAM_TYPE_UMA) {
+			mem_regs[3] = cpu_to_fdt32(loongson_sysconf.uma_vram_addr >> 32);
+			mem_regs[4] = cpu_to_fdt32(loongson_sysconf.uma_vram_addr & 0xffffffff);
+			mem_regs[5] = cpu_to_fdt32(loongson_sysconf.uma_vram_size);
+		}
+		else {
+			mem_regs[3] = cpu_to_fdt32(0xe0004000000 >> 32);
+			mem_regs[4] = cpu_to_fdt32(0xe0004000000 & 0xffffffff);
+			mem_regs[5] = cpu_to_fdt32(0x00008000000);
+		}
+		fdt_setprop(initial_boot_params, gpu_node, "reg", mem_regs, len);
+	}
+
+	if (early_init_dt_verify(initial_boot_params))
+		unflatten_and_copy_device_tree();
 }
