@@ -1,5 +1,6 @@
 snd-hda-intel-objs := hda_intel.o
 snd-hda-tegra-objs := hda_tegra.o
+snd-hda-loongson-objs := hda_loongson.o
 
 snd-hda-codec-y := hda_bind.o hda_codec.o hda_jack.o hda_auto_parser.o hda_sysfs.o
 snd-hda-codec-y += hda_controller.o
@@ -47,3 +48,4 @@ obj-$(CONFIG_SND_HDA_CODEC_HDMI) += snd-hda-codec-hdmi.o
 # when built in kernel
 obj-$(CONFIG_SND_HDA_INTEL) += snd-hda-intel.o
 obj-$(CONFIG_SND_HDA_TEGRA) += snd-hda-tegra.o
+obj-$(CONFIG_SND_HDA_LS2H) += snd-hda-loongson.o
