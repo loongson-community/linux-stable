@@ -10,6 +10,8 @@
  * option) any later version.
  */
 
+#include <linux/gpio.h>
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
@@ -75,6 +77,9 @@ struct loongson_fan_policy constant_speed_policy = {
 	.type = CONSTANT_SPEED_POLICY,
 };
 
+#define GPIO_LCD_CNTL		5
+#define GPIO_BACKLIGHIT_CNTL	7
+
 static int __init loongson3_platform_init(void)
 {
 	int i;
@@ -92,6 +97,11 @@ static int __init loongson3_platform_init(void)
 		pdev->id = loongson_sysconf.sensors[i].id;
 		pdev->dev.platform_data = &loongson_sysconf.sensors[i];
 		platform_device_register(pdev);
+	}
+
+	if (loongson_sysconf.workarounds & WORKAROUND_LVDS_GPIO) {
+		gpio_request(GPIO_LCD_CNTL,  "gpio_lcd_cntl");
+		gpio_request(GPIO_BACKLIGHIT_CNTL, "gpio_bl_cntl");
 	}
 
 	return 0;
