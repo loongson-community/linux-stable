@@ -637,6 +637,69 @@ static void e1000e_update_tdt_wa(struct e1000_ring *tx_ring, unsigned int i)
 	}
 }
 
+static void e1000_check_82574_weird_hang(struct e1000_ring *rx_ring, bool ps)
+{
+	u32 i, rdh, rdt, staterr, next_staterr;
+	struct e1000_adapter *adapter = rx_ring->adapter;
+
+	if (adapter->link_speed != SPEED_1000)
+		return;
+
+	i = rx_ring->next_to_clean;
+	rdh = readl(rx_ring->head);
+	rdt = readl(rx_ring->tail);
+	if (ps) {
+		union e1000_rx_desc_packet_split *rx_desc = E1000_RX_DESC_PS(*rx_ring, i);
+		union e1000_rx_desc_packet_split *next_rxd = E1000_RX_DESC_PS(*rx_ring, (i+1)%rx_ring->count);
+		staterr = le32_to_cpu(rx_desc->wb.middle.status_error);
+		next_staterr = le32_to_cpu(next_rxd->wb.middle.status_error);
+	}
+	else {
+		union e1000_rx_desc_extended *rx_desc = E1000_RX_DESC_EXT(*rx_ring, i);
+		union e1000_rx_desc_extended *next_rxd = E1000_RX_DESC_EXT(*rx_ring, (i+1)%rx_ring->count);
+		staterr = le32_to_cpu(rx_desc->wb.upper.status_error);
+		next_staterr = le32_to_cpu(next_rxd->wb.upper.status_error);
+	}
+
+	/* Rx Hung */
+	if (e1000_desc_unused(rx_ring)==0 && rdh==rdt && !(staterr & E1000_RXD_STAT_DD)) {
+		if (!adapter->rx_hang_recheck) { /* Check Twice*/
+			adapter->rx_hang_recheck = true;
+			adapter->rdh_old = rdh;
+			adapter->rdt_old = rdt;
+			adapter->rx_ntu_old = rx_ring->next_to_use;
+			adapter->rx_ntc_old = rx_ring->next_to_clean;
+		}
+		else {
+			adapter->rx_hang_recheck = false;
+			if (rdh==adapter->rdh_old && rdt==adapter->rdt_old
+				&& rx_ring->next_to_use==adapter->rx_ntu_old
+				&& rx_ring->next_to_clean==adapter->rx_ntc_old) {
+				adapter->weird_hang_count++;
+				e_err("Detected the %dth Weird Rx Hang:\n"
+				      "  RDH                  <%x>\n"
+				      "  RDT                  <%x>\n"
+				      "  next_to_use          <%x>\n"
+				      "  next_to_clean        <%x>\n"
+				      "  rx_desc status       <%x>\n",
+				      adapter->weird_hang_count,
+				      rdh, rdt,
+				      rx_ring->next_to_use,
+				      rx_ring->next_to_clean,
+				      staterr);
+
+				if (next_staterr & E1000_RXD_STAT_DD) { /* Really hang, light recover */
+					e_err("Recover by skipping rx_desc...\n");
+					rx_ring->next_to_clean = (i+1) % rx_ring->count;
+				}
+				else {                                  /* Really hang, heavy recover */
+					e_err("Recover by resetting device...\n");
+					schedule_work(&adapter->reset_task);
+				}
+			}
+		}
+	}
+}
 /**
  * e1000_alloc_rx_buffers - Replace used receive buffers
  * @rx_ring: Rx descriptor ring
@@ -918,6 +981,8 @@ static bool e1000_clean_rx_irq(struct e1000_ring *rx_ring, int *work_done,
 	int cleaned_count = 0;
 	bool cleaned = false;
 	unsigned int total_rx_bytes = 0, total_rx_packets = 0;
+
+	e1000_check_82574_weird_hang(rx_ring, false);
 
 	i = rx_ring->next_to_clean;
 	rx_desc = E1000_RX_DESC_EXT(*rx_ring, i);
@@ -1315,6 +1380,8 @@ static bool e1000_clean_rx_irq_ps(struct e1000_ring *rx_ring, int *work_done,
 	bool cleaned = false;
 	unsigned int total_rx_bytes = 0, total_rx_packets = 0;
 
+	e1000_check_82574_weird_hang(rx_ring, true);
+
 	i = rx_ring->next_to_clean;
 	rx_desc = E1000_RX_DESC_PS(*rx_ring, i);
 	staterr = le32_to_cpu(rx_desc->wb.middle.status_error);
@@ -1517,6 +1584,8 @@ static bool e1000_clean_jumbo_rx_irq(struct e1000_ring *rx_ring, int *work_done,
 	bool cleaned = false;
 	unsigned int total_rx_bytes = 0, total_rx_packets = 0;
 	struct skb_shared_info *shinfo;
+
+	e1000_check_82574_weird_hang(rx_ring, false);
 
 	i = rx_ring->next_to_clean;
 	rx_desc = E1000_RX_DESC_EXT(*rx_ring, i);
@@ -4644,6 +4713,7 @@ int e1000e_open(struct net_device *netdev)
 	e1000_irq_enable(adapter);
 
 	adapter->tx_hang_recheck = false;
+	adapter->rx_hang_recheck = false;
 	netif_start_queue(netdev);
 
 	hw->mac.get_link_status = true;
@@ -7332,6 +7402,12 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	if (pci_dev_run_wake(pdev))
 		pm_runtime_put_noidle(&pdev->dev);
+
+	adapter->rdh_old = 0;
+	adapter->rdt_old = 0;
+	adapter->rx_ntu_old = 0;
+	adapter->rx_ntc_old = 0;
+	adapter->weird_hang_count = 0;
 
 	return 0;
 
