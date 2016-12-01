@@ -359,7 +359,8 @@ asmlinkage void start_secondary(void)
 	per_cpu_trap_init(false);
 	mips_clockevent_init();
 	mp_ops->init_secondary();
-	cpu_report();
+	if (system_state == SYSTEM_BOOTING)
+		cpu_report();
 	maar_init();
 
 	/*
