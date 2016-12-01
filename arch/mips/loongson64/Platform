@@ -45,6 +45,7 @@ cflags-$(CONFIG_CPU_LOONGSON3)	+= -Wa,--trap
 # this later - for now it ensures vendor toolchains don't cause problems.
 #
 cflags-$(CONFIG_CPU_LOONGSON3)	+= $(call as-option,-Wa$(comma)-mno-fix-loongson3-llsc,)
+cflags-$(CONFIG_CPU_LOONGSON3)	+= $(call as-option,-Wa$(comma)-mno-fix-ls3a-llsc,)
 
 #
 # binutils from v2.25 on and gcc starting from v4.9.0 treat -march=loongson3a
