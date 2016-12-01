@@ -36,7 +36,7 @@ struct temp_range {
 struct loongson_fan_policy {
 	u8	type;
 
-	/* percent only used when type is CONSTANT_SPEED_POLICY */
+	/* CONSTANT_SPEED_POLICY: actual perenct, STEP_SPEED_POLICY: maximum percent */
 	u8	percent;
 
 	/* period between two check. (Unit: S) */
@@ -52,5 +52,9 @@ struct loongson_fan_policy {
 	struct temp_range down_step[MAX_STEP_NUM];
 	struct delayed_work work;
 };
+
+extern struct loongson_fan_policy kernel_helper_policy;
+extern struct loongson_fan_policy step_speed_policy;
+extern struct loongson_fan_policy constant_speed_policy;
 
 #endif /* __LOONGSON_HWMON_H_*/

@@ -2628,8 +2628,9 @@ ATTRIBUTE_GROUPS(lm93);
 
 static void lm93_init_client(struct i2c_client *client)
 {
-	int i;
-	u8 reg;
+	int i, nr;
+	u8 reg, ctl2, ctl4;
+	struct lm93_data *data = i2c_get_clientdata(client);
 
 	/* configure VID pin input thresholds */
 	reg = lm93_read_byte(client, LM93_REG_GPI_VID_CTL);
@@ -2659,6 +2660,25 @@ static void lm93_init_client(struct i2c_client *client)
 	/* start monitoring */
 	reg = lm93_read_byte(client, LM93_REG_CONFIG);
 	lm93_write_byte(client, LM93_REG_CONFIG, reg | 0x01);
+
+	mutex_lock(&data->update_lock);
+	for (nr = 0; nr < 2; nr++) {
+		/* set manual mode */
+		ctl2 = lm93_read_byte(client, LM93_REG_PWM_CTL(nr, LM93_PWM_CTL2));
+		ctl2 |= 0x01;
+		lm93_write_byte(client, LM93_REG_PWM_CTL(nr, LM93_PWM_CTL2), ctl2);
+		/* set fanspeed 50% */
+		ctl2 = lm93_read_byte(client, LM93_REG_PWM_CTL(nr, LM93_PWM_CTL2));
+		ctl4 = lm93_read_byte(client, LM93_REG_PWM_CTL(nr, LM93_PWM_CTL4));
+		ctl2 = (ctl2 & 0x0f) | LM93_PWM_TO_REG(0x80, (ctl4 & 0x07) ?
+				LM93_PWM_MAP_LO_FREQ : LM93_PWM_MAP_HI_FREQ) << 4;
+		/* save user commanded value */
+		data->pwm_override[nr] = LM93_PWM_FROM_REG(ctl2 >> 4,
+				(ctl4 & 0x07) ?  LM93_PWM_MAP_LO_FREQ :
+				LM93_PWM_MAP_HI_FREQ);
+		lm93_write_byte(client, LM93_REG_PWM_CTL(nr, LM93_PWM_CTL2), ctl2);
+	}
+	mutex_unlock(&data->update_lock);
 
 	/* spin until ready */
 	for (i = 0; i < 20; i++) {
