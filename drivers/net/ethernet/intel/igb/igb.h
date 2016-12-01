@@ -305,6 +305,13 @@ struct igb_q_vector {
 	struct rcu_head rcu;	/* to avoid race with update stats on free */
 	char name[IFNAMSIZ + 9];
 
+	u32 rdh_old;
+	u32 rdt_old;
+	u32 rx_ntu_old;
+	u32 rx_ntc_old;
+	int weird_hang_count;
+	bool weird_hang_recheck;
+
 	/* for dynamic allocation of rings associated with this q_vector */
 	struct igb_ring ring[0] ____cacheline_internodealigned_in_smp;
 };
