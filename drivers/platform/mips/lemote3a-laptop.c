@@ -19,12 +19,14 @@
 #include <linux/fb.h>
 #include <linux/interrupt.h>
 #include <linux/pm.h>
+#include <linux/reboot.h>
 #include <linux/power_supply.h>
 #include <linux/input.h>
 #include <linux/input/sparse-keymap.h>
 #include <linux/jiffies.h>
 #include <linux/miscdevice.h>
 #include <linux/platform_device.h>
+#include <linux/leds.h>
 #include <asm/bootinfo.h>
 
 #include <ec_wpce775l.h>
@@ -220,6 +222,9 @@ static int lemote3a_bat_very_low_handler(int status);
 /* SCI device LID event handler */
 static int lemote3a_lid_handler(int status);
 
+static void lemote3a_tp_led_set(struct led_classdev *led_cdev,
+			       enum led_brightness brightness);
+
 /* Hotkey device init handler */
 static int lemote3a_hotkey_init(void);
 /* Hotkey device exit handler */
@@ -388,6 +393,23 @@ static const struct key_entry lemote3a_keymap[] =
 	{KE_END, 0 }
 };
 
+/* Touchpad EN/DIS led*/
+static struct led_classdev lemote3a_tp_led = {
+	.name = "psmouse::touchpad",
+	.brightness_set = lemote3a_tp_led_set,
+	.flags = LED_CORE_SUSPENDRESUME,
+};
+
+static int tp_led_shutdown_notify(struct notifier_block *unused1,
+			   unsigned long unused2, void *unused3)
+{
+	lemote3a_tp_led_set(&lemote3a_tp_led, LED_OFF);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block tp_led_nb = {
+	.notifier_call = tp_led_shutdown_notify,
+};
 
 static int wpce775l_probe(struct platform_device *dev)
 {
@@ -434,6 +456,13 @@ static int wpce775l_probe(struct platform_device *dev)
 	}
 	/* Register power supply END */
 
+	/* Touchpad enable/disable LED */
+	ret = led_classdev_register(NULL, &lemote3a_tp_led);
+	if (ret == 0)
+		register_reboot_notifier(&tp_led_nb);
+	else
+		goto fail_tp_led_register;
+
 	/* Hotkey device START */
 	ret = lemote3a_hotkey_init();
 	if (ret) {
@@ -469,6 +498,8 @@ fail_misc_register:
 fail_sci_pci_driver_init:
 	lemote3a_hotkey_exit();
 fail_hotkey_init:
+	led_classdev_unregister(&lemote3a_tp_led);
+fail_tp_led_register:
 	power_supply_unregister(lemote3a_ac);
 fail_ac_power_supply_register:
 	power_supply_unregister(lemote3a_bat);
@@ -514,6 +545,10 @@ static void __exit lemote3a_laptop_exit(void)
 	/* Hotkey & SCI device */
 	sci_pci_driver_exit();
 	lemote3a_hotkey_exit();
+
+	/* Touchpad enable/disable LED */
+	unregister_reboot_notifier(&tp_led_nb);
+	led_classdev_unregister(&lemote3a_tp_led);
 
 	/* Power supply */
 	power_supply_unregister(lemote3a_ac);
@@ -1153,6 +1188,15 @@ static int lemote3a_lid_handler(int status)
 	}
 
 	return 0;
+}
+
+/* Set touchpad en/dis led */
+static void lemote3a_tp_led_set(struct led_classdev *led_cdev,
+			       enum led_brightness brightness)
+{
+	int val = brightness ? TP_EN_LED_ON : TP_EN_LED_OFF;
+
+	ec_write(INDEX_TOUCHPAD_ENABLE_LED, val);
 }
 
 /* Hotkey device init handler */
