@@ -190,6 +190,7 @@ static const struct insn insn_table[insn_invalid] = {
 	[insn_xor]	= {M(spec_op, 0, 0, 0, 0, xor_op),  RS | RT | RD},
 	[insn_xori]	= {M(xori_op, 0, 0, 0, 0, 0),  RS | RT | UIMM},
 	[insn_yield]	= {M(spec3_op, 0, 0, 0, 0, yield_op), RS | RD},
+	[insn_gslq]	= {M(lwc2_op, 0, 0, 0, 0, gslq_op), RT | RS | RZ | RC},
 	[insn_gssq]	= {M(swc2_op, 0, 0, 0, 0, gssq_op), RT | RS | RZ | RC},
 };
 
