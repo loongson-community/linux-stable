@@ -704,6 +704,7 @@ int hibernate(void)
 	sys_sync();
 	pr_info("done.\n");
 
+	system_state = SYSTEM_SUSPEND_DISK;
 	error = freeze_processes();
 	if (error)
 		goto Exit;
@@ -754,6 +755,7 @@ int hibernate(void)
 			error = load_image_and_restore();
 	}
 	thaw_processes();
+	system_state = SYSTEM_RUNNING;
 
 	/* Don't bother checking whether freezer_test_done is true */
 	freezer_test_done = false;
@@ -885,6 +887,7 @@ static int software_resume(void)
 		goto Close_Finish;
 	error = load_image_and_restore();
 	thaw_processes();
+	system_state = SYSTEM_RUNNING;
  Finish:
 	__pm_notifier_call_chain(PM_POST_RESTORE, nr_calls, NULL);
 	pm_restore_console();
