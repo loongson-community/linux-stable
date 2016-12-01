@@ -1714,6 +1714,8 @@ static int uart_open(struct tty_struct *tty, struct file *filp)
 	tty->driver_data = state;
 
 	retval = tty_port_open(&state->port, tty, filp);
+	if (!retval)
+		clear_bit(TTY_IO_ERROR, &tty->flags);
 	if (retval > 0)
 		retval = 0;
 
