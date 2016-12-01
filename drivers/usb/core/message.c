@@ -1796,7 +1796,7 @@ int usb_set_configuration(struct usb_device *dev, int configuration)
 	struct usb_host_config *cp = NULL;
 	struct usb_interface **new_interfaces = NULL;
 	struct usb_hcd *hcd = bus_to_hcd(dev->bus);
-	int n, nintf;
+	int n, nintf, retried = 0;
 
 	if (dev->authorized == 0 || configuration == -1)
 		configuration = 0;
@@ -1949,6 +1949,7 @@ free_interfaces:
 	}
 	kfree(new_interfaces);
 
+retry:
 	ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			      USB_REQ_SET_CONFIGURATION, 0, configuration, 0,
 			      NULL, 0, USB_CTRL_SET_TIMEOUT);
@@ -1957,6 +1958,12 @@ free_interfaces:
 		 * All the old state is gone, so what else can we do?
 		 * The device is probably useless now anyway.
 		 */
+		if (!retried) {
+			retried = 1;
+			printk("Retry to configure %d-%s!\n", dev->bus->busnum, dev->devpath);
+			goto retry;
+		}
+
 		usb_hcd_alloc_bandwidth(dev, NULL, NULL, NULL);
 		for (i = 0; i < nintf; ++i) {
 			usb_disable_interface(dev, cp->interface[i], true);
