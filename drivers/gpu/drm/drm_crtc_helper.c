@@ -847,6 +847,10 @@ static int drm_helper_choose_crtc_dpms(struct drm_crtc *crtc)
 	return dpms;
 }
 
+#ifdef CONFIG_CPU_LOONGSON3
+void turn_off_lvds(void);
+void turn_on_lvds(void);
+#endif
 /**
  * drm_helper_connector_dpms() - connector dpms helper implementation
  * @connector: affected connector
@@ -885,6 +889,10 @@ int drm_helper_connector_dpms(struct drm_connector *connector, int mode)
 
 	/* from off to on, do crtc then encoder */
 	if (mode < old_dpms) {
+#ifdef CONFIG_CPU_LOONGSON3
+		if(connector->connector_type == DRM_MODE_CONNECTOR_LVDS)
+			turn_on_lvds();
+#endif
 		if (crtc) {
 			const struct drm_crtc_helper_funcs *crtc_funcs = crtc->helper_private;
 			if (crtc_funcs->dpms)
@@ -897,6 +905,10 @@ int drm_helper_connector_dpms(struct drm_connector *connector, int mode)
 
 	/* from on to off, do encoder then crtc */
 	if (mode > old_dpms) {
+#ifdef CONFIG_CPU_LOONGSON3
+		if(connector->connector_type == DRM_MODE_CONNECTOR_LVDS)
+			turn_off_lvds();
+#endif
 		if (encoder)
 			drm_helper_encoder_dpms(encoder, encoder_dpms);
 		if (crtc) {
