@@ -58,6 +58,8 @@ struct conexant_spec {
 	unsigned int gpio_mute_led_mask;
 	unsigned int gpio_mic_led_mask;
 
+	const unsigned int *raw_init_verbs[5];
+	unsigned int num_raw_init_verbs;
 };
 
 
@@ -196,7 +198,13 @@ static int cx_auto_build_controls(struct hda_codec *codec)
 
 static int cx_auto_init(struct hda_codec *codec)
 {
+	int i, j;
 	struct conexant_spec *spec = codec->spec;
+
+	for (i = 0; i < spec->num_raw_init_verbs; i++)
+		for (j = 0; spec->raw_init_verbs[i][j] != -1; j++)
+			snd_hda_codec_exec_verb(codec, spec->raw_init_verbs[i][j], NULL);
+
 	snd_hda_gen_init(codec);
 	if (!spec->dynamic_eapd)
 		cx_auto_turn_eapd(codec, spec->num_eapds, spec->eapds, true);
