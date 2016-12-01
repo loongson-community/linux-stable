@@ -750,6 +750,24 @@ static int register_loongson3_notifier(void)
 }
 early_initcall(register_loongson3_notifier);
 
+int disable_unused_cpus(void)
+{
+	int cpu;
+	struct cpumask tmp;
+
+	cpumask_complement(&tmp, cpu_online_mask);
+	cpumask_and(&tmp, &tmp, cpu_possible_mask);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_up(cpu);
+
+	for_each_cpu(cpu, &tmp)
+		cpu_down(cpu);
+
+	return 0;
+}
+core_initcall(disable_unused_cpus);
+
 #endif
 
 const struct plat_smp_ops loongson3_smp_ops = {
