@@ -359,4 +359,10 @@ extern unsigned long _loongson_addrwincfg_base;
 
 void loongson_suspend_lowlevel(void);
 
+#ifdef CONFIG_HOTPLUG_CPU
+extern int disable_unused_cpus(void);
+#else
+static inline int disable_unused_cpus(void) { return 0; }
+#endif
+
 #endif /* __ASM_MACH_LOONGSON64_LOONGSON_H */
