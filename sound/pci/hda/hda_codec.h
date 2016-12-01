@@ -367,6 +367,8 @@ struct hda_verb {
 	u32 param;
 };
 
+int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int cmd,
+			    unsigned int *res);
 void snd_hda_sequence_write(struct hda_codec *codec,
 			    const struct hda_verb *seq);
 

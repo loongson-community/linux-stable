@@ -81,6 +81,24 @@ static int codec_exec_verb(struct hdac_device *dev, unsigned int cmd,
 	return err;
 }
 
+int snd_hda_codec_exec_verb(struct hda_codec *codec, unsigned int raw_cmd,
+			   unsigned int *res)
+{
+	unsigned cmd;
+	unsigned int _res;
+	int r;
+
+	cmd = (u32)codec->addr << 28;
+	cmd |= raw_cmd;
+
+	r = codec_exec_verb(&codec->core, cmd, 0, (res || codec->bus->core.sync_write) ? &_res : NULL);
+	if (res)
+		*res = _res;
+
+	return r;
+}
+EXPORT_SYMBOL_GPL(snd_hda_codec_exec_verb);
+
 /**
  * snd_hda_sequence_write - sequence writes
  * @codec: the HDA codec
