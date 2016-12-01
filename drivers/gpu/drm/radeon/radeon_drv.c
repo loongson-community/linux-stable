@@ -611,6 +611,38 @@ static struct pci_driver radeon_kms_pci_driver = {
 	.driver.pm = &radeon_pm_ops,
 };
 
+static int radeon_lvds_dpms_callback(struct device *dev, void *arg)
+{
+	int on = *(unsigned long *)arg;
+	struct drm_device *ddev = dev_get_drvdata(dev);
+	struct drm_connector *connector;
+
+	list_for_each_entry(connector, &ddev->mode_config.connector_list, head) {
+		if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS) {
+			if (on)
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
+			else
+				drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
+		}
+	}
+
+	return 0;
+}
+
+void radeon_lvds_dpms_off(void)
+{
+	int on = 0;
+
+	driver_for_each_device(&pdriver->driver, NULL, &on, radeon_lvds_dpms_callback);
+}
+
+void radeon_lvds_dpms_on(void)
+{
+	int on = 1;
+
+	driver_for_each_device(&pdriver->driver, NULL, &on, radeon_lvds_dpms_callback);
+}
+
 static int __init radeon_init(void)
 {
 	if (vgacon_text_force() && radeon_modeset == -1) {
