@@ -137,6 +137,17 @@ config KEYBOARD_ATKBD_RDI_KEYCODES
 	  right-hand column will be interpreted as the key shown in the
 	  left-hand column.
 
+config KEYBOARD_ATKBD_LEMOTE_KEYCODES
+	bool "Use Lemote laptop (A1201) keyboard scancodes"
+	depends on MACH_LOONGSON && KEYBOARD_ATKBD
+	default y
+	help
+	  Say Y here if you want to use an AT or PS/2 keyboard, and your
+	  keyboard uses keycodes that are specific to Lemote laptop (A1201)
+	  keyboards.
+
+	  Say N if you use a standard keyboard.
+
 config KEYBOARD_QT1070
        tristate "Atmel AT42QT1070 Touch Sensor Chip"
        depends on I2C

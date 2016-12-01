@@ -76,7 +76,13 @@ MODULE_PARM_DESC(terminal, "Enable break codes on an IBM Terminal keyboard conne
 
 static const unsigned short atkbd_set2_keycode[ATKBD_KEYMAP_SIZE] = {
 
-#ifdef CONFIG_KEYBOARD_ATKBD_HP_KEYCODES
+#if defined(CONFIG_KEYBOARD_ATKBD_LEMOTE_KEYCODES)
+
+/* XXX: need a more general approach */
+
+#include "lmps2atkbd.h"	/* include the keyboard scancodes */
+
+#elif defined(CONFIG_KEYBOARD_ATKBD_HP_KEYCODES)
 
 /* XXX: need a more general approach */
 
@@ -355,7 +361,7 @@ static unsigned int atkbd_compat_scancode(struct atkbd *atkbd, unsigned int code
 	if (atkbd->set == 3) {
 		if (atkbd->emul == 1)
 			code |= 0x100;
-        } else {
+	} else {
 		code = (code & 0x7f) | ((code & 0x80) << 1);
 		if (atkbd->emul == 1)
 			code |= 0x80;
@@ -927,6 +933,14 @@ static void atkbd_apply_forced_release_keylist(struct atkbd* atkbd,
 		for (i = 0; keys[i] != -1U; i++)
 			__set_bit(keys[i], atkbd->force_release_mask);
 }
+
+/*
+ * Most special keys (Fn+F?) on LS2GQ laptops do not generate release
+ * events so we have to do it ourselves.
+ */
+static unsigned int atkbd_lemote_laptop_forced_release_keys[] = {
+	0x61, 0x6F, 0x76, -1U
+};
 
 /*
  * Most special keys (Fn+F?) on Dell laptops do not generate release
@@ -1808,6 +1822,9 @@ static const struct dmi_system_id atkbd_dmi_quirk_table[] __initconst = {
 static int __init atkbd_init(void)
 {
 	dmi_check_system(atkbd_dmi_quirk_table);
+
+	atkbd_platform_fixup = atkbd_apply_forced_release_keylist;
+	atkbd_platform_fixup_data = atkbd_lemote_laptop_forced_release_keys;
 
 	return serio_register_driver(&atkbd_drv);
 }
