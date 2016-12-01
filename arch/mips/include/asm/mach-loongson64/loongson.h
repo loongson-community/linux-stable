@@ -361,4 +361,10 @@ void mach_suspend(void);
 void mach_resume(void);
 void loongson_suspend_enter(void);
 
+#ifdef CONFIG_HOTPLUG_CPU
+extern int disable_unused_cpus(void);
+#else
+static inline int disable_unused_cpus(void) { return 0; }
+#endif
+
 #endif /* __ASM_MACH_LOONGSON64_LOONGSON_H */
