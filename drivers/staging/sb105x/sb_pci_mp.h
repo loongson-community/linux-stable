@@ -287,5 +287,4 @@ static const struct sb105x_uart_config uart_config[] = {
         { "SB16C1050A",    128,    UART_CLEAR_FIFO | UART_USE_FIFO | UART_STARTECH },
 };
 
-
-
+static struct tty_port tt_port[MAX_MP_PORT];
