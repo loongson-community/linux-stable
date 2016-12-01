@@ -1423,6 +1423,9 @@ struct rtl8168_private {
         u32 cur_tx; /* Index into the Tx descriptor buffer of next Rx pkt. */
         u32 dirty_rx;
         u32 dirty_tx;
+        u32 old_rx;
+        u32 weird_hang_count;
+        u32 weird_hang_recheck;
         struct TxDesc *TxDescArray; /* 256-aligned Tx descriptor ring */
         struct RxDesc *RxDescArray; /* 256-aligned Rx descriptor ring */
         dma_addr_t TxPhyAddr;
