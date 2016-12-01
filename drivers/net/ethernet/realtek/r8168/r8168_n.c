@@ -328,7 +328,7 @@ static struct pci_device_id rtl8168_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, rtl8168_pci_tbl);
 
-static int rx_copybreak = 0;
+static int rx_copybreak = 1515;
 static int use_dac = 1;
 static int timer_count = 0x2600;
 
@@ -28513,6 +28513,7 @@ rtl8168_rx_csum(struct rtl8168_private *tp,
         }
 }
 
+#ifdef CONFIG_R8168_NAPI
 static inline int
 rtl8168_try_rx_copy(struct rtl8168_private *tp,
                     struct sk_buff **sk_buff,
@@ -28542,6 +28543,37 @@ rtl8168_try_rx_copy(struct rtl8168_private *tp,
         }
         return ret;
 }
+#else
+static inline int
+rtl8168_try_rx_copy(struct rtl8168_private *tp,
+                    struct sk_buff **sk_buff,
+                    int pkt_size,
+                    struct RxDesc *desc,
+                    int rx_buf_sz)
+{
+        int ret = -1;
+
+        if (pkt_size < rx_copybreak) {
+                struct sk_buff *skb;
+
+                skb = RTL_ALLOC_SKB_INTR(tp, pkt_size + NET_IP_ALIGN);
+                if (skb) {
+                        u8 *data;
+
+                        data = sk_buff[0]->data;
+                        skb_reserve(skb, NET_IP_ALIGN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
+                        prefetch(data - NET_IP_ALIGN);
+#endif
+                        eth_copy_and_sum(skb, data, pkt_size, 0);
+                        *sk_buff = skb;
+                        rtl8168_mark_to_asic(desc, rx_buf_sz);
+                        ret = 0;
+                }
+        }
+        return ret;
+}
+#endif
 
 static inline void
 rtl8168_rx_skb(struct rtl8168_private *tp,
