@@ -357,4 +357,8 @@ extern unsigned long _loongson_addrwincfg_base;
 
 #endif	/* ! CONFIG_CPU_SUPPORTS_ADDRWINCFG */
 
+void mach_suspend(void);
+void mach_resume(void);
+void loongson_suspend_enter(void);
+
 #endif /* __ASM_MACH_LOONGSON64_LOONGSON_H */

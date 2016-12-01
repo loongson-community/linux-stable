@@ -53,6 +53,9 @@ static int i8042_enable_kbd_port(void)
 	return 0;
 }
 
+/*
+ * Setup the board-specific events for waking up loongson from wait mode
+ */
 void setup_wakeup_events(void)
 {
 	int irq_mask;
@@ -91,6 +94,9 @@ static void yeeloong_lid_update_task(struct work_struct *work)
 		yeeloong_report_lid_status(BIT_LID_DETECT_ON);
 }
 
+/*
+ * Check wakeup events
+ */
 int wakeup_loongson(void)
 {
 	int irq;
@@ -138,12 +144,53 @@ int wakeup_loongson(void)
 	return 0;
 }
 
-void __weak mach_suspend(void)
+/*
+ * If the events are really what we want to wakeup the CPU, wake it up
+ * otherwise put the CPU asleep again.
+ */
+static void wait_for_wakeup_events(void)
+{
+	while (!wakeup_loongson())
+		LOONGSON_CHIPCFG(0) &= ~0x7;
+}
+
+/*
+ * Stop all perf counters
+ *
+ * $24 is the control register of Loongson perf counter
+ */
+static inline void stop_perf_counters(void)
+{
+	__write_64bit_c0_register($24, 0, 0);
+}
+
+void loongson_suspend_enter(void)
+{
+	static unsigned int cached_cpu_freq;
+
+	/* setup wakeup events via enabling the IRQs */
+	setup_wakeup_events();
+
+	stop_perf_counters();
+
+	cached_cpu_freq = LOONGSON_CHIPCFG(0);
+
+	/* Put CPU into wait mode */
+	LOONGSON_CHIPCFG(0) &= ~0x7;
+
+	/* wait for the given events to wakeup cpu from wait mode */
+	wait_for_wakeup_events();
+
+	LOONGSON_CHIPCFG(0) = cached_cpu_freq;
+	mmiowb();
+}
+
+void mach_suspend(void)
 {
 	disable_mfgpt0_counter();
 }
 
-void __weak mach_resume(void)
+void mach_resume(void)
 {
 	enable_mfgpt0_counter();
 }

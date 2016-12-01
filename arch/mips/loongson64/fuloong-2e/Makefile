@@ -3,3 +3,5 @@
 #
 
 obj-y += irq.o reset.o dma.o
+
+obj-$(CONFIG_SUSPEND) += pm.o
