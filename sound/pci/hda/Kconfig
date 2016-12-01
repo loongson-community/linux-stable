@@ -36,6 +36,17 @@ config SND_HDA_TEGRA
 	  To compile this driver as a module, choose M here: the module
 	  will be called snd-hda-tegra.
 
+config SND_HDA_LOONGSON
+	tristate "Loongson HD Audio"
+	depends on CPU_LOONGSON3
+	select SND_HDA
+	help
+	  Say Y here to include support for Loongson LS2H/LS7A "High
+	  Definition Audio" controller.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called snd-hda-loongson.
+
 if SND_HDA
 
 config SND_HDA_HWDEP
