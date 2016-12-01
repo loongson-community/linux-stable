@@ -45,17 +45,33 @@
 
 	.macro	setup_c0_status_pri
 #ifdef CONFIG_64BIT
+#ifdef CONFIG_CPU_LOONGSON3
+	setup_c0_status ST0_KX|ST0_MM 0
+#else
 	setup_c0_status ST0_KX 0
+#endif
+#else
+#ifdef CONFIG_CPU_LOONGSON3
+	setup_c0_status ST0_MM 0
 #else
 	setup_c0_status 0 0
+#endif
 #endif
 	.endm
 
 	.macro	setup_c0_status_sec
 #ifdef CONFIG_64BIT
+#ifdef CONFIG_CPU_LOONGSON3
+	setup_c0_status ST0_KX|ST0_MM ST0_BEV
+#else
 	setup_c0_status ST0_KX ST0_BEV
+#endif
+#else
+#ifdef CONFIG_CPU_LOONGSON3
+	setup_c0_status ST0_MM ST0_BEV
 #else
 	setup_c0_status 0 ST0_BEV
+#endif
 #endif
 	.endm
 
