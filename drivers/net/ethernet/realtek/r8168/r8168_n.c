@@ -314,7 +314,7 @@ static struct pci_device_id rtl8168_pci_tbl[] = {
 
 MODULE_DEVICE_TABLE(pci, rtl8168_pci_tbl);
 
-static int rx_copybreak = 0;
+static int rx_copybreak = 1515;
 static int use_dac = 1;
 static int timer_count = 0x2600;
 
@@ -407,8 +407,8 @@ MODULE_VERSION(RTL8168_VERSION);
 static void rtl8168_sleep_rx_enable(struct net_device *dev);
 static void rtl8168_dsm(struct net_device *dev, int dev_state);
 
-static void rtl8168_esd_timer(unsigned long __opaque);
-static void rtl8168_link_timer(unsigned long __opaque);
+static void rtl8168_esd_timer(struct timer_list *timer);
+static void rtl8168_link_timer(struct timer_list *timer);
 static void rtl8168_tx_clear(struct rtl8168_private *tp);
 static void rtl8168_rx_clear(struct rtl8168_private *tp);
 
@@ -22964,7 +22964,7 @@ static inline void rtl8168_request_esd_timer(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         struct timer_list *timer = &tp->esd_timer;
 
-        setup_timer(timer, rtl8168_esd_timer, (unsigned long)dev);
+        timer_setup(timer, rtl8168_esd_timer, 0);
         mod_timer(timer, jiffies + RTL8168_ESD_TIMEOUT);
 }
 
@@ -22978,7 +22978,7 @@ static inline void rtl8168_request_link_timer(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         struct timer_list *timer = &tp->link_timer;
 
-        setup_timer(timer, rtl8168_link_timer, (unsigned long)dev);
+        timer_setup(timer, rtl8168_link_timer, 0);
         mod_timer(timer, jiffies + RTL8168_LINK_TIMEOUT);
 }
 
@@ -24717,14 +24717,13 @@ err_out:
 #define PCI_DEVICE_SERIAL_NUMBER (0x0164)
 
 static void
-rtl8168_esd_timer(unsigned long __opaque)
+rtl8168_esd_timer(struct timer_list *timer)
 {
-        struct net_device *dev = (struct net_device *)__opaque;
-        struct rtl8168_private *tp = netdev_priv(dev);
-        struct pci_dev *pdev = tp->pci_dev;
-        struct timer_list *timer = &tp->esd_timer;
-        unsigned long timeout = RTL8168_ESD_TIMEOUT;
         unsigned long flags;
+        unsigned long timeout = RTL8168_ESD_TIMEOUT;
+        struct rtl8168_private *tp = from_timer(tp, timer, esd_timer);
+        struct net_device *dev = tp->dev;
+        struct pci_dev *pdev = tp->pci_dev;
         u8 cmd;
         u16 io_base_l;
         u16 mem_base_l;
@@ -24856,12 +24855,11 @@ rtl8168_esd_timer(unsigned long __opaque)
 }
 
 static void
-rtl8168_link_timer(unsigned long __opaque)
+rtl8168_link_timer(struct timer_list *timer)
 {
-        struct net_device *dev = (struct net_device *)__opaque;
-        struct rtl8168_private *tp = netdev_priv(dev);
-        struct timer_list *timer = &tp->link_timer;
         unsigned long flags;
+        struct rtl8168_private *tp = from_timer(tp, timer, link_timer);
+        struct net_device *dev = tp->dev;
 
         spin_lock_irqsave(&tp->lock, flags);
         rtl8168_check_link_status(dev);
@@ -25003,7 +25001,7 @@ rtl8168_init_one(struct pci_dev *pdev,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,0,0)
                 tp->cp_cmd |= RxChkSum;
 #else
-                dev->features |= NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_TSO;
+                dev->features |= NETIF_F_RXCSUM | NETIF_F_SG;
                 dev->hw_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO |
                                    NETIF_F_RXCSUM | NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
                 dev->vlan_features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_TSO |
@@ -27463,6 +27461,7 @@ rtl8168_rx_csum(struct rtl8168_private *tp,
         }
 }
 
+#ifdef CONFIG_R8168_NAPI
 static inline int
 rtl8168_try_rx_copy(struct rtl8168_private *tp,
                     struct sk_buff **sk_buff,
@@ -27492,6 +27491,37 @@ rtl8168_try_rx_copy(struct rtl8168_private *tp,
         }
         return ret;
 }
+#else
+static inline int
+rtl8168_try_rx_copy(struct rtl8168_private *tp,
+                    struct sk_buff **sk_buff,
+                    int pkt_size,
+                    struct RxDesc *desc,
+                    int rx_buf_sz)
+{
+        int ret = -1;
+
+        if (pkt_size < rx_copybreak) {
+                struct sk_buff *skb;
+
+                skb = RTL_ALLOC_SKB_INTR(tp, pkt_size + NET_IP_ALIGN);
+                if (skb) {
+                        u8 *data;
+
+                        data = sk_buff[0]->data;
+                        skb_reserve(skb, NET_IP_ALIGN);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
+                        prefetch(data - NET_IP_ALIGN);
+#endif
+                        eth_copy_and_sum(skb, data, pkt_size, 0);
+                        *sk_buff = skb;
+                        rtl8168_mark_to_asic(desc, rx_buf_sz);
+                        ret = 0;
+                }
+        }
+        return ret;
+}
+#endif
 
 static inline void
 rtl8168_rx_skb(struct rtl8168_private *tp,
