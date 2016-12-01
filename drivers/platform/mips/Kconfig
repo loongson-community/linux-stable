@@ -34,6 +34,7 @@ config LEMOTE3A_LAPTOP
 	select VIDEO_OUTPUT_CONTROL
 	select INPUT_SPARSEKMAP
 	select INPUT_EVDEV
+	select LEDS_CLASS
 	depends on INPUT
 	default y
 	help

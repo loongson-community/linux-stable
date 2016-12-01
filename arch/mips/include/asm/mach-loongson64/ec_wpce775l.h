@@ -127,6 +127,13 @@ enum
 };
 /* <<< End Backlight */
 
+#define INDEX_TOUCHPAD_ENABLE_LED	0x56
+enum
+{
+	TP_EN_LED_OFF,
+	TP_EN_LED_ON
+};
+
 /* >>> Read battery(BQ3060) index for ACPI 80h command */
 /*
  * The reported battery die temperature.
