@@ -135,7 +135,7 @@ static char i8042_aux_firmware_id[128];
  * i8042_lock protects serialization between i8042_command and
  * the interrupt handler.
  */
-static DEFINE_SPINLOCK(i8042_lock);
+DEFINE_SPINLOCK(i8042_lock);
 
 /*
  * Writers to AUX and KBD ports as well as users issuing i8042_command
