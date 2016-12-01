@@ -7,6 +7,7 @@
 
 obj-y				+= core/
 
+obj-$(CONFIG_VIVANTE)          += vivante/
 obj-$(CONFIG_FB_MACMODES)      += macmodes.o
 obj-$(CONFIG_FB_WMT_GE_ROPS)   += wmt_ge_rops.o
 
