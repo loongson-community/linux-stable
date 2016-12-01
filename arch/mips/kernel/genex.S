@@ -474,9 +474,9 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	BUILD_HANDLER reserved reserved sti verbose	/* others */
 
 	.align	5
-	LEAF(handle_ri_rdhwr_vivt)
+	LEAF(handle_ri_rdhwr_tlbp)
 #ifdef CONFIG_MIPS_MT_SMTC
-	PANIC_PIC("handle_ri_rdhwr_vivt called")
+	PANIC_PIC("handle_ri_rdhwr_tlbp called")
 #else
 	.set	push
 	.set	noat
@@ -497,7 +497,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	bltz	k1, handle_ri	/* slow path */
 	/* fall thru */
 #endif
-	END(handle_ri_rdhwr_vivt)
+	END(handle_ri_rdhwr_tlbp)
 
 	LEAF(handle_ri_rdhwr)
 	.set	push
