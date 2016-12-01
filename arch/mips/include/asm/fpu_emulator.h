@@ -69,8 +69,6 @@ int process_fpemu_return(int sig, void __user *fault_addr,
 			 unsigned long fcr31);
 int isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
 		  unsigned long *contpc);
-int mm_isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
-		     unsigned long *contpc);
 
 #define SIGNALLING_NAN 0x7ff800007ff80000LL
 
