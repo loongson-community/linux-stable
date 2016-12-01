@@ -56,6 +56,9 @@ void __init prom_init_memory(void)
 
 #else /* CONFIG_LEFI_FIRMWARE_INTERFACE */
 
+extern unsigned int has_systab;
+extern unsigned long systab_addr;
+
 void __init prom_init_memory(void)
 {
 	int i;
@@ -83,6 +86,12 @@ void __init prom_init_memory(void)
 				add_memory_region(loongson_memmap->map[i].mem_start,
 					(u64)loongson_memmap->map[i].mem_size << 20,
 					BOOT_MEM_RESERVED);
+				break;
+			case SMBIOS_TABLE:
+				has_systab = 1;
+				systab_addr = loongson_memmap->map[i].mem_start;
+				add_memory_region(loongson_memmap->map[i].mem_start,
+					0x2000, BOOT_MEM_RESERVED);
 				break;
 			}
 		}
