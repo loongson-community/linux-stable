@@ -72,6 +72,8 @@ source "drivers/staging/board/Kconfig"
 
 source "drivers/staging/gdm724x/Kconfig"
 
+source "drivers/staging/sb105x/Kconfig"
+
 source "drivers/staging/fwserial/Kconfig"
 
 source "drivers/staging/goldfish/Kconfig"
