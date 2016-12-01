@@ -54,6 +54,7 @@
 #define AZX_DCAPS_CORBRP_SELF_CLEAR (1 << 28)	/* CORBRP clears itself after reset */
 #define AZX_DCAPS_NO_MSI64      (1 << 29)	/* Stick to 32-bit MSIs */
 #define AZX_DCAPS_SEPARATE_STREAM_TAG	(1 << 30) /* capture and playback use separate stream tag */
+#define AZX_DCAPS_LS2H_WORKAROUND (1 << 31)	/* Loongson-2H workaround */
 
 enum {
 	AZX_SNOOP_TYPE_NONE,
@@ -73,6 +74,9 @@ struct azx_dev {
 	 */
 	unsigned int insufficient:1;
 	unsigned int wc_marked:1;
+
+	/* For Loongson */
+	unsigned int fix_prvpos;
 };
 
 #define azx_stream(dev)		(&(dev)->core)

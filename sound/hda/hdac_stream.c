@@ -11,6 +11,7 @@
 #include <sound/hdaudio.h>
 #include <sound/hda_register.h>
 #include "trace.h"
+#include "../pci/hda/hda_controller.h"
 
 /**
  * snd_hdac_stream_init - initialize each stream (aka device)
@@ -48,17 +49,22 @@ EXPORT_SYMBOL_GPL(snd_hdac_stream_init);
 void snd_hdac_stream_start(struct hdac_stream *azx_dev, bool fresh_start)
 {
 	struct hdac_bus *bus = azx_dev->bus;
+	struct azx *chip = bus_to_azx(bus);
 
 	trace_snd_hdac_stream_start(bus, azx_dev);
 
 	azx_dev->start_wallclk = snd_hdac_chip_readl(bus, WALLCLK);
-	if (!fresh_start)
+	if (!fresh_start && !(chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND))
 		azx_dev->start_wallclk -= azx_dev->period_wallclk;
 
 	/* enable SIE */
 	snd_hdac_chip_updatel(bus, INTCTL, 0, 1 << azx_dev->index);
 	/* set DMA start and interrupt mask */
-	snd_hdac_stream_updateb(azx_dev, SD_CTL,
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		snd_hdac_stream_updatel(azx_dev, SD_CTL,
+				0, SD_CTL_DMA_START | SD_INT_MASK);
+	else
+		snd_hdac_stream_updateb(azx_dev, SD_CTL,
 				0, SD_CTL_DMA_START | SD_INT_MASK);
 	azx_dev->running = true;
 }
@@ -70,9 +76,28 @@ EXPORT_SYMBOL_GPL(snd_hdac_stream_start);
  */
 void snd_hdac_stream_clear(struct hdac_stream *azx_dev)
 {
-	snd_hdac_stream_updateb(azx_dev, SD_CTL,
+	int stream;
+	struct azx *chip = bus_to_azx(azx_dev->bus);
+	struct snd_pcm_substream *substream = azx_dev->substream;
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		snd_hdac_stream_updatel(azx_dev, SD_CTL,
 				SD_CTL_DMA_START | SD_INT_MASK, 0);
-	snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK); /* to be sure */
+		snd_hdac_stream_updateb(azx_dev, SD_STS, 0, 0); /* to be sure */
+
+		if (!substream)
+			stream_to_azx_dev(azx_dev)->fix_prvpos = 0;
+		else {
+			stream = substream->stream;
+			stream_to_azx_dev(azx_dev)->fix_prvpos =
+				chip->get_position[stream](chip, stream_to_azx_dev(azx_dev));
+		}
+	}
+	else {
+		snd_hdac_stream_updateb(azx_dev, SD_CTL,
+				SD_CTL_DMA_START | SD_INT_MASK, 0);
+		snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK); /* to be sure */
+	}
 	azx_dev->running = false;
 }
 EXPORT_SYMBOL_GPL(snd_hdac_stream_clear);
@@ -101,6 +126,10 @@ void snd_hdac_stream_reset(struct hdac_stream *azx_dev)
 {
 	unsigned char val;
 	int timeout;
+	struct azx *chip = bus_to_azx(azx_dev->bus);
+
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		goto out;
 
 	snd_hdac_stream_clear(azx_dev);
 
@@ -126,6 +155,7 @@ void snd_hdac_stream_reset(struct hdac_stream *azx_dev)
 			break;
 	} while (--timeout);
 
+out:
 	/* reset first position - may not be synced with hw at this time */
 	if (azx_dev->posbuf)
 		*azx_dev->posbuf = 0;
@@ -141,6 +171,7 @@ int snd_hdac_stream_setup(struct hdac_stream *azx_dev)
 	struct hdac_bus *bus = azx_dev->bus;
 	struct snd_pcm_runtime *runtime;
 	unsigned int val;
+	struct azx *chip = bus_to_azx(bus);
 
 	if (azx_dev->substream)
 		runtime = azx_dev->substream->runtime;
@@ -157,7 +188,14 @@ int snd_hdac_stream_setup(struct hdac_stream *azx_dev)
 	snd_hdac_stream_writel(azx_dev, SD_CTL, val);
 
 	/* program the length of samples in cyclic buffer */
-	snd_hdac_stream_writel(azx_dev, SD_CBL, azx_dev->bufsize);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		if(azx_dev->substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+			snd_hdac_stream_writel(azx_dev, SD_CBL, azx_dev->bufsize - 64);
+		else
+			snd_hdac_stream_writel(azx_dev, SD_CBL, azx_dev->bufsize - 16);
+	}
+	else
+		snd_hdac_stream_writel(azx_dev, SD_CBL, azx_dev->bufsize);
 
 	/* program the stream format */
 	/* this value needs to be the same as the one programmed */
@@ -367,6 +405,7 @@ int snd_hdac_stream_setup_periods(struct hdac_stream *azx_dev)
 	__le32 *bdl;
 	int i, ofs, periods, period_bytes;
 	int pos_adj, pos_align;
+	struct azx *chip = bus_to_azx(bus);
 
 	/* reset BDL address */
 	snd_hdac_stream_writel(azx_dev, SD_BDLPL, 0);
@@ -381,6 +420,8 @@ int snd_hdac_stream_setup_periods(struct hdac_stream *azx_dev)
 	azx_dev->frags = 0;
 
 	pos_adj = bus->bdl_pos_adj;
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		pos_adj = 0;
 	if (!azx_dev->no_period_wakeup && pos_adj > 0) {
 		pos_align = pos_adj;
 		pos_adj = (pos_adj * runtime->rate + 47999) / 48000;
