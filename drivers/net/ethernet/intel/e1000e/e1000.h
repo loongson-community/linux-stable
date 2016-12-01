@@ -225,6 +225,7 @@ struct e1000_adapter {
 
 	bool detect_tx_hung;
 	bool tx_hang_recheck;
+	bool rx_hang_recheck;
 	u8 tx_timeout_factor;
 
 	u32 tx_int_delay;
@@ -267,6 +268,10 @@ struct e1000_adapter {
 	u32 alloc_rx_buff_failed;
 	u32 rx_dma_failed;
 	u32 rx_hwtstamp_cleared;
+	u32 rdh_old;
+	u32 rdt_old;
+	u32 rx_ntu_old;
+	u32 rx_ntc_old;
 
 	unsigned int rx_ps_pages;
 	u16 rx_ps_bsize0;
@@ -312,6 +317,7 @@ struct e1000_adapter {
 	struct work_struct print_hang_task;
 
 	int phy_hang_count;
+	int weird_hang_count;
 
 	u16 tx_ring_count;
 	u16 rx_ring_count;
