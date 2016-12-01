@@ -97,6 +97,14 @@ void __init prom_init_memory(void)
 				add_memory_region(loongson_memmap->map[i].mem_start,
 					0x2000, BOOT_MEM_RESERVED);
 				break;
+			case UMA_VIDEO_RAM:
+				loongson_sysconf.vram_type = VRAM_TYPE_UMA;
+				loongson_sysconf.uma_vram_addr = loongson_memmap->map[i].mem_start & 0xffffffff;
+				loongson_sysconf.uma_vram_size = loongson_memmap->map[i].mem_size;
+				add_memory_region(loongson_memmap->map[i].mem_start,
+					(u64)loongson_memmap->map[i].mem_size << 20,
+					BOOT_MEM_RESERVED);
+				break;
 			}
 		}
 	}
