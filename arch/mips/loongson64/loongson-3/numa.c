@@ -190,6 +190,22 @@ static void __init szmem(unsigned int node)
 				0x2000, BOOT_MEM_RESERVED);
 			memblock_reserve(((node_id << 44) + mem_start), 0x2000);
 			break;
+		case UMA_VIDEO_RAM:
+			loongson_sysconf.vram_type = VRAM_TYPE_UMA;
+			loongson_sysconf.uma_vram_addr = mem_start;
+			loongson_sysconf.uma_vram_size = mem_size << 20;
+			add_memory_region((node_id << 44) + mem_start,
+				(u64)mem_size << 20, BOOT_MEM_RESERVED);
+			memblock_reserve(((node_id << 44) + mem_start), mem_size << 20);
+			break;
+		case VUMA_VIDEO_RAM:
+			loongson_sysconf.vram_type = VRAM_TYPE_UMA;
+			loongson_sysconf.vuma_vram_addr = mem_start;
+			loongson_sysconf.vuma_vram_size = mem_size << 20;
+			add_memory_region((node_id << 44) + mem_start,
+				(u64)mem_size << 20, BOOT_MEM_RESERVED);
+			memblock_reserve(((node_id << 44) + mem_start), mem_size << 20);
+			break;
 		}
 	}
 }
