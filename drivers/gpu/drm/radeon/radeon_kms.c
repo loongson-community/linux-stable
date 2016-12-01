@@ -77,6 +77,10 @@ done_free:
 	dev->dev_private = NULL;
 }
 
+#ifdef CONFIG_CPU_LOONGSON3
+extern void turn_on_lvds(void);
+extern void turn_off_lvds(void);
+#endif
 /**
  * radeon_driver_load_kms - Main load function for KMS.
  *
@@ -95,6 +99,9 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	struct radeon_device *rdev;
 	int r, acpi_status;
 
+#ifdef CONFIG_CPU_LOONGSON3
+	turn_off_lvds();
+#endif
 	if (!radeon_si_support) {
 		switch (flags & RADEON_FAMILY_MASK) {
 		case CHIP_TAHITI:
@@ -160,6 +167,10 @@ int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags)
 	r = radeon_modeset_init(rdev);
 	if (r)
 		dev_err(&dev->pdev->dev, "Fatal error during modeset init\n");
+
+#ifdef CONFIG_CPU_LOONGSON3
+	turn_on_lvds();
+#endif
 
 	/* Call ACPI methods: require modeset init
 	 * but failure is not fatal
