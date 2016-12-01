@@ -157,6 +157,7 @@ static inline int mips_atomic_set(unsigned long addr, unsigned long new)
 		"	.previous					\n"
 		"	.section __ex_table,\"a\"			\n"
 		"	"STR(PTR)"	(1b + 4), 5b			\n"
+		"	"STR(PTR)"	(1b + 8), 5b			\n"
 		"	"STR(PTR)"	(2b + 0), 5b			\n"
 		"	.previous					\n"
 		"	.set	mips0					\n"
