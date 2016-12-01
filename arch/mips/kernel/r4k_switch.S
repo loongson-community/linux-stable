@@ -53,6 +53,9 @@
 	nor	a3, $0, a3
 	and	a2, a3
 	or	a2, t1
+#ifdef CONFIG_CPU_LOONGSON3
+	or	a2, ST0_MM
+#endif
 	mtc0	a2, CP0_STATUS
 	move	v0, a0
 	jr	ra
