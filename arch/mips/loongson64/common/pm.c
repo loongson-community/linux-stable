@@ -1,8 +1,9 @@
 /*
  * loongson-specific suspend support
  *
- *  Copyright (C) 2009 Lemote Inc.
+ *  Copyright (C) 2009 - 2012 Lemote Inc.
  *  Author: Wu Zhangjin <wuzhangjin@gmail.com>
+ *          Huacai Chen <chenhc@lemote.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,69 +58,10 @@ void arch_suspend_enable_irqs(void)
 	(void)LOONGSON_INTENSET;
 }
 
-/*
- * Setup the board-specific events for waking up loongson from wait mode
- */
-void __weak setup_wakeup_events(void)
+static int loongson_pm_begin(suspend_state_t state)
 {
-}
-
-/*
- * Check wakeup events
- */
-int __weak wakeup_loongson(void)
-{
-	return 1;
-}
-
-/*
- * If the events are really what we want to wakeup the CPU, wake it up
- * otherwise put the CPU asleep again.
- */
-static void wait_for_wakeup_events(void)
-{
-	while (!wakeup_loongson())
-		LOONGSON_CHIPCFG(0) &= ~0x7;
-}
-
-/*
- * Stop all perf counters
- *
- * $24 is the control register of Loongson perf counter
- */
-static inline void stop_perf_counters(void)
-{
-	__write_64bit_c0_register($24, 0, 0);
-}
-
-
-static void loongson_suspend_enter(void)
-{
-	static unsigned int cached_cpu_freq;
-
-	/* setup wakeup events via enabling the IRQs */
-	setup_wakeup_events();
-
-	stop_perf_counters();
-
-	cached_cpu_freq = LOONGSON_CHIPCFG(0);
-
-	/* Put CPU into wait mode */
-	LOONGSON_CHIPCFG(0) &= ~0x7;
-
-	/* wait for the given events to wakeup cpu from wait mode */
-	wait_for_wakeup_events();
-
-	LOONGSON_CHIPCFG(0) = cached_cpu_freq;
-	mmiowb();
-}
-
-void __weak mach_suspend(void)
-{
-}
-
-void __weak mach_resume(void)
-{
+	pm_set_suspend_via_firmware();
+	return 0;
 }
 
 static int loongson_pm_enter(suspend_state_t state)
@@ -128,6 +70,7 @@ static int loongson_pm_enter(suspend_state_t state)
 
 	/* processor specific suspend */
 	loongson_suspend_enter();
+	pm_set_resume_via_firmware();
 
 	mach_resume();
 
@@ -138,9 +81,15 @@ static int loongson_pm_valid_state(suspend_state_t state)
 {
 	switch (state) {
 	case PM_SUSPEND_ON:
+		return 1;
+
 	case PM_SUSPEND_STANDBY:
 	case PM_SUSPEND_MEM:
+#ifndef CONFIG_CPU_LOONGSON3
 		return 1;
+#else
+		return !!loongson_sysconf.suspend_addr;
+#endif
 
 	default:
 		return 0;
@@ -149,6 +98,7 @@ static int loongson_pm_valid_state(suspend_state_t state)
 
 static const struct platform_suspend_ops loongson_pm_ops = {
 	.valid	= loongson_pm_valid_state,
+	.begin	= loongson_pm_begin,
 	.enter	= loongson_pm_enter,
 };
 
