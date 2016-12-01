@@ -138,6 +138,13 @@ enum ddivu_op {
 };
 
 /*
+ * func field of spec opcode.
+ */
+enum swc2_op {
+	gssq_op = 0x20,
+};
+
+/*
  * rt field of bcond opcodes.
  */
 enum rt_op {
