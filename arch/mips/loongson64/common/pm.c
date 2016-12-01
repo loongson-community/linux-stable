@@ -1,8 +1,9 @@
 /*
  * loongson-specific suspend support
  *
- *  Copyright (C) 2009 Lemote Inc.
+ *  Copyright (C) 2009 - 2012 Lemote Inc.
  *  Author: Wu Zhangjin <wuzhangjin@gmail.com>
+ *          Huacai Chen <chenhc@lemote.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,13 +16,43 @@
 
 #include <asm/i8259.h>
 #include <asm/mipsregs.h>
+#include <asm/bootinfo.h>
 
 #include <loongson.h>
+#include <mc146818rtc.h>
 
 static unsigned int __maybe_unused cached_master_mask;	/* i8259A */
 static unsigned int __maybe_unused cached_slave_mask;
 static unsigned int __maybe_unused cached_bonito_irq_mask; /* bonito */
 
+u32 loongson_nr_nodes;
+u64 loongson_suspend_addr;
+u32 loongson_pcache_ways;
+u32 loongson_scache_ways;
+u32 loongson_pcache_sets;
+u32 loongson_scache_sets;
+u32 loongson_pcache_linesz;
+u32 loongson_scache_linesz;
+
+uint64_t cmos_read64(unsigned long addr)
+{
+	unsigned char bytes[8];
+	int i;
+
+	for (i=0; i<8; i++)
+		bytes[i] = CMOS_READ(addr + i);
+
+	return *(uint64_t *)bytes;
+}
+
+void cmos_write64(uint64_t data, unsigned long addr)
+{
+	int i;
+	unsigned char * bytes = (unsigned char *)&data;
+
+	for (i=0; i<8; i++)
+		CMOS_WRITE(bytes[i], addr + i);
+}
 void arch_suspend_disable_irqs(void)
 {
 	/* disable all mips events */
@@ -79,7 +110,19 @@ int __weak wakeup_loongson(void)
 static void wait_for_wakeup_events(void)
 {
 	while (!wakeup_loongson())
-		LOONGSON_CHIPCFG(0) &= ~0x7;
+		switch (read_c0_prid() & PRID_REV_MASK) {
+		case PRID_REV_LOONGSON2E:
+		case PRID_REV_LOONGSON2F:
+		case PRID_REV_LOONGSON3A_R1:
+		default:
+			LOONGSON_CHIPCFG(0) &= ~0x7;
+			break;
+		case PRID_REV_LOONGSON3A_R2:
+		case PRID_REV_LOONGSON3B_R1:
+		case PRID_REV_LOONGSON3B_R2:
+			LOONGSON_FREQCTRL(0) &= ~0x7;
+			break;
+		}
 }
 
 /*
@@ -89,7 +132,24 @@ static void wait_for_wakeup_events(void)
  */
 static inline void stop_perf_counters(void)
 {
-	__write_64bit_c0_register($24, 0, 0);
+	switch (read_c0_prid() & PRID_REV_MASK) {
+	case PRID_REV_LOONGSON2E:
+	case PRID_REV_LOONGSON2F:
+		__write_64bit_c0_register($24, 0, 0);
+		break;
+	case PRID_REV_LOONGSON3A_R1:
+	case PRID_REV_LOONGSON3B_R1:
+	case PRID_REV_LOONGSON3B_R2:
+		__write_64bit_c0_register($25, 0, 0xc0000000);
+		__write_64bit_c0_register($25, 2, 0x40000000);
+		break;
+	case PRID_REV_LOONGSON3A_R2:
+		__write_64bit_c0_register($25, 0, 0xc0000000);
+		__write_64bit_c0_register($25, 2, 0xc0000000);
+		__write_64bit_c0_register($25, 4, 0xc0000000);
+		__write_64bit_c0_register($25, 6, 0x40000000);
+		break;
+	}
 }
 
 
@@ -102,34 +162,69 @@ static void loongson_suspend_enter(void)
 
 	stop_perf_counters();
 
-	cached_cpu_freq = LOONGSON_CHIPCFG(0);
-
-	/* Put CPU into wait mode */
-	LOONGSON_CHIPCFG(0) &= ~0x7;
-
-	/* wait for the given events to wakeup cpu from wait mode */
-	wait_for_wakeup_events();
-
-	LOONGSON_CHIPCFG(0) = cached_cpu_freq;
+	switch (read_c0_prid() & PRID_REV_MASK) {
+	case PRID_REV_LOONGSON2E:
+	case PRID_REV_LOONGSON2F:
+	case PRID_REV_LOONGSON3A_R1:
+		cached_cpu_freq = LOONGSON_CHIPCFG(0);
+		/* Put CPU into wait mode */
+		LOONGSON_CHIPCFG(0) &= ~0x7;
+		/* wait for the given events to wakeup cpu from wait mode */
+		wait_for_wakeup_events();
+		LOONGSON_CHIPCFG(0) = cached_cpu_freq;
+		break;
+	case PRID_REV_LOONGSON3A_R2:
+	case PRID_REV_LOONGSON3B_R1:
+	case PRID_REV_LOONGSON3B_R2:
+		cached_cpu_freq = LOONGSON_FREQCTRL(0);
+		/* Put CPU into wait mode */
+		LOONGSON_FREQCTRL(0) &= ~0x7;
+		/* wait for the given events to wakeup cpu from wait mode */
+		wait_for_wakeup_events();
+		LOONGSON_FREQCTRL(0) = cached_cpu_freq;
+		break;
+	}
 	mmiowb();
 }
 
-void __weak mach_suspend(void)
+void __weak mach_suspend(suspend_state_t state)
 {
 }
 
-void __weak mach_resume(void)
+void __weak mach_resume(suspend_state_t state)
 {
 }
 
 static int loongson_pm_enter(suspend_state_t state)
 {
-	mach_suspend();
+	mach_suspend(state);
 
 	/* processor specific suspend */
-	loongson_suspend_enter();
+	switch(state){
+	case PM_SUSPEND_STANDBY:
+		loongson_suspend_enter();
+		break;
+	case PM_SUSPEND_MEM:
+#ifdef CONFIG_CPU_LOONGSON3
+		loongson_nr_nodes = loongson_sysconf.nr_nodes;
+		loongson_suspend_addr = loongson_sysconf.suspend_addr;
+		loongson_pcache_ways = cpu_data[0].dcache.ways;
+		loongson_scache_ways = cpu_data[0].scache.ways;
+		loongson_pcache_sets = cpu_data[0].dcache.sets;
+		loongson_scache_sets = cpu_data[0].scache.sets*4;
+		loongson_pcache_linesz = cpu_data[0].dcache.linesz;
+		loongson_scache_linesz = cpu_data[0].scache.linesz;
+		loongson_suspend_lowlevel();
+		cmos_write64(0x0, 0x40);  /* clear pc in cmos */
+		cmos_write64(0x0, 0x48);  /* clear sp in cmos */
+		pm_set_resume_via_firmware();
+#else
+		loongson_suspend_enter();
+#endif
+		break;
+	}
 
-	mach_resume();
+	mach_resume(state);
 
 	return 0;
 }
@@ -138,18 +233,42 @@ static int loongson_pm_valid_state(suspend_state_t state)
 {
 	switch (state) {
 	case PM_SUSPEND_ON:
+		return 1;
+
 	case PM_SUSPEND_STANDBY:
 	case PM_SUSPEND_MEM:
-		return 1;
+		switch (mips_machtype) {
+		case MACH_LEMOTE_ML2F7:
+		case MACH_LEMOTE_YL2F89:
+			return 1;
+		case MACH_LOONGSON_GENERIC:
+			return !!loongson_sysconf.suspend_addr;
+		default:
+			return 0;
+		}
 
 	default:
 		return 0;
 	}
 }
 
+static int loongson_pm_begin(suspend_state_t state)
+{
+	if (state == PM_SUSPEND_MEM)
+		pm_set_suspend_via_firmware();
+
+	return 0;
+}
+
+static void loongson_pm_end(void)
+{
+}
+
 static const struct platform_suspend_ops loongson_pm_ops = {
 	.valid	= loongson_pm_valid_state,
+	.begin	= loongson_pm_begin,
 	.enter	= loongson_pm_enter,
+	.end	= loongson_pm_end,
 };
 
 static int __init loongson_pm_init(void)

@@ -78,6 +78,35 @@ static void acpi_hw_clear_status(void)
 	outl(inl(ACPI_GPE0_BLK), ACPI_GPE0_BLK);
 }
 
+void acpi_sleep_prepare(void)
+{
+	u16 value;
+
+	acpi_hw_clear_status();
+
+	/* PMEnable: Enable PwrBtn */
+	value = inw(ACPI_PM_EVT_BLK + 2);
+	value |= 1 << 8;
+	outw(value, ACPI_PM_EVT_BLK + 2);
+
+	/* Turn ON LED blink */
+	value = pm_ioread(0x7c);
+	value = (value & ~0xc) | 0x8;
+	pm_iowrite(0x7c, value);
+}
+
+void acpi_sleep_complete(void)
+{
+	u8 value;
+
+	acpi_hw_clear_status();
+
+	/* Turn OFF LED blink */
+	value = pm_ioread(0x7c);
+	value |= 0xc;
+	pm_iowrite(0x7c, value);
+}
+
 void acpi_registers_setup(void)
 {
 	u32 value;
