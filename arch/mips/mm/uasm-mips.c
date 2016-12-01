@@ -27,6 +27,10 @@
 #define RT_SH		16
 #define SCIMM_MASK	0xfffff
 #define SCIMM_SH	6
+#define RZ_MASK		0x1f
+#define RZ_SH		0
+#define RC_MASK		0x1ff
+#define RC_SH		6
 
 /* This macro sets the non-variable bits of an instruction. */
 #define M(a, b, c, d, e, f)					\
@@ -186,6 +190,7 @@ static const struct insn insn_table[insn_invalid] = {
 	[insn_xor]	= {M(spec_op, 0, 0, 0, 0, xor_op),  RS | RT | RD},
 	[insn_xori]	= {M(xori_op, 0, 0, 0, 0, 0),  RS | RT | UIMM},
 	[insn_yield]	= {M(spec3_op, 0, 0, 0, 0, yield_op), RS | RD},
+	[insn_gssq]	= {M(swc2_op, 0, 0, 0, 0, gssq_op), RT | RS | RZ | RC},
 };
 
 #undef M
@@ -206,6 +211,21 @@ static inline u32 build_jimm(u32 arg)
 	     KERN_WARNING "Micro-assembler field overflow\n");
 
 	return (arg >> 2) & JIMM_MASK;
+}
+
+static inline u32 build_rz(u32 arg)
+{
+	WARN(arg & ~RZ_MASK, KERN_WARNING "Micro-assembler field overflow\n");
+
+	return (arg & RZ_MASK) << RZ_SH;
+}
+
+static inline u32 build_rc(s32 arg)
+{
+	WARN((arg >> 4) > 0xff ||
+	     (arg >> 4) < -0x100, KERN_WARNING "Micro-assembler field overflow\n");
+
+	return ((arg >> 4) & RC_MASK) << RC_SH;
 }
 
 /*
@@ -235,6 +255,10 @@ static void build_insn(u32 **buf, enum opcode opc, ...)
 		op |= build_rd(va_arg(ap, u32));
 	if (ip->fields & RE)
 		op |= build_re(va_arg(ap, u32));
+	if (ip->fields & RZ)
+		op |= build_rz(va_arg(ap, u32));
+	if (ip->fields & RC)
+		op |= build_rc(va_arg(ap, s32));
 	if (ip->fields & SIMM)
 		op |= build_simm(va_arg(ap, s32));
 	if (ip->fields & UIMM)
