@@ -209,7 +209,11 @@
 #define __WAR_LLSC_MB		"		\n"
 #endif
 
+#ifndef CONFIG_LOONGSON3_ENHANCEMENT
 #define smp_llsc_mb()	__asm__ __volatile__(__WEAK_LLSC_MB : : :"memory")
+#else
+#define smp_llsc_mb()	__asm__ __volatile__(".set mips64r2\n synci 0\n .set mips0\n" : : :"memory")
+#endif
 
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
 #define smp_mb__before_llsc() smp_wmb()
