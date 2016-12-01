@@ -49,6 +49,37 @@
 		: "0" (0), GCC_OFF_SMALL_ASM() (*uaddr), "Jr" (oparg),	\
 		  "i" (-EFAULT)						\
 		: "memory");						\
+	} else if (cpu_has_llsc && LOONGSON_LLSC_WAR) {					\
+		__asm__ __volatile__(					\
+		"	.set	push				\n"	\
+		"	.set	noat				\n"	\
+		"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"	\
+		"1:				 # __futex_atomic_op\n"	\
+		__WEAK_LLSC_MB						\
+		"	"user_ll("%1", "%4")"			\n"	\
+		"	.set	mips0				\n"	\
+		"	" insn	"				\n"	\
+		"	.set	"MIPS_ISA_ARCH_LEVEL"		\n"	\
+		"2:	"user_sc("$1", "%2")"			\n"	\
+		"	beqz	$1, 1b				\n"	\
+		__WEAK_LLSC_MB						\
+		"3:						\n"	\
+		"	.insn					\n"	\
+		"	.set	pop				\n"	\
+		"	.set	mips0				\n"	\
+		"	.section .fixup,\"ax\"			\n"	\
+		"4:	li	%0, %6				\n"	\
+		"	j	3b				\n"	\
+		"	.previous				\n"	\
+		"	.section __ex_table,\"a\"		\n"	\
+		"	"__UA_ADDR "\t(1b + 4), 4b		\n"	\
+		"	"__UA_ADDR "\t(2b + 0), 4b		\n"	\
+		"	.previous				\n"	\
+		: "=r" (ret), "=&r" (oldval),				\
+		  "=" GCC_OFF_SMALL_ASM() (*uaddr)				\
+		: "0" (0), GCC_OFF_SMALL_ASM() (*uaddr), "Jr" (oparg),	\
+		  "i" (-EFAULT)						\
+		: "memory");						\
 	} else if (cpu_has_llsc) {					\
 		__asm__ __volatile__(					\
 		"	.set	push				\n"	\
@@ -156,6 +187,37 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 		"	.section __ex_table,\"a\"			\n"
 		"	"__UA_ADDR "\t1b, 4b				\n"
 		"	"__UA_ADDR "\t2b, 4b				\n"
+		"	.previous					\n"
+		: "+r" (ret), "=&r" (val), "=" GCC_OFF_SMALL_ASM() (*uaddr)
+		: GCC_OFF_SMALL_ASM() (*uaddr), "Jr" (oldval), "Jr" (newval),
+		  "i" (-EFAULT)
+		: "memory");
+	} else if (cpu_has_llsc && LOONGSON_LLSC_WAR) {
+		__asm__ __volatile__(
+		"# futex_atomic_cmpxchg_inatomic			\n"
+		"	.set	push					\n"
+		"	.set	noat					\n"
+		"	.set	"MIPS_ISA_ARCH_LEVEL"			\n"
+		"1:							\n"
+		__WEAK_LLSC_MB
+		"	"user_ll("%1", "%3")"				\n"
+		"	bne	%1, %z4, 3f				\n"
+		"	.set	mips0					\n"
+		"	move	$1, %z5					\n"
+		"	.set	"MIPS_ISA_ARCH_LEVEL"			\n"
+		"2:	"user_sc("$1", "%2")"				\n"
+		"	beqz	$1, 1b					\n"
+		__WEAK_LLSC_MB
+		"3:							\n"
+		"	.insn						\n"
+		"	.set	pop					\n"
+		"	.section .fixup,\"ax\"				\n"
+		"4:	li	%0, %6					\n"
+		"	j	3b					\n"
+		"	.previous					\n"
+		"	.section __ex_table,\"a\"			\n"
+		"	"__UA_ADDR "\t(1b + 4), 4b			\n"
+		"	"__UA_ADDR "\t(2b + 0), 4b			\n"
 		"	.previous					\n"
 		: "+r" (ret), "=&r" (val), "=" GCC_OFF_SMALL_ASM() (*uaddr)
 		: GCC_OFF_SMALL_ASM() (*uaddr), "Jr" (oldval), "Jr" (newval),
