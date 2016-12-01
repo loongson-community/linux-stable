@@ -1,27 +1,16 @@
 #include <linux/io.h>
 #include <linux/init.h>
-#include <linux/pci.h>
 #include <linux/input.h>
 #include <linux/ioport.h>
 #include <linux/export.h>
 #include <linux/interrupt.h>
-
-#define SBX00_ACPI_IO_BASE 0x800
-#define SBX00_ACPI_IO_SIZE 0x100
-
-#define ACPI_PM_EVT_BLK         (SBX00_ACPI_IO_BASE + 0x00) /* 4 bytes */
-#define ACPI_PM_CNT_BLK         (SBX00_ACPI_IO_BASE + 0x04) /* 2 bytes */
-#define ACPI_PMA_CNT_BLK        (SBX00_ACPI_IO_BASE + 0x0F) /* 1 byte */
-#define ACPI_PM_TMR_BLK         (SBX00_ACPI_IO_BASE + 0x18) /* 4 bytes */
-#define ACPI_GPE0_BLK           (SBX00_ACPI_IO_BASE + 0x10) /* 8 bytes */
-#define ACPI_END                (SBX00_ACPI_IO_BASE + 0x80)
-
-#define PM_INDEX        0xCD6
-#define PM_DATA         0xCD7
-#define PM2_INDEX       0xCD0
-#define PM2_DATA        0xCD1
+#include <loongson-pch.h>
 
 static int acpi_irq;
+static void *gpe0_status_reg;
+static void *acpi_status_reg;
+static void *acpi_enable_reg;
+static void *acpi_control_reg;
 static struct input_dev *button;
 
 /*
@@ -75,12 +64,12 @@ static void acpi_hw_clear_status(void)
 	u16 value;
 
 	/* PMStatus: Clear WakeStatus/PwrBtnStatus */
-	value = inw(ACPI_PM_EVT_BLK);
+	value = readw(acpi_status_reg);
 	value |= (1 << 8 | 1 << 15);
-	outw(value, ACPI_PM_EVT_BLK);
+	writew(value, acpi_status_reg);
 
 	/* GPEStatus: Clear all generated events */
-	outl(inl(ACPI_GPE0_BLK), ACPI_GPE0_BLK);
+	writel(readl(gpe0_status_reg), gpe0_status_reg);
 }
 
 void acpi_sleep_prepare(void)
@@ -90,9 +79,11 @@ void acpi_sleep_prepare(void)
 	acpi_hw_clear_status();
 
 	/* Turn ON LED blink */
-	value = pm_ioread(0x7c);
-	value = (value & ~0xc) | 0x8;
-	pm_iowrite(0x7c, value);
+	if (loongson_pch->type == RS780E) {
+		value = pm_ioread(0x7c);
+		value = (value & ~0xc) | 0x8;
+		pm_iowrite(0x7c, value);
+	}
 }
 
 void acpi_sleep_complete(void)
@@ -102,9 +93,11 @@ void acpi_sleep_complete(void)
 	acpi_hw_clear_status();
 
 	/* Turn OFF LED blink */
-	value = pm_ioread(0x7c);
-	value |= 0xc;
-	pm_iowrite(0x7c, value);
+	if (loongson_pch->type == RS780E) {
+		value = pm_ioread(0x7c);
+		value |= 0xc;
+		pm_iowrite(0x7c, value);
+	}
 }
 
 static irqreturn_t acpi_int_routine(int irq, void *dev_id)
@@ -112,9 +105,9 @@ static irqreturn_t acpi_int_routine(int irq, void *dev_id)
 	u16 value;
 
 	/* PMStatus: Check PwrBtnStatus */
-	value = inw(ACPI_PM_EVT_BLK);
+	value = readw(acpi_status_reg);
 	if (value & (1 << 8)) {
-		outw(1 << 8, ACPI_PM_EVT_BLK);
+		writew(0x1 << 8, acpi_status_reg);
 		pr_info("Power Button pressed...\n");
 		input_report_key(button, KEY_POWER, 1);
 		input_sync(button);
@@ -129,17 +122,9 @@ static irqreturn_t acpi_int_routine(int irq, void *dev_id)
 static int __init power_button_init(void)
 {
 	int ret;
-	struct pci_dev *dev;
 
-	dev = pci_get_bus_and_slot(0, 0);
-	switch (dev->vendor) {
-	case PCI_VENDOR_ID_AMD:
-	case PCI_VENDOR_ID_ATI:
-		acpi_irq = 7;
-		break;
-	default:
+	if (!acpi_irq)
 		return -ENODEV;
-	}
 
 	button = input_allocate_device();
 	if (!button)
@@ -173,35 +158,35 @@ void acpi_registers_setup(void)
 {
 	u32 value;
 
+	if (loongson_pch->type != RS780E)
+		goto enable_power_button;
+
 	/* PM Status Base */
-	pm_iowrite(0x20, ACPI_PM_EVT_BLK & 0xff);
-	pm_iowrite(0x21, ACPI_PM_EVT_BLK >> 8);
+	pm_iowrite(0x20, SBX00_PM_EVT_BLK & 0xff);
+	pm_iowrite(0x21, SBX00_PM_EVT_BLK >> 8);
 
 	/* PM Control Base */
-	pm_iowrite(0x22, ACPI_PM_CNT_BLK & 0xff);
-	pm_iowrite(0x23, ACPI_PM_CNT_BLK >> 8);
+	pm_iowrite(0x22, SBX00_PM_CNT_BLK & 0xff);
+	pm_iowrite(0x23, SBX00_PM_CNT_BLK >> 8);
 
 	/* GPM Base */
-	pm_iowrite(0x28, ACPI_GPE0_BLK & 0xff);
-	pm_iowrite(0x29, ACPI_GPE0_BLK >> 8);
+	pm_iowrite(0x28, SBX00_GPE0_BLK & 0xff);
+	pm_iowrite(0x29, SBX00_GPE0_BLK >> 8);
 
 	/* ACPI End */
-	pm_iowrite(0x2e, ACPI_END & 0xff);
-	pm_iowrite(0x2f, ACPI_END >> 8);
+	pm_iowrite(0x2e, SBX00_PM_END & 0xff);
+	pm_iowrite(0x2f, SBX00_PM_END >> 8);
 
 	/* IO Decode: When AcpiDecodeEnable set, South-Bridge uses the contents
 	 * of the PM registers at index 0x20~0x2B to decode ACPI I/O address. */
 	pm_iowrite(0x0e, 1 << 3);
 
-	/* SCI_EN set */
-	outw(1, ACPI_PM_CNT_BLK);
-
 	/* Enable to generate SCI */
 	pm_iowrite(0x10, pm_ioread(0x10) | 1);
 
 	/* GPM3/GPM9 enable */
-	value = inl(ACPI_GPE0_BLK + 4);
-	outl(value | (1 << 14) | (1 << 22), ACPI_GPE0_BLK + 4);
+	value = inl(SBX00_GPE0_BLK + 4);
+	outl(value | (1 << 14) | (1 << 22), SBX00_GPE0_BLK + 4);
 
 	/* Set GPM9 as input */
 	pm_iowrite(0x8d, pm_ioread(0x8d) & (~(1 << 1)));
@@ -231,15 +216,40 @@ void acpi_registers_setup(void)
 	value |= ((1 << 5) | (1 << 1));
 	pm2_iowrite(0xf8, value);
 
+enable_power_button:
+	/* SCI_EN set */
+	value = readw(acpi_control_reg);
+	value |= 1;
+	writew(value, acpi_control_reg);
+
 	/* PMEnable: Enable PwrBtn */
-	value = inw(ACPI_PM_EVT_BLK + 2);
+	value = readw(acpi_enable_reg);
 	value |= 1 << 8;
-	outw(value, ACPI_PM_EVT_BLK + 2);
+	writew(value, acpi_enable_reg);
 }
 
-int __init sbx00_acpi_init(void)
+int __init loongson_acpi_init(void)
 {
-	register_acpi_resource();
+	switch (loongson_pch->type) {
+	case LS2H:
+		acpi_irq = LS2H_PCH_ACPI_IRQ;
+		acpi_control_reg = LS2H_PM_CNT_REG;
+		acpi_status_reg  = LS2H_PM_EVT_REG;
+		acpi_enable_reg  = LS2H_PM_ENA_REG;
+		gpe0_status_reg  = LS2H_GPE0_STS_REG;
+		break;
+	case RS780E:
+		acpi_irq = RS780_PCH_ACPI_IRQ;
+		acpi_control_reg = (void *)(mips_io_port_base + SBX00_PM_CNT_BLK + 0);
+		acpi_status_reg  = (void *)(mips_io_port_base + SBX00_PM_EVT_BLK + 0);
+		acpi_enable_reg  = (void *)(mips_io_port_base + SBX00_PM_EVT_BLK + 2);
+		gpe0_status_reg  = (void *)(mips_io_port_base + SBX00_GPE0_BLK   + 0);
+		register_acpi_resource();
+		break;
+	default:
+		return 0;
+	}
+
 	acpi_registers_setup();
 	acpi_hw_clear_status();
 

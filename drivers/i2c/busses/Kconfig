@@ -714,6 +714,13 @@ config I2C_OMAP
 	  Like OMAP1510/1610/1710/5912 and OMAP242x.
 	  For details see http://www.ti.com/omap.
 
+config I2C_LS2H
+	tristate "Loongson-2H I2C adapter"
+	depends on CPU_LOONGSON3
+	help
+	  If you say yes to this option, support will be included for the
+	  I2C interface on the Loongson-2H Platform-Bridge.
+
 config I2C_PASEMI
 	tristate "PA Semi SMBus interface"
 	depends on PPC_PASEMI && PCI

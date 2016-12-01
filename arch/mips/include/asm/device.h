@@ -9,6 +9,7 @@
 struct dma_map_ops;
 
 struct dev_archdata {
+	unsigned long dma_attrs;
 	/* DMA operations on that device */
 	struct dma_map_ops *dma_ops;
 

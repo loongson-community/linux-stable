@@ -7,6 +7,7 @@
 
 #include <asm/hpet.h>
 #include <asm/time.h>
+#include <loongson-pch.h>
 
 #define SMBUS_CFG_BASE		(loongson_sysconf.ht_control_base + 0x0300a000)
 #define SMBUS_PCI_REG40		0x40
@@ -15,6 +16,11 @@
 
 #define HPET_MIN_CYCLES		16
 #define HPET_MIN_PROG_DELTA	(HPET_MIN_CYCLES * 12)
+
+unsigned int hpet_freq;
+unsigned int hpet_t0_irq;
+unsigned int hpet_irq_flags;
+unsigned long long hpet_mmio_base;
 
 static DEFINE_SPINLOCK(hpet_lock);
 DEFINE_PER_CPU(struct clock_event_device, hpet_clockevent_device);
@@ -39,12 +45,12 @@ static void smbus_enable(int offset, int bit)
 
 static int hpet_read(int offset)
 {
-	return *(volatile unsigned int *)(HPET_MMIO_ADDR + offset);
+	return *(volatile unsigned int *)(hpet_mmio_base + offset);
 }
 
 static void hpet_write(int offset, int data)
 {
-	*(volatile unsigned int *)(HPET_MMIO_ADDR + offset) = data;
+	*(volatile unsigned int *)(hpet_mmio_base + offset) = data;
 }
 
 static void hpet_start_counter(void)
@@ -90,12 +96,14 @@ static int hpet_set_state_periodic(struct clock_event_device *evt)
 	pr_info("set clock event to periodic mode!\n");
 	/* stop counter */
 	hpet_stop_counter();
+	hpet_reset_counter();
+	hpet_write(HPET_T0_CMP, 0);
 
 	/* enables the timer0 to generate a periodic interrupt */
 	cfg = hpet_read(HPET_T0_CFG);
 	cfg &= ~HPET_TN_LEVEL;
 	cfg |= HPET_TN_ENABLE | HPET_TN_PERIODIC | HPET_TN_SETVAL |
-		HPET_TN_32BIT;
+		HPET_TN_32BIT | hpet_irq_flags;
 	hpet_write(HPET_T0_CFG, cfg);
 
 	/* set the comparator */
@@ -193,30 +201,19 @@ static struct irqaction hpet_irq = {
 };
 
 /*
- * hpet address assignation and irq setting should be done in bios.
- * but pmon don't do this, we just setup here directly.
- * The operation under is normal. unfortunately, hpet_setup process
- * is before pci initialize.
- *
- * {
- *	struct pci_dev *pdev;
- *
- *	pdev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS, NULL);
- *	pci_write_config_word(pdev, SMBUS_PCI_REGB4, HPET_ADDR);
- *
- *	...
- * }
+ * HPET address assignation and irq setting should be done in bios.
+ * But, sometimes bios don't do this, we just setup here directly.
  */
 static void hpet_setup(void)
 {
-	/* set hpet base address */
-	smbus_write(SMBUS_PCI_REGB4, HPET_ADDR);
-
-	/* enable decoding of access to HPET MMIO*/
-	smbus_enable(SMBUS_PCI_REG40, (1 << 28));
-
-	/* HPET irq enable */
-	smbus_enable(SMBUS_PCI_REG64, (1 << 10));
+	if (loongson_pch->type == RS780E) {
+		/* set hpet base address */
+		smbus_write(SMBUS_PCI_REGB4, HPET_ADDR);
+		/* enable decoding of access to HPET MMIO*/
+		smbus_enable(SMBUS_PCI_REG40, (1 << 28));
+		/* HPET irq enable */
+		smbus_enable(SMBUS_PCI_REG64, (1 << 10));
+	}
 
 	hpet_enable_legacy_int();
 }
@@ -225,6 +222,21 @@ void __init setup_hpet_timer(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *cd;
+
+	switch (loongson_pch->type) {
+	case LS2H:
+		hpet_freq = LS2H_HPET_FREQ;
+		hpet_t0_irq = LS2H_HPET_T0_IRQ;
+		hpet_mmio_base = LS2H_HPET_BASE;
+		hpet_irq_flags = HPET_TN_LEVEL;
+		break;
+	case RS780E:
+		hpet_freq = RS780_HPET_FREQ;
+		hpet_t0_irq = RS780_HPET_T0_IRQ;
+		hpet_mmio_base = RS780_HPET_BASE;
+		hpet_irq_flags = 0;
+		break;
+	}
 
 	hpet_setup();
 
@@ -237,14 +249,14 @@ void __init setup_hpet_timer(void)
 	cd->set_state_oneshot = hpet_set_state_oneshot;
 	cd->tick_resume = hpet_tick_resume;
 	cd->set_next_event = hpet_next_event;
-	cd->irq = HPET_T0_IRQ;
+	cd->irq = hpet_t0_irq;
 	cd->cpumask = cpumask_of(cpu);
-	clockevent_set_clock(cd, HPET_FREQ);
+	clockevent_set_clock(cd, hpet_freq);
 	cd->max_delta_ns = clockevent_delta2ns(0x7fffffff, cd);
 	cd->min_delta_ns = clockevent_delta2ns(HPET_MIN_PROG_DELTA, cd);
 
 	clockevents_register_device(cd);
-	setup_irq(HPET_T0_IRQ, &hpet_irq);
+	setup_irq(hpet_t0_irq, &hpet_irq);
 	pr_info("hpet clock event device register\n");
 }
 
@@ -279,8 +291,8 @@ static struct clocksource csrc_hpet = {
 
 int __init init_hpet_clocksource(void)
 {
-	csrc_hpet.mult = clocksource_hz2mult(HPET_FREQ, csrc_hpet.shift);
-	return clocksource_register_hz(&csrc_hpet, HPET_FREQ);
+	csrc_hpet.mult = clocksource_hz2mult(hpet_freq, csrc_hpet.shift);
+	return clocksource_register_hz(&csrc_hpet, hpet_freq);
 }
 
 arch_initcall(init_hpet_clocksource);

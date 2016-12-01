@@ -13,6 +13,7 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/mc146818rtc.h>
+#include <loongson-pch.h>
 
 static struct resource loongson_rtc_resources[] = {
 	{
@@ -36,7 +37,14 @@ static struct platform_device loongson_rtc_device = {
 
 static int __init loongson_rtc_platform_init(void)
 {
-	platform_device_register(&loongson_rtc_device);
+	switch (loongson_pch->type) {
+	case LS2H:
+	case RS780E:
+		break;
+	default:
+		platform_device_register(&loongson_rtc_device);
+	}
+
 	return 0;
 }
 

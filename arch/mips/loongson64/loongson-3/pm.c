@@ -26,15 +26,17 @@
 
 #include <loongson.h>
 #include <ec_wpce775l.h>
+#include <loongson-pch.h>
 
 #define I8042_CTR_KBDINT	0x01
 #define I8042_CTR_KBDDIS	0x10
 #define I8042_KBD_IRQ		1
 
-extern void irq_router_init(void);
 extern void acpi_sleep_prepare(void);
 extern void acpi_sleep_complete(void);
 extern void acpi_registers_setup(void);
+extern void ls2h_irq_router_init(void);
+extern void rs780_irq_router_init(void);
 
 struct loongson_registers {
 	u32 config4;
@@ -152,7 +154,8 @@ void mach_resume(suspend_state_t state)
 			write_c0_userlocal(loongson_regs.userlocal);
 		}
 
-		irq_router_init();
+		loongson_pch->early_config();
+		loongson_pch->init_irq();
 		acpi_registers_setup();
 		acpi_sleep_complete();
 	}

@@ -214,6 +214,38 @@ static const struct dwc2_core_params params_amlogic = {
 	.hibernation			= -1,
 };
 
+static const struct dwc2_core_params params_loongson = {
+	.otg_cap			= 0,
+	.otg_ver			= -1,
+	.dma_enable			= 1,
+	.dma_desc_enable		= 0,
+	.dma_desc_fs_enable		= 0,
+	.speed				= 0,
+	.enable_dynamic_fifo		= 1,
+	.en_multiple_tx_fifo		= 1,
+	.host_rx_fifo_size		= 533,
+	.host_nperio_tx_fifo_size	= 256,
+	.host_perio_tx_fifo_size	= 512,
+	.max_transfer_size		= -1,
+	.max_packet_count		= -1,
+	.host_channels			= 12,
+	.phy_type			= 1,
+	.phy_utmi_width			= 8,
+	.phy_ulpi_ddr			= 0,
+	.phy_ulpi_ext_vbus		= 0,
+	.i2c_enable			= 0,
+	.ulpi_fs_ls			= 0,
+	.host_support_fs_ls_low_power	= 0,
+	.host_ls_low_power_phy_clk	= 0,
+	.ts_dline			= 0,
+	.reload_ctl			= 1,
+	.ahbcfg				= GAHBCFG_HBSTLEN_INCR8 <<
+					  GAHBCFG_HBSTLEN_SHIFT,
+	.uframe_sched			= -1,
+	.external_id_pin_ctl		= -1,
+	.hibernation			= 1,
+};
+
 /*
  * Check the dr_mode against the module configuration and hardware
  * capabilities.
@@ -373,16 +405,8 @@ static int dwc2_lowlevel_hw_init(struct dwc2_hsotg *hsotg)
 	hsotg->reset = devm_reset_control_get_optional(hsotg->dev, "dwc2");
 	if (IS_ERR(hsotg->reset)) {
 		ret = PTR_ERR(hsotg->reset);
-		switch (ret) {
-		case -ENOENT:
-		case -ENOTSUPP:
-			hsotg->reset = NULL;
-			break;
-		default:
-			dev_err(hsotg->dev, "error getting reset control %d\n",
-				ret);
-			return ret;
-		}
+		dev_err(hsotg->dev, "error getting reset control %d\n",	ret);
+		hsotg->reset = NULL;
 	}
 
 	if (hsotg->reset)
@@ -520,6 +544,7 @@ static const struct of_device_id dwc2_of_match_table[] = {
 	{ .compatible = "samsung,s3c6400-hsotg", .data = NULL},
 	{ .compatible = "amlogic,meson8b-usb", .data = &params_amlogic },
 	{ .compatible = "amlogic,meson-gxbb-usb", .data = &params_amlogic },
+	{ .compatible = "loongson,dwc2", .data = &params_loongson },
 	{},
 };
 MODULE_DEVICE_TABLE(of, dwc2_of_match_table);
