@@ -12,6 +12,12 @@
 
 static int csr_temp_enable = 0;
 
+/* Allow other reference temperatures to fixup the original cpu temperature */
+int __weak fixup_cpu_temp(int cpu, int cputemp)
+{
+	return cputemp;
+}
+
 /*
  * Loongson-3 series cpu has two sensors inside,
  * each of them from 0 to 255,
@@ -20,6 +26,7 @@ static int csr_temp_enable = 0;
  */
 int loongson3_cpu_temp(int cpu)
 {
+	int cputemp;
 	u32 reg, prid_rev;
 
 	if (csr_temp_enable) {
@@ -48,7 +55,8 @@ int loongson3_cpu_temp(int cpu)
 	}
 
 out:
-	return (int)reg * 1000;
+	cputemp = (int)reg * 1000;
+	return fixup_cpu_temp(cpu, cputemp);
 }
 
 static int nr_packages;
@@ -145,7 +153,9 @@ static void remove_sysfs_cputemp_files(struct kobject *kobj)
 		sysfs_remove_files(kobj, hwmon_cputemp[i]);
 }
 
-#define CPU_THERMAL_THRESHOLD 90000
+static int cpu_initial_threshold = 65000;
+static int cpu_thermal_threshold = 96000;
+
 static struct delayed_work thermal_work;
 
 static void do_thermal_timer(struct work_struct *work)
@@ -158,7 +168,7 @@ static void do_thermal_timer(struct work_struct *work)
 			temp_max = value;
 	}
 
-	if (temp_max <= CPU_THERMAL_THRESHOLD)
+	if (temp_max <= cpu_thermal_threshold)
 		schedule_delayed_work(&thermal_work, msecs_to_jiffies(5000));
 	else
 		orderly_poweroff(true);
@@ -166,7 +176,7 @@ static void do_thermal_timer(struct work_struct *work)
 
 static int __init loongson_hwmon_init(void)
 {
-	int ret;
+	int i, ret, value, temp_max = 0;
 
 	pr_info("Loongson Hwmon Enter...\n");
 
@@ -195,6 +205,16 @@ static int __init loongson_hwmon_init(void)
 		pr_err("fail to create cpu temperature interface!\n");
 		goto fail_create_sysfs_cputemp_files;
 	}
+
+	for (i=0; i<nr_packages; i++) {
+		value = loongson3_cpu_temp(i);
+		if (value > temp_max)
+			temp_max = value;
+	}
+
+	pr_info("Initial CPU temperature is %d (highest).\n", temp_max);
+	if (temp_max > cpu_initial_threshold)
+		cpu_thermal_threshold += temp_max - cpu_initial_threshold;
 
 	INIT_DEFERRABLE_WORK(&thermal_work, do_thermal_timer);
 	schedule_delayed_work(&thermal_work, msecs_to_jiffies(20000));
