@@ -26,6 +26,9 @@ cflags-$(CONFIG_CPU_LOONGSON3)	+= -Wa,--trap
 ifneq ($(call as-option,-Wa$(comma)-mfix-loongson3-llsc,),)
   cflags-$(CONFIG_CPU_LOONGSON3) += -Wa$(comma)-mno-fix-loongson3-llsc
 endif
+ifneq ($(call as-option,-Wa$(comma)-mfix-ls3a-llsc,),)
+  cflags-$(CONFIG_CPU_LOONGSON3) += -Wa$(comma)-mnofix-ls3a-llsc
+endif
 #
 # binutils from v2.25 on and gcc starting from v4.9.0 treat -march=loongson3a
 # as MIPS64 R2; older versions as just R1.  This leaves the possibility open
