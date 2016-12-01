@@ -172,9 +172,16 @@ typedef phys_addr_t resource_size_t;
  */
 typedef unsigned long irq_hw_number_t;
 
+#ifndef CONFIG_CPU_LOONGSON3
 typedef struct {
 	int counter;
 } atomic_t;
+#else
+typedef struct {
+	int counter;
+	int padding;
+} __attribute__((aligned(8))) atomic_t;
+#endif
 
 #ifdef CONFIG_64BIT
 typedef struct {
