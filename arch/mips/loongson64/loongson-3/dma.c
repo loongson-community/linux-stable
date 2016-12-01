@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/mm.h>
 #include <linux/init.h>
+#include <linux/sizes.h>
 #include <linux/dma-direct.h>
 #include <linux/dma-mapping.h>
 #include <linux/dma-noncoherent.h>
@@ -9,6 +10,7 @@
 
 #include <asm/bootinfo.h>
 #include <asm/dma-coherence.h>
+#include <loongson-pch.h>
 
 static inline void *dma_to_virt(struct device *dev, dma_addr_t dma_addr)
 {
@@ -66,13 +68,19 @@ static int loongson_dma_mmap(struct device *dev, struct vm_area_struct *vma,
 	return ret;
 }
 
+#define PCIE_DMA_ALIGN 16
+
 static dma_addr_t loongson_dma_map_page(struct device *dev, struct page *page,
 				unsigned long offset, size_t size,
 				enum dma_data_direction dir,
 				unsigned long attrs)
 {
-	dma_addr_t daddr = swiotlb_map_page(dev, page, offset, size,
-					dir, attrs);
+	dma_addr_t daddr;
+
+	if (offset % PCIE_DMA_ALIGN)
+		attrs |= dev->archdata.dma_attrs;
+
+	daddr = swiotlb_map_page(dev, page, offset, size, dir, attrs);
 	if (!dev_is_coherent(dev) && !(attrs & DMA_ATTR_SKIP_CPU_SYNC))
 		dma_sync_virt(dma_to_virt(dev, daddr), size, dir);
 	mb();
@@ -96,6 +104,7 @@ static int loongson_dma_map_sg(struct device *dev, struct scatterlist *sgl,
 	int i, r;
 	struct scatterlist *sg;
 
+	attrs |= dev->archdata.dma_attrs;
 	r = swiotlb_map_sg_attrs(dev, sgl, nents, dir, attrs);
 	if (!dev_is_coherent(dev) && !(attrs & DMA_ATTR_SKIP_CPU_SYNC)) {
 		for_each_sg(sgl, sg, nents, i)
@@ -179,7 +188,23 @@ static int loongson_dma_supported(struct device *dev, u64 mask)
 	return swiotlb_dma_supported(dev, mask);
 }
 
-dma_addr_t __phys_to_dma(struct device *dev, phys_addr_t paddr)
+static dma_addr_t loongson_ls2h_phys_to_dma(struct device *dev, phys_addr_t paddr)
+{
+	dma_addr_t daddr;
+
+	daddr = (paddr < SZ_256M) ? paddr :
+		(paddr - loongson_sysconf.high_physmem_start + SZ_256M);
+
+	return (daddr < SZ_4G) ? daddr : -1ULL; /* DMA address should be below 4GB */
+}
+
+static phys_addr_t loongson_ls2h_dma_to_phys(struct device *dev, dma_addr_t daddr)
+{
+	return (daddr < SZ_256M) ? daddr :
+		(daddr + loongson_sysconf.high_physmem_start - SZ_256M);
+}
+
+static dma_addr_t loongson_rs780_phys_to_dma(struct device *dev, phys_addr_t paddr)
 {
 	/* We extract 2bit node id (bit 44~47, only bit 44~45 used now) from
 	 * Loongson-3's 48bit address space and embed it into 40bit */
@@ -187,12 +212,28 @@ dma_addr_t __phys_to_dma(struct device *dev, phys_addr_t paddr)
 	return ((nid << 44) ^ paddr) | (nid << 37);
 }
 
-phys_addr_t __dma_to_phys(struct device *dev, dma_addr_t daddr)
+static phys_addr_t loongson_rs780_dma_to_phys(struct device *dev, dma_addr_t daddr)
 {
 	/* We extract 2bit node id (bit 44~47, only bit 44~45 used now) from
 	 * Loongson-3's 48bit address space and embed it into 40bit */
 	long nid = (daddr >> 37) & 0x3;
 	return ((nid << 37) ^ daddr) | (nid << 44);
+}
+
+struct loongson_addr_xlate_ops {
+	dma_addr_t (*phys_to_dma)(struct device *dev, phys_addr_t paddr);
+	phys_addr_t (*dma_to_phys)(struct device *dev, dma_addr_t daddr);
+};
+struct loongson_addr_xlate_ops xlate_ops;
+
+dma_addr_t __phys_to_dma(struct device *dev, phys_addr_t paddr)
+{
+	return xlate_ops.phys_to_dma(dev, paddr);
+}
+
+phys_addr_t __dma_to_phys(struct device *dev, dma_addr_t daddr)
+{
+	return xlate_ops.dma_to_phys(dev, daddr);
 }
 
 const struct dma_map_ops loongson_dma_ops = {
@@ -216,4 +257,15 @@ EXPORT_SYMBOL(loongson_dma_ops);
 void __init plat_swiotlb_setup(void)
 {
 	swiotlb_init(1);
+
+	switch (loongson_pch->type) {
+	case LS2H:
+		xlate_ops.phys_to_dma = loongson_ls2h_phys_to_dma;
+		xlate_ops.dma_to_phys = loongson_ls2h_dma_to_phys;
+		break;
+	case RS780E:
+		xlate_ops.phys_to_dma = loongson_rs780_phys_to_dma;
+		xlate_ops.dma_to_phys = loongson_rs780_dma_to_phys;
+		break;
+	}
 }

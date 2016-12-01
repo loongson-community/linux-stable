@@ -2,7 +2,7 @@
 #ifndef _ASM_HPET_H
 #define _ASM_HPET_H
 
-#ifdef CONFIG_RS780_HPET
+#ifdef CONFIG_LOONGSON_HPET
 
 #define HPET_MMAP_SIZE		1024
 
@@ -64,11 +64,14 @@
 #define HPET_MIN_PERIOD		100000UL
 
 #define HPET_ADDR		0x20000
-#define HPET_MMIO_ADDR	0x90000e0000020000
-#define HPET_FREQ		14318780
-#define HPET_COMPARE_VAL	((HPET_FREQ + HZ / 2) / HZ)
-#define HPET_T0_IRQ		0
+#define LS2H_HPET_BASE		0x900000001bec0000
+#define LS2H_HPET_FREQ		125000000
+#define LS2H_HPET_T0_IRQ	LS2H_PCH_HPET_IRQ
+#define RS780_HPET_BASE		0x90000e0000020000
+#define RS780_HPET_FREQ		14318780
+#define RS780_HPET_T0_IRQ	RS780_PCH_HPET_IRQ
+#define HPET_COMPARE_VAL	((hpet_freq + HZ / 2) / HZ)
 
 extern void __init setup_hpet_timer(void);
-#endif /* CONFIG_RS780_HPET */
+#endif /* CONFIG_LOONGSON_HPET */
 #endif /* _ASM_HPET_H */

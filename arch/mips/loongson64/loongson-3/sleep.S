@@ -121,8 +121,11 @@ flushL2_node:
 	addiu  a0, a0, -1
 	bnez   a0, flushL2_all
 
-	ld  v0, loongson_suspend_addr /* Call BIOS's STR sleep routine */
-	jr  v0
+	/* Pass RA and SP to BIOS, for machines without CMOS RAM */
+	daddi	a1, sp, 0
+	dla	a0, wakeup_start
+	ld      v0, loongson_suspend_addr /* Call BIOS's STR sleep routine */
+	jr      v0
 	nop
 END(loongson_suspend_enter)
 
