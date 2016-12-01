@@ -1,0 +1,138 @@
+/ {
+	/*
+	 * Loongson-3 may have as many as 4 nodes, each node has 4 cores.
+	 * Each core has its own pcache and cores in the same node share scache.
+	 */
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x0>;
+			next-level-cache = <&scache0>;
+		};
+
+		cpu@1 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x1>;
+			next-level-cache = <&scache0>;
+		};
+
+		cpu@2 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x2>;
+			next-level-cache = <&scache0>;
+		};
+
+		cpu@3 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x3>;
+			next-level-cache = <&scache0>;
+		};
+
+		cpu@4 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x4>;
+			next-level-cache = <&scache1>;
+		};
+
+		cpu@5 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x5>;
+			next-level-cache = <&scache1>;
+		};
+
+		cpu@6 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x6>;
+			next-level-cache = <&scache1>;
+		};
+
+		cpu@7 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x7>;
+			next-level-cache = <&scache1>;
+		};
+
+		cpu@8 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x8>;
+			next-level-cache = <&scache2>;
+		};
+
+		cpu@9 {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0x9>;
+			next-level-cache = <&scache2>;
+		};
+
+		cpu@a {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xa>;
+			next-level-cache = <&scache2>;
+		};
+
+		cpu@b {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xb>;
+			next-level-cache = <&scache2>;
+		};
+
+		cpu@c {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xc>;
+			next-level-cache = <&scache3>;
+		};
+
+		cpu@d {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xd>;
+			next-level-cache = <&scache3>;
+		};
+
+		cpu@e {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xe>;
+			next-level-cache = <&scache3>;
+		};
+
+		cpu@f {
+			compatible = "loongson,loongson3";
+			device_type = "cpu";
+			reg = <0xf>;
+			next-level-cache = <&scache3>;
+		};
+
+		scache0: l2-cache0 {
+			compatible = "cache";
+		};
+
+		scache1: l2-cache1 {
+			compatible = "cache";
+		};
+
+		scache2: l2-cache2 {
+			compatible = "cache";
+		};
+
+		scache3: l2-cache3 {
+			compatible = "cache";
+		};
+	};
+};

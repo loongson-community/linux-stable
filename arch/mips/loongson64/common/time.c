@@ -22,7 +22,7 @@ void __init plat_time_init(void)
 	/* setup mips r4k timer */
 	mips_hpt_frequency = cpu_clock_freq / 2;
 
-#ifdef CONFIG_RS780_HPET
+#ifdef CONFIG_LOONGSON_HPET
 	setup_hpet_timer();
 #else
 	setup_mfgpt0_timer();

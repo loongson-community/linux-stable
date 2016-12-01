@@ -1243,6 +1243,13 @@ config RTC_DRV_IMXDI
 	   This driver can also be built as a module, if so, the module
 	   will be called "rtc-imxdi".
 
+config RTC_DRV_LS2H
+	tristate "Loongson-2H RTC"
+	depends on CPU_LOONGSON3
+	help
+         If you say yes here you get support for the RTC on the
+         Loongson-2H Platform-Bridge.
+
 config RTC_DRV_OMAP
 	tristate "TI OMAP Real Time Clock"
 	depends on ARCH_OMAP || ARCH_DAVINCI || COMPILE_TEST
