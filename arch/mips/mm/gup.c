@@ -43,6 +43,12 @@ static int gup_pte_range(pmd_t pmd, unsigned long addr, unsigned long end,
 		pte_t pte = gup_get_pte(ptep);
 		struct page *page;
 
+		/* Similar to the PMD case, NUMA hinting must take slow path */
+		if (pte_protnone(pte)) {
+			pte_unmap(ptep);
+			return 0;
+		}
+
 		if (!pte_present(pte) ||
 		    pte_special(pte) || (write && !pte_write(pte))) {
 			pte_unmap(ptep);
@@ -111,6 +117,13 @@ static int gup_pmd_range(pud_t pud, unsigned long addr, unsigned long end,
 		if (pmd_none(pmd))
 			return 0;
 		if (unlikely(pmd_huge(pmd))) {
+			/*
+			 * NUMA hinting faults need to be handled in the GUP
+			 * slowpath for accounting purposes and so that they
+			 * can be serialised against THP migration.
+			 */
+			if (pmd_protnone(pmd))
+				return 0;
 			if (!gup_huge_pmd(pmd, addr, next, write, pages,nr))
 				return 0;
 		} else {
