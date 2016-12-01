@@ -8,6 +8,7 @@
 #include <sound/core.h>
 #include <sound/hdaudio.h>
 #include <sound/hda_register.h>
+#include "../pci/hda/hda_controller.h"
 
 /* clear CORB read pointer properly */
 static void azx_clear_corbrp(struct hdac_bus *bus)
@@ -40,6 +41,8 @@ static void azx_clear_corbrp(struct hdac_bus *bus)
  */
 void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 {
+	struct azx *chip = bus_to_azx(bus);
+
 	spin_lock_irq(&bus->reg_lock);
 	/* CORB set up */
 	bus->corb.addr = bus->rb.addr;
@@ -54,11 +57,15 @@ void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 
 	/* reset the corb hw read pointer */
 	snd_hdac_chip_writew(bus, CORBRP, AZX_CORBRP_RST);
-	if (!bus->corbrp_self_clear)
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		snd_hdac_chip_writew(bus, CORBRP, 0);
+	else if (!bus->corbrp_self_clear)
 		azx_clear_corbrp(bus);
 
 	/* enable corb dma */
 	snd_hdac_chip_writeb(bus, CORBCTL, AZX_CORBCTL_RUN);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		snd_hdac_chip_readb(bus, CORBCTL);
 
 	/* RIRB set up */
 	bus->rirb.addr = bus->rb.addr + 2048;
@@ -75,7 +82,12 @@ void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 	/* set N=1, get RIRB response interrupt for new entry */
 	snd_hdac_chip_writew(bus, RINTCNT, 1);
 	/* enable rirb dma and response irq */
-	snd_hdac_chip_writeb(bus, RIRBCTL, AZX_RBCTL_DMA_EN | AZX_RBCTL_IRQ_EN);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+		snd_hdac_chip_writeb(bus, RIRBCTL, AZX_RBCTL_DMA_EN);
+		snd_hdac_chip_readb(bus, RIRBCTL);
+	}
+	else
+		snd_hdac_chip_writeb(bus, RIRBCTL, AZX_RBCTL_DMA_EN | AZX_RBCTL_IRQ_EN);
 	spin_unlock_irq(&bus->reg_lock);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_bus_init_cmd_io);
@@ -123,6 +135,18 @@ static unsigned int azx_command_addr(u32 cmd)
 
 	if (snd_BUG_ON(addr >= HDA_MAX_CODECS))
 		addr = 0;
+	return addr;
+}
+
+static unsigned int azx_response_addr(u32 res)
+{
+	unsigned int addr = res & 0xf;
+
+	if (addr >= AZX_MAX_CODECS) {
+		snd_BUG();
+		addr = 0;
+	}
+
 	return addr;
 }
 
@@ -200,13 +224,8 @@ void snd_hdac_bus_update_rirb(struct hdac_bus *bus)
 		rp = bus->rirb.rp << 1; /* an RIRB entry is 8-bytes */
 		res_ex = le32_to_cpu(bus->rirb.buf[rp + 1]);
 		res = le32_to_cpu(bus->rirb.buf[rp]);
-		addr = res_ex & 0xf;
-		if (addr >= HDA_MAX_CODECS) {
-			dev_err(bus->dev,
-				"spurious response %#x:%#x, rp = %d, wp = %d",
-				res, res_ex, bus->rirb.rp, wp);
-			snd_BUG();
-		} else if (res_ex & AZX_RIRB_EX_UNSOL_EV)
+		addr = azx_response_addr(res_ex);
+		if (res_ex & AZX_RIRB_EX_UNSOL_EV)
 			snd_hdac_bus_queue_event(bus, res, res_ex);
 		else if (bus->rirb.cmds[addr]) {
 			bus->rirb.res[addr] = res;
@@ -451,16 +470,24 @@ static void azx_int_disable(struct hdac_bus *bus)
 static void azx_int_clear(struct hdac_bus *bus)
 {
 	struct hdac_stream *azx_dev;
+	struct azx *chip = bus_to_azx(bus);
 
 	/* clear stream status */
-	list_for_each_entry(azx_dev, &bus->stream_list, list)
-		snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK);
+	list_for_each_entry(azx_dev, &bus->stream_list, list) {
+		if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+			snd_hdac_stream_updateb(azx_dev, SD_STS, 0, 0);
+		else
+			snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK);
+	}
 
 	/* clear STATESTS */
 	snd_hdac_chip_writew(bus, STATESTS, STATESTS_INT_MASK);
 
 	/* clear rirb status */
-	snd_hdac_chip_writeb(bus, RIRBSTS, RIRB_INT_MASK);
+	if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND)
+		snd_hdac_chip_updateb(bus, RIRBSTS, ~RIRB_INT_MASK, 0);
+	else
+		snd_hdac_chip_writeb(bus, RIRBSTS, RIRB_INT_MASK);
 
 	/* clear int status */
 	snd_hdac_chip_writel(bus, INTSTS, AZX_INT_CTRL_EN | AZX_INT_ALL_STREAM);
@@ -538,11 +565,17 @@ int snd_hdac_bus_handle_stream_irq(struct hdac_bus *bus, unsigned int status,
 	struct hdac_stream *azx_dev;
 	u8 sd_status;
 	int handled = 0;
+	struct azx *chip = bus_to_azx(bus);
 
 	list_for_each_entry(azx_dev, &bus->stream_list, list) {
 		if (status & azx_dev->sd_int_sta_mask) {
 			sd_status = snd_hdac_stream_readb(azx_dev, SD_STS);
-			snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK);
+			if (chip->driver_caps & AZX_DCAPS_LS2H_WORKAROUND) {
+				snd_hdac_stream_writeb(azx_dev, SD_STS, sd_status);
+				snd_hdac_stream_readb(azx_dev, SD_STS);
+			}
+			else
+				snd_hdac_stream_writeb(azx_dev, SD_STS, SD_INT_MASK);
 			handled |= 1 << azx_dev->index;
 			if (!azx_dev->substream || !azx_dev->running ||
 			    !(sd_status & SD_INT_COMPLETE))
