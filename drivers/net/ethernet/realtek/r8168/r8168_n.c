@@ -462,7 +462,7 @@ static void rtl8168_tx_timeout(struct net_device *dev, unsigned int txqueue);
 static void rtl8168_tx_timeout(struct net_device *dev);
 #endif
 static struct net_device_stats *rtl8168_get_stats(struct net_device *dev);
-static int rtl8168_rx_interrupt(struct net_device *, struct rtl8168_private *, napi_budget);
+static int rtl8168_rx_interrupt(struct net_device *, struct rtl8168_private *, napi_budget, u32 intsts);
 static int rtl8168_change_mtu(struct net_device *dev, int new_mtu);
 static void rtl8168_down(struct net_device *dev);
 
@@ -26095,6 +26095,10 @@ rtl8168_init_one(struct pci_dev *pdev,
 
         netif_carrier_off(dev);
 
+        tp->old_rx = 0;
+        tp->weird_hang_count = 0;
+        tp->weird_hang_recheck = 0;
+
         printk("%s", GPL_CLAIM);
 
 out:
@@ -27915,9 +27919,9 @@ static void rtl8168_reset_task(struct work_struct *work)
         rtl8168_wait_for_quiescence(dev);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-        rtl8168_rx_interrupt(dev, tp, &budget);
+        rtl8168_rx_interrupt(dev, tp, &budget, 0);
 #else
-        rtl8168_rx_interrupt(dev, tp, budget);
+        rtl8168_rx_interrupt(dev, tp, budget, 0);
 #endif  //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
 
         spin_lock_irqsave(&tp->lock, flags);
@@ -27941,6 +27945,37 @@ static void rtl8168_reset_task(struct work_struct *work)
                 }
                 rtl8168_schedule_work(dev, rtl8168_reset_task);
         }
+}
+
+static void rtl8168_recover(struct rtl8168_private *tp)
+{
+        unsigned long i, flags;
+        struct net_device *dev = tp->dev;
+
+        spin_lock_irqsave(&tp->lock, flags);
+#if 0
+        for (i = 0; i < NUM_RX_DESC; i++) {
+                if (tp->Rx_skbuff[i])
+                        rtl8168_free_rx_skb(tp, tp->Rx_skbuff + i,
+                                            tp->RxDescArray + i);
+        }
+
+        tp->cur_rx = 0;
+        tp->dirty_rx = 0;
+        memset(tp->Rx_skbuff, 0x0, NUM_RX_DESC * sizeof(struct sk_buff *));
+        memset(tp->RxDescArray, 0x0, NUM_RX_DESC * sizeof(struct RxDesc));
+
+        for (i = 0; i < NUM_RX_DESC; i++) {
+                if (!tp->Rx_skbuff[i])
+                        rtl8168_alloc_rx_skb(tp->pci_dev, tp->Rx_skbuff + i,
+                                           tp->RxDescArray + i, tp->rx_buf_sz);
+        }
+
+        rtl8168_mark_as_last_descriptor(tp->RxDescArray + NUM_RX_DESC - 1);
+#endif
+        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
+
+        spin_unlock_irqrestore(&tp->lock, flags);
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0)
@@ -28590,10 +28625,17 @@ rtl8168_rx_skb(struct rtl8168_private *tp,
 #endif
 }
 
+#ifdef CONFIG_R8168_NAPI
+#define CHKCNT 3
+#else
+#define CHKCNT 9
+#endif
+#define RX_EVENT (SYSErr | RxFIFOOver | RxDescUnavail | RxErr | RxOK)
+
 static int
 rtl8168_rx_interrupt(struct net_device *dev,
                      struct rtl8168_private *tp,
-                     napi_budget budget)
+                     napi_budget budget, u32 intsts)
 {
         unsigned int cur_rx, rx_left;
         unsigned int delta, count = 0;
@@ -28719,6 +28761,24 @@ process_pkt:
          */
         if ((tp->dirty_rx + NUM_RX_DESC == tp->cur_rx) && netif_msg_intr(tp))
                 printk(KERN_EMERG "%s: Rx buffers exhausted\n", dev->name);
+
+	if (intsts & RX_EVENT) {
+		if (tp->cur_rx != tp->old_rx) {
+                        tp->old_rx = tp->cur_rx;
+                        tp->weird_hang_recheck = 0;
+		} else {
+                        if (tp->weird_hang_recheck < CHKCNT)
+                                tp->weird_hang_recheck += 1;
+                        else {
+                                tp->weird_hang_count += 1;
+                                tp->weird_hang_recheck = 0;
+                                printk("r8168: Detected the %dth Weird Rx Hang:\n"
+		                       "  int_sts:0x%08x  cur_rx:0x%08x  dirty_rx:0x%08x\n",
+			               tp->weird_hang_count, intsts, tp->cur_rx, tp->dirty_rx);
+                                rtl8168_recover(tp);
+                        }
+		}
+	}
 
 rx_out:
         return count;
@@ -28859,9 +28919,9 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                         if (status & tp->intr_mask)
                                 tp->keep_intr_cnt = RTK_KEEP_INTERRUPT_COUNT;
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-                        rtl8168_rx_interrupt(dev, tp, &budget);
+                        rtl8168_rx_interrupt(dev, tp, &budget, status);
 #else
-                        rtl8168_rx_interrupt(dev, tp, budget);
+                        rtl8168_rx_interrupt(dev, tp, budget, status);
 #endif  //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
                         rtl8168_tx_interrupt(dev, tp);
 
@@ -28893,8 +28953,9 @@ static int rtl8168_poll(napi_ptr napi, napi_budget budget)
         unsigned int work_to_do = RTL_NAPI_QUOTA(budget, dev);
         unsigned int work_done;
         unsigned long flags;
+        int status = RTL_R16(IntrStatus);
 
-        work_done = rtl8168_rx_interrupt(dev, tp, budget);
+        work_done = rtl8168_rx_interrupt(dev, tp, budget, status);
 
         spin_lock_irqsave(&tp->lock, flags);
         rtl8168_tx_interrupt(dev, tp);
