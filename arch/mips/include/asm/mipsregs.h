@@ -386,6 +386,7 @@
 #define ST0_CU1			0x20000000
 #define ST0_CU2			0x40000000
 #define ST0_CU3			0x80000000
+#define ST0_MM			0x40000000	/* Loongson-3 naming */
 #define ST0_XX			0x80000000	/* MIPS IV naming */
 
 /*
