@@ -218,6 +218,11 @@ static void set_prefetch_parameters(void)
 		else if (cpu_has_cache_cdex_p)
 			cache_line_size = cpu_dcache_line_size();
 	}
+
+#ifdef CONFIG_CPU_LOONGSON3
+	clear_word_size = 16;
+#endif
+
 	/*
 	 * Too much unrolling will overflow the available space in
 	 * clear_space_array / copy_page_array.
@@ -232,11 +237,15 @@ static void set_prefetch_parameters(void)
 
 static void build_clear_store(u32 **buf, int off)
 {
+#ifdef CONFIG_CPU_LOONGSON3
+	uasm_i_gssq(buf, ZERO, ZERO, off, A0);
+#else
 	if (cpu_has_64bit_gp_regs || cpu_has_64bit_zero_reg) {
 		uasm_i_sd(buf, ZERO, off, A0);
 	} else {
 		uasm_i_sw(buf, ZERO, off, A0);
 	}
+#endif
 }
 
 static inline void build_clear_pref(u32 **buf, int off)
