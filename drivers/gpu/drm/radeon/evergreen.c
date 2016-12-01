@@ -1009,6 +1009,9 @@ static void evergreen_init_golden_registers(struct radeon_device *rdev)
 						 (const u32)ARRAY_SIZE(cypress_mgcg_init));
 		break;
 	case CHIP_JUNIPER:
+		if (rdev->pdev->subsystem_vendor == PCI_VENDOR_ID_ATI)
+			break; /* Fix hibernation for Loongson */
+
 		radeon_program_register_sequence(rdev,
 						 evergreen_golden_registers,
 						 (const u32)ARRAY_SIZE(evergreen_golden_registers));
