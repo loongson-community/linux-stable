@@ -1328,7 +1328,7 @@ bool radeon_atombios_sideport_present(struct radeon_device *rdev)
 				return true;
 			break;
 		default:
-			DRM_ERROR("Unsupported IGP table: %d %d\n", frev, crev);
+			DRM_INFO("Unsupported IGP table: %d %d\n", frev, crev);
 			break;
 		}
 	}
