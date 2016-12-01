@@ -107,9 +107,13 @@
 #endif
 
 #if defined(CONFIG_WEAK_REORDERING_BEYOND_LLSC) && defined(CONFIG_SMP)
-#define __WEAK_LLSC_MB		"	sync	\n"
+# ifdef CONFIG_LOONGSON3_ENHANCEMENT
+# define __WEAK_LLSC_MB		"	.set mips64r2\n synci 0\n .set mips0\n"
+# else
+# define __WEAK_LLSC_MB		"	sync	\n"
+# endif
 #else
-#define __WEAK_LLSC_MB		"		\n"
+# define __WEAK_LLSC_MB		"		\n"
 #endif
 
 #define set_mb(var, value) \
