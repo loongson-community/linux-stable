@@ -113,7 +113,8 @@ enum pgtable_bits {
 #if defined(CONFIG_64BIT) && defined(CONFIG_MIPS_HUGE_TLB_SUPPORT)
 	_PAGE_HUGE_SHIFT,
 #endif
-
+	_PAGE_PROTNONE_SHIFT,
+	_PAGE_SPECIAL_SHIFT,
 	/* Used by TLB hardware (placed in EntryLo*) */
 #if defined(CONFIG_CPU_HAS_RIXI)
 	_PAGE_NO_EXEC_SHIFT,
@@ -135,6 +136,9 @@ enum pgtable_bits {
 #if defined(CONFIG_64BIT) && defined(CONFIG_MIPS_HUGE_TLB_SUPPORT)
 # define _PAGE_HUGE		(1 << _PAGE_HUGE_SHIFT)
 #endif
+
+#define _PAGE_PROTNONE		(1<<_PAGE_PROTNONE_SHIFT)
+#define _PAGE_SPECIAL		(1<<_PAGE_SPECIAL_SHIFT)
 
 /* Used by TLB hardware (placed in EntryLo*) */
 #if defined(CONFIG_XPA)
@@ -258,7 +262,7 @@ static inline uint64_t pte_to_entrylo(unsigned long pte_val)
 #define __READABLE	(_PAGE_SILENT_READ | _PAGE_ACCESSED)
 #define __WRITEABLE	(_PAGE_SILENT_WRITE | _PAGE_WRITE | _PAGE_MODIFIED)
 
-#define _PAGE_CHG_MASK	(_PAGE_ACCESSED | _PAGE_MODIFIED |	\
+#define _PAGE_CHG_MASK	(_PAGE_ACCESSED | _PAGE_MODIFIED | _PAGE_SPECIAL | \
 			 _PFN_MASK | _CACHE_MASK)
 
 #endif /* _ASM_PGTABLE_BITS_H */
