@@ -24,8 +24,8 @@
 
 #include <loongson.h>
 #include <mc146818rtc.h>
+#include <loongson-pch.h>
 
-extern void irq_router_init(void);
 extern void acpi_sleep_prepare(void);
 extern void acpi_sleep_complete(void);
 extern void acpi_registers_setup(void);
@@ -131,7 +131,8 @@ void mach_resume(void)
 		write_c0_userlocal(loongson_regs.userlocal);
 	}
 
-	irq_router_init();
+	loongson_pch->early_config();
+	loongson_pch->init_irq();
 	acpi_registers_setup();
 	acpi_sleep_complete();
 }

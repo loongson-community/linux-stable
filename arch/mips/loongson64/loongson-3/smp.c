@@ -27,6 +27,7 @@
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
 #include <loongson.h>
+#include <loongson-pch.h>
 #include <loongson_regs.h>
 #include <workarounds.h>
 
@@ -318,8 +319,6 @@ loongson3_send_ipi_mask(const struct cpumask *mask, unsigned int action)
 		ipi_write_action(cpu_logical_map(i), (u32)action);
 }
 
-#define IPI_IRQ_OFFSET 6
-
 void loongson3_send_irq_by_ipi(int cpu, int irqs)
 {
 	ipi_write_action(cpu_logical_map(cpu), irqs << IPI_IRQ_OFFSET);
@@ -353,8 +352,9 @@ void loongson3_ipi_interrupt(struct pt_regs *regs)
 
 	if (irqs) {
 		int irq;
+
 		while ((irq = ffs(irqs))) {
-			do_IRQ(irq-1);
+			do_IRQ(loongson_ipi_pos2irq[irq-1]);
 			irqs &= ~(1<<(irq-1));
 		}
 	}

@@ -105,7 +105,9 @@ static int __populate_cache_leaves(unsigned int cpu)
 	if (c->tcache.waysize)
 		populate_cache(tcache, this_leaf, 3, CACHE_TYPE_UNIFIED);
 
+#ifndef CONFIG_CPU_LOONGSON3
 	this_cpu_ci->cpu_map_populated = true;
+#endif
 
 	return 0;
 }

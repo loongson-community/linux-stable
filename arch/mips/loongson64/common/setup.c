@@ -9,7 +9,10 @@
  */
 #include <linux/export.h>
 #include <linux/init.h>
+#include <linux/libfdt.h>
+#include <linux/of_fdt.h>
 
+#include <asm/prom.h>
 #include <asm/wbflush.h>
 #include <asm/bootinfo.h>
 
@@ -52,4 +55,16 @@ void __init plat_mem_setup(void)
 	conswitchp = &dummy_con;
 #endif
 #endif
+	if (loongson_fdt_blob)
+		__dt_setup_arch(loongson_fdt_blob);
+}
+
+#define NR_CELLS 6
+
+void __init device_tree_init(void)
+{
+	if (!initial_boot_params)
+		return;
+
+	unflatten_and_copy_device_tree();
 }
