@@ -42,7 +42,7 @@ static void crash_kexec_prepare_cpus(void)
 
 	unsigned int ncpus = num_online_cpus() - 1;/* Excluding the panic cpu */
 
-	dump_send_ipi(crash_shutdown_secondary);
+	smp_call_function(crash_shutdown_secondary, NULL, 0);
 	smp_wmb();
 
 	/*
