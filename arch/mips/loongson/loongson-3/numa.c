@@ -20,6 +20,7 @@
 #include <linux/bootmem.h>
 #include <linux/pfn.h>
 #include <linux/highmem.h>
+#include <linux/crash_dump.h>
 #include <asm/page.h>
 #include <asm/pgalloc.h>
 #include <asm/sections.h>
@@ -262,20 +263,43 @@ static __init void prom_meminit(void)
 	}
 }
 
+static void reserve_oldmem_region(int node, unsigned long s0, unsigned long e0)
+{
+	unsigned long s1, e1;
+
+	if (!is_kdump_kernel())
+		return;
+
+	s1 = PFN_UP(boot_mem_map.map[0].addr);
+	e1 = PFN_DOWN(boot_mem_map.map[0].addr + boot_mem_map.map[0].size);
+
+	if (node == 0) {
+		reserve_bootmem_node(NODE_DATA(node), PFN_PHYS(s0),
+				(s1 - s0) << PAGE_SHIFT, BOOTMEM_DEFAULT);
+		reserve_bootmem_node(NODE_DATA(node), PFN_PHYS(e1),
+				(e0 - e1) << PAGE_SHIFT, BOOTMEM_DEFAULT);
+	} else {
+		reserve_bootmem_node(NODE_DATA(node), PFN_PHYS(s0),
+				(e0 - s0) << PAGE_SHIFT, BOOTMEM_DEFAULT);
+	}
+}
+
 void __init paging_init(void)
 {
-	unsigned node;
+	unsigned int node;
 	unsigned long zones_size[MAX_NR_ZONES] = {0, };
 
 	pagetable_init();
 
 	for_each_online_node(node) {
-		unsigned long  start_pfn, end_pfn;
+		unsigned long start_pfn, end_pfn;
 
 		get_pfn_range_for_nid(node, &start_pfn, &end_pfn);
 
 		if (end_pfn > max_low_pfn)
 			max_low_pfn = end_pfn;
+
+		reserve_oldmem_region(node, start_pfn, end_pfn);
 	}
 #ifdef CONFIG_ZONE_DMA32
 	zones_size[ZONE_DMA32] = MAX_DMA32_PFN;
