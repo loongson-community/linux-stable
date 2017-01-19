@@ -99,6 +99,8 @@ void __init prom_init_env(void)
 	if (memsize == 0)
 		memsize = 256;
 #else
+	int i;
+
 	/* firmware arguments are initialized in head.S */
 	boot_p = (struct boot_params *)fw_arg2;
 	loongson_p = &(boot_p->efi.smbios.lp);
@@ -166,6 +168,13 @@ void __init prom_init_env(void)
 	cpu_clock_freq = ecpu->cpu_clock_freq;
 	loongson_boot_cpu_id = ecpu->cpu_startup_core_id;
 	loongson_reserved_cpus_mask = ecpu->reserved_cores_mask;
+#ifdef CONFIG_KEXEC
+	loongson_boot_cpu_id = read_c0_ebase() & 0x3ff;
+	for (i = 0; i < loongson_boot_cpu_id; i++)
+		loongson_reserved_cpus_mask |= (1<<i);
+	pr_info("Boot CPU ID is being fixed from %d to %d\n",
+		ecpu->cpu_startup_core_id, loongson_boot_cpu_id);
+#endif
 	if (nr_cpus_loongson > NR_CPUS || nr_cpus_loongson == 0)
 		nr_cpus_loongson = NR_CPUS;
 	nr_nodes_loongson = (nr_cpus_loongson + cores_per_node - 1) / cores_per_node;
