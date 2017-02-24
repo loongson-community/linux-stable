@@ -3335,7 +3335,7 @@ static int do_numa_page(struct fault_env *fe, pte_t pte)
 	int last_cpupid;
 	int target_nid;
 	bool migrated = false;
-	bool was_writable = pte_write(pte);
+	bool was_writable = pte_savedwrite(pte);
 	int flags = 0;
 
 	/*
