@@ -872,7 +872,8 @@ static int write_protect_page(struct vm_area_struct *vma, struct page *page,
 	if (!ptep)
 		goto out_mn;
 
-	if (pte_write(*ptep) || pte_dirty(*ptep)) {
+	if (pte_write(*ptep) || pte_dirty(*ptep) ||
+	    (pte_protnone(*ptep) && pte_savedwrite(*ptep))) {
 		pte_t entry;
 
 		swapped = PageSwapCache(page);
@@ -897,7 +898,11 @@ static int write_protect_page(struct vm_area_struct *vma, struct page *page,
 		}
 		if (pte_dirty(entry))
 			set_page_dirty(page);
-		entry = pte_mkclean(pte_wrprotect(entry));
+
+		if (pte_protnone(entry))
+			entry = pte_mkclean(pte_clear_savedwrite(entry));
+		else
+			entry = pte_mkclean(pte_wrprotect(entry));
 		set_pte_at_notify(mm, addr, ptep, entry);
 	}
 	*orig_pte = *ptep;
