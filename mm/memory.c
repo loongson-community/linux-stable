@@ -3099,7 +3099,7 @@ static int do_numa_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	int last_cpupid;
 	int target_nid;
 	bool migrated = false;
-	bool was_writable = pte_write(pte);
+	bool was_writable = pte_savedwrite(pte);
 	int flags = 0;
 
 	/*
