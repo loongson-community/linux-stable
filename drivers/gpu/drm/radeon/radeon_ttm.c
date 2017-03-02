@@ -137,6 +137,10 @@ static int radeon_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 		man->flags = TTM_MEMTYPE_FLAG_MAPPABLE;
 		man->available_caching = TTM_PL_MASK_CACHING;
 		man->default_caching = TTM_PL_FLAG_CACHED;
+		if (!plat_device_is_coherent(NULL)) {
+			man->default_caching = TTM_PL_FLAG_WC;
+			man->available_caching &= ~TTM_PL_FLAG_CACHED;
+		}
 		break;
 	case TTM_PL_TT:
 		man->func = &ttm_bo_manager_func;
@@ -144,6 +148,10 @@ static int radeon_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 		man->available_caching = TTM_PL_MASK_CACHING;
 		man->default_caching = TTM_PL_FLAG_CACHED;
 		man->flags = TTM_MEMTYPE_FLAG_MAPPABLE | TTM_MEMTYPE_FLAG_CMA;
+		if (!plat_device_is_coherent(NULL)) {
+			man->default_caching = TTM_PL_FLAG_WC;
+			man->available_caching &= ~TTM_PL_FLAG_CACHED;
+		}
 #if IS_ENABLED(CONFIG_AGP)
 		if (rdev->flags & RADEON_IS_AGP) {
 			if (!rdev->ddev->agp) {
@@ -185,6 +193,9 @@ static void radeon_evict_flags(struct ttm_buffer_object *bo,
 	};
 
 	struct radeon_bo *rbo;
+
+	if (!plat_device_is_coherent(NULL))
+		placements.flags &= ~TTM_PL_FLAG_CACHED;
 
 	if (!radeon_ttm_bo_is_radeon_bo(bo)) {
 		placement->placement = &placements;
@@ -328,6 +339,9 @@ static int radeon_move_vram_ram(struct ttm_buffer_object *bo,
 	placements.fpfn = 0;
 	placements.lpfn = 0;
 	placements.flags = TTM_PL_MASK_CACHING | TTM_PL_FLAG_TT;
+	if (!plat_device_is_coherent(NULL))
+		placements.flags &= ~TTM_PL_FLAG_CACHED;
+
 	r = ttm_bo_mem_space(bo, &placement, &tmp_mem,
 			     interruptible, no_wait_gpu);
 	if (unlikely(r)) {
@@ -375,6 +389,9 @@ static int radeon_move_ram_vram(struct ttm_buffer_object *bo,
 	placements.fpfn = 0;
 	placements.lpfn = 0;
 	placements.flags = TTM_PL_MASK_CACHING | TTM_PL_FLAG_TT;
+	if (!plat_device_is_coherent(NULL))
+		placements.flags &= ~TTM_PL_FLAG_CACHED;
+
 	r = ttm_bo_mem_space(bo, &placement, &tmp_mem,
 			     interruptible, no_wait_gpu);
 	if (unlikely(r)) {
