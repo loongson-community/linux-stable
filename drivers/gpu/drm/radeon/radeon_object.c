@@ -95,19 +95,27 @@ void radeon_ttm_placement_from_domain(struct radeon_bo *rbo, u32 domain)
 	if (domain & RADEON_GEM_DOMAIN_GTT) {
 		if (rbo->rdev->flags & RADEON_IS_AGP) {
 			rbo->placements[c++] = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT;
-		} else {
+		} else if (plat_device_is_coherent(NULL)) {
 			rbo->placements[c++] = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_TT;
+		} else {
+			rbo->placements[c++] = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_TT;
 		}
 	}
 	if (domain & RADEON_GEM_DOMAIN_CPU) {
 		if (rbo->rdev->flags & RADEON_IS_AGP) {
 			rbo->placements[c++] = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM;
-		} else {
+		} else if (plat_device_is_coherent(NULL)) {
 			rbo->placements[c++] = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_SYSTEM;
+		} else {
+			rbo->placements[c++] = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
 		}
 	}
-	if (!c)
-		rbo->placements[c++] = TTM_PL_MASK_CACHING | TTM_PL_FLAG_SYSTEM;
+	if (!c) {
+		if (plat_device_is_coherent(NULL))
+			rbo->placements[c++] = TTM_PL_MASK_CACHING | TTM_PL_FLAG_SYSTEM;
+		else
+			rbo->placements[c++] = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
+	}
 	rbo->placement.num_placement = c;
 	rbo->placement.num_busy_placement = c;
 }

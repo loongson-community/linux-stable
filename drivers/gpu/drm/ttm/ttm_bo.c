@@ -40,6 +40,8 @@
 #include <linux/file.h>
 #include <linux/module.h>
 #include <linux/atomic.h>
+#include <linux/dma-mapping.h>
+#include <dma-coherence.h>
 
 #define TTM_ASSERT_LOCKED(param)
 #define TTM_DEBUG(fmt, arg...)
@@ -889,6 +891,9 @@ static uint32_t ttm_bo_select_caching(struct ttm_mem_type_manager *man,
 {
 	uint32_t caching = proposed_placement & TTM_PL_MASK_CACHING;
 	uint32_t result = proposed_placement & ~TTM_PL_MASK_CACHING;
+
+	if (!plat_device_is_coherent(NULL))
+		caching &= ~TTM_PL_FLAG_CACHED;
 
 	/**
 	 * Keep current caching if possible.
