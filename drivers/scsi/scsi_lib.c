@@ -2047,7 +2047,10 @@ static void __scsi_init_queue(struct Scsi_Host *shost, struct request_queue *q)
 	 *
 	 * Devices that require a bigger alignment can increase it later.
 	 */
-	blk_queue_dma_alignment(q, max(4, dma_get_cache_alignment()) - 1);
+	if (plat_device_is_coherent(dev))
+		blk_queue_dma_alignment(q, 0x04 - 1);
+	else
+		blk_queue_dma_alignment(q, dma_get_cache_alignment() - 1);
 }
 
 struct request_queue *__scsi_alloc_queue(struct Scsi_Host *shost,
