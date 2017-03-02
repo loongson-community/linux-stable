@@ -1680,7 +1680,7 @@ struct request_queue *__scsi_alloc_queue(struct Scsi_Host *shost,
 	 * host and device may alter it using
 	 * blk_queue_update_dma_alignment() later.
 	 */
-	blk_queue_dma_alignment(q, 0x03);
+	blk_queue_dma_alignment(q, max(4, dma_get_cache_alignment()) - 1);
 
 	return q;
 }

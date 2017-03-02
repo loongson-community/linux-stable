@@ -109,11 +109,15 @@ static inline int plat_dma_mapping_error(struct device *dev,
 
 static inline int plat_device_is_coherent(struct device *dev)
 {
-#ifdef CONFIG_DMA_NONCOHERENT
-	return 0;
-#else
-	return 1;
-#endif /* CONFIG_DMA_NONCOHERENT */
+	switch (coherentio) {
+	default:
+	case IO_COHERENCE_DEFAULT:
+		return hw_coherentio;
+	case IO_COHERENCE_ENABLED:
+		return 1;
+	case IO_COHERENCE_DISABLED:
+		return 0;
+	}
 }
 
 #endif /* __ASM_MACH_LOONGSON_DMA_COHERENCE_H */
