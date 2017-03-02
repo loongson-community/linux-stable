@@ -20,6 +20,7 @@
 #include <linux/export.h>
 #include <asm/time.h>
 #include <asm/bootinfo.h>
+#include <asm/dma-coherence.h>
 #include <loongson.h>
 #include <boot_param.h>
 #include <workarounds.h>
@@ -176,6 +177,8 @@ void __init prom_init_env(void)
 	if (loongson_sysconf.dma_mask_bits < 32 ||
 		loongson_sysconf.dma_mask_bits > 64)
 		loongson_sysconf.dma_mask_bits = 32;
+	hw_coherentio = !eirq_source->dma_noncoherent;
+	pr_info("BIOS configured I/O coherency: %s\n", hw_coherentio?"ON":"OFF");
 
 	loongson_sysconf.restart_addr = boot_p->reset_system.ResetWarm;
 	loongson_sysconf.poweroff_addr = boot_p->reset_system.Shutdown;
