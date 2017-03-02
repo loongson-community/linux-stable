@@ -146,9 +146,12 @@ static void amdgpu_ttm_placement_init(struct amdgpu_device *adev,
 			placements[c].fpfn = 0;
 			placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT |
 				TTM_PL_FLAG_UNCACHED;
-		} else {
+		} else if (plat_device_is_coherent(NULL)) {
 			placements[c].fpfn = 0;
 			placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_TT;
+		} else {
+			placements[c].fpfn = 0;
+			placements[c++].flags = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_TT;
 		}
 	}
 
@@ -157,9 +160,12 @@ static void amdgpu_ttm_placement_init(struct amdgpu_device *adev,
 			placements[c].fpfn = 0;
 			placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM |
 				TTM_PL_FLAG_UNCACHED;
-		} else {
+		} else if (plat_device_is_coherent(NULL)) {
 			placements[c].fpfn = 0;
 			placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_SYSTEM;
+		} else {
+			placements[c].fpfn = 0;
+			placements[c++].flags = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
 		}
 	}
 
@@ -180,9 +186,15 @@ static void amdgpu_ttm_placement_init(struct amdgpu_device *adev,
 	}
 
 	if (!c) {
-		placements[c].fpfn = 0;
-		placements[c++].flags = TTM_PL_MASK_CACHING |
-			TTM_PL_FLAG_SYSTEM;
+		if (plat_device_is_coherent(NULL)) {
+			placements[c].fpfn = 0;
+			placements[c++].flags = TTM_PL_MASK_CACHING |
+				TTM_PL_FLAG_SYSTEM;
+		} else {
+			placements[c].fpfn = 0;
+			placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED |
+				TTM_PL_FLAG_SYSTEM;
+		}
 	}
 	placement->num_placement = c;
 	placement->num_busy_placement = c;

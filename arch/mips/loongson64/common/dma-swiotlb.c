@@ -9,6 +9,11 @@
 #include <boot_param.h>
 #include <dma-coherence.h>
 
+static inline void *dma_to_virt(struct device *dev, dma_addr_t dma_addr)
+{
+	return phys_to_virt(dma_to_phys(dev, dma_addr));
+}
+
 static void *loongson_dma_alloc_coherent(struct device *dev, size_t size,
 		dma_addr_t *dma_handle, gfp_t gfp, struct dma_attrs *attrs)
 {
@@ -36,14 +41,50 @@ static void *loongson_dma_alloc_coherent(struct device *dev, size_t size,
 	gfp |= __GFP_NORETRY;
 
 	ret = swiotlb_alloc_coherent(dev, size, dma_handle, gfp);
+	if (!plat_device_is_coherent(dev)) {
+		dma_cache_wback_inv((unsigned long)dma_to_virt(dev, *dma_handle), size);
+		ret = UNCAC_ADDR(ret);
+	}
 	mb();
+
 	return ret;
 }
 
 static void loongson_dma_free_coherent(struct device *dev, size_t size,
 		void *vaddr, dma_addr_t dma_handle, struct dma_attrs *attrs)
 {
+	if (!plat_device_is_coherent(dev)) {
+		vaddr = CAC_ADDR(vaddr);
+		dma_cache_wback_inv((unsigned long)dma_to_virt(dev, dma_handle), size);
+	}
 	swiotlb_free_coherent(dev, size, vaddr, dma_handle);
+}
+
+static int loongson_dma_mmap(struct device *dev, struct vm_area_struct *vma,
+	void *cpu_addr, dma_addr_t dma_addr, size_t size, struct dma_attrs *attrs)
+{
+	int ret = -ENXIO;
+	unsigned long user_count = vma_pages(vma);
+	unsigned long count = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	unsigned long pfn = page_to_pfn(virt_to_page(cpu_addr));
+	unsigned long off = vma->vm_pgoff;
+
+	if (!plat_device_is_coherent(dev)) {
+		if (dma_get_attr(DMA_ATTR_WRITE_COMBINE, attrs))
+			vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+		else
+			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	}
+
+	if (dma_mmap_from_coherent(dev, vma, cpu_addr, size, &ret))
+		return ret;
+
+	if (off < count && user_count <= (count - off)) {
+		ret = remap_pfn_range(vma, vma->vm_start, pfn + off,
+				      user_count << PAGE_SHIFT, vma->vm_page_prot);
+	}
+
+	return ret;
 }
 
 static dma_addr_t loongson_dma_map_page(struct device *dev, struct page *page,
@@ -53,18 +94,60 @@ static dma_addr_t loongson_dma_map_page(struct device *dev, struct page *page,
 {
 	dma_addr_t daddr = swiotlb_map_page(dev, page, offset, size,
 					dir, attrs);
+	if (!plat_device_is_coherent(dev))
+		dma_cache_sync(dev, dma_to_virt(dev, daddr), size, dir);
 	mb();
+
 	return daddr;
 }
 
-static int loongson_dma_map_sg(struct device *dev, struct scatterlist *sg,
+static void loongson_dma_unmap_page(struct device *dev, dma_addr_t dev_addr,
+			size_t size, enum dma_data_direction dir,
+			struct dma_attrs *attrs)
+{
+	if (!plat_device_is_coherent(dev))
+		dma_cache_sync(dev, dma_to_virt(dev, dev_addr), size, dir);
+	swiotlb_unmap_page(dev, dev_addr, size, dir, attrs);
+}
+
+static int loongson_dma_map_sg(struct device *dev, struct scatterlist *sgl,
 				int nents, enum dma_data_direction dir,
 				struct dma_attrs *attrs)
 {
-	int r = swiotlb_map_sg_attrs(dev, sg, nents, dir, NULL);
+	int i, r;
+	struct scatterlist *sg;
+
+	r = swiotlb_map_sg_attrs(dev, sgl, nents, dir, NULL);
+	if (!plat_device_is_coherent(dev)) {
+		for_each_sg(sgl, sg, nents, i)
+			dma_cache_sync(dev, dma_to_virt(dev, sg->dma_address), sg->length, dir);
+	}
 	mb();
 
 	return r;
+}
+
+static void loongson_dma_unmap_sg(struct device *dev, struct scatterlist *sgl,
+			int nelems, enum dma_data_direction dir,
+			struct dma_attrs *attrs)
+{
+	int i;
+	struct scatterlist *sg;
+
+	if (!plat_device_is_coherent(dev) && dir != DMA_TO_DEVICE) {
+		for_each_sg(sgl, sg, nelems, i)
+			dma_cache_sync(dev, dma_to_virt(dev, sg->dma_address), sg->length, dir);
+	}
+
+	swiotlb_unmap_sg_attrs(dev, sgl, nelems, dir, attrs);
+}
+
+static void loongson_dma_sync_single_for_cpu(struct device *dev, dma_addr_t dev_addr,
+			size_t size, enum dma_data_direction dir)
+{
+	if (!plat_device_is_coherent(dev))
+		dma_cache_sync(dev, dma_to_virt(dev, dev_addr), size, dir);
+	swiotlb_sync_single_for_cpu(dev, dev_addr, size, dir);
 }
 
 static void loongson_dma_sync_single_for_device(struct device *dev,
@@ -72,14 +155,41 @@ static void loongson_dma_sync_single_for_device(struct device *dev,
 				enum dma_data_direction dir)
 {
 	swiotlb_sync_single_for_device(dev, dma_handle, size, dir);
+	if (!plat_device_is_coherent(dev))
+		dma_cache_sync(dev, dma_to_virt(dev, dma_handle), size, dir);
 	mb();
 }
 
-static void loongson_dma_sync_sg_for_device(struct device *dev,
-				struct scatterlist *sg, int nents,
+static void loongson_dma_sync_sg_for_cpu(struct device *dev,
+				struct scatterlist *sgl, int nents,
 				enum dma_data_direction dir)
 {
-	swiotlb_sync_sg_for_device(dev, sg, nents, dir);
+	int i;
+	struct scatterlist *sg;
+
+	if (!plat_device_is_coherent(dev)) {
+		for_each_sg(sgl, sg, nents, i) {
+			dma_cache_sync(dev, dma_to_virt(dev,
+				sg->dma_address), sg->length, dir);
+		}
+	}
+	swiotlb_sync_sg_for_cpu(dev, sgl, nents, dir);
+}
+
+static void loongson_dma_sync_sg_for_device(struct device *dev,
+				struct scatterlist *sgl, int nents,
+				enum dma_data_direction dir)
+{
+	int i;
+	struct scatterlist *sg;
+
+	swiotlb_sync_sg_for_device(dev, sgl, nents, dir);
+	if (!plat_device_is_coherent(dev)) {
+		for_each_sg(sgl, sg, nents, i) {
+			dma_cache_sync(dev, dma_to_virt(dev,
+				sg->dma_address), sg->length, dir);
+		}
+	}
 	mb();
 }
 
@@ -125,13 +235,14 @@ phys_addr_t dma_to_phys(struct device *dev, dma_addr_t daddr)
 static struct dma_map_ops loongson_dma_map_ops = {
 	.alloc = loongson_dma_alloc_coherent,
 	.free = loongson_dma_free_coherent,
+	.mmap = loongson_dma_mmap,
 	.map_page = loongson_dma_map_page,
-	.unmap_page = swiotlb_unmap_page,
+	.unmap_page = loongson_dma_unmap_page,
 	.map_sg = loongson_dma_map_sg,
-	.unmap_sg = swiotlb_unmap_sg_attrs,
-	.sync_single_for_cpu = swiotlb_sync_single_for_cpu,
+	.unmap_sg = loongson_dma_unmap_sg,
+	.sync_single_for_cpu = loongson_dma_sync_single_for_cpu,
 	.sync_single_for_device = loongson_dma_sync_single_for_device,
-	.sync_sg_for_cpu = swiotlb_sync_sg_for_cpu,
+	.sync_sg_for_cpu = loongson_dma_sync_sg_for_cpu,
 	.sync_sg_for_device = loongson_dma_sync_sg_for_device,
 	.mapping_error = swiotlb_dma_mapping_error,
 	.dma_supported = swiotlb_dma_supported,
