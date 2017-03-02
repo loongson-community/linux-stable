@@ -34,6 +34,7 @@
 #include <drm/drmP.h>
 #include <drm/amdgpu_drm.h>
 #include <drm/drm_cache.h>
+#include <asm/dma-coherence.h>
 #include "amdgpu.h"
 #include "amdgpu_trace.h"
 #include "amdgpu_amdkfd.h"
@@ -148,8 +149,10 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 
 		places[c].fpfn = 0;
 		places[c].lpfn = 0;
-		places[c].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED |
-			TTM_PL_FLAG_VRAM;
+		places[c].flags = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_VRAM;
+
+		if (flags & AMDGPU_GEM_CREATE_CPU_GTT_USWC)
+			places[c].flags |= TTM_PL_FLAG_WC;
 
 		if (flags & AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED)
 			places[c].lpfn = visible_pfn;
@@ -171,8 +174,10 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 		if (flags & AMDGPU_GEM_CREATE_CPU_GTT_USWC)
 			places[c].flags |= TTM_PL_FLAG_WC |
 				TTM_PL_FLAG_UNCACHED;
-		else
+		else if (dev_is_coherent(NULL))
 			places[c].flags |= TTM_PL_FLAG_CACHED;
+		else
+			places[c].flags |= TTM_PL_FLAG_UNCACHED;
 		c++;
 	}
 
@@ -183,8 +188,10 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 		if (flags & AMDGPU_GEM_CREATE_CPU_GTT_USWC)
 			places[c].flags |= TTM_PL_FLAG_WC |
 				TTM_PL_FLAG_UNCACHED;
-		else
+		else if (dev_is_coherent(NULL))
 			places[c].flags |= TTM_PL_FLAG_CACHED;
+		else
+			places[c].flags |= TTM_PL_FLAG_UNCACHED;
 		c++;
 	}
 
@@ -212,7 +219,10 @@ void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain)
 	if (!c) {
 		places[c].fpfn = 0;
 		places[c].lpfn = 0;
-		places[c].flags = TTM_PL_MASK_CACHING | TTM_PL_FLAG_SYSTEM;
+		if (dev_is_coherent(NULL))
+			places[c].flags = TTM_PL_MASK_CACHING | TTM_PL_FLAG_SYSTEM;
+		else
+			places[c].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
 		c++;
 	}
 

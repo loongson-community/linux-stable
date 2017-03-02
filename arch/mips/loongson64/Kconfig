@@ -91,6 +91,7 @@ config LOONGSON_MACH3X
 	select SYS_SUPPORTS_LITTLE_ENDIAN
 	select LOONGSON_MC146818
 	select ZONE_DMA32
+	select DMA_MAYBE_COHERENT
 	select LEFI_FIRMWARE_INTERFACE
 	help
 		Generic Loongson 3 family machines utilize the 3A/3B revision

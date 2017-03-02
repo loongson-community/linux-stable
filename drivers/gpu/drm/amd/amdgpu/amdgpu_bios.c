@@ -26,6 +26,7 @@
  *          Jerome Glisse
  */
 #include <drm/drmP.h>
+#include <drm/drm_cache.h>
 #include "amdgpu.h"
 #include "atom.h"
 
@@ -98,7 +99,10 @@ static bool igp_read_bios_from_vram(struct amdgpu_device *adev)
 
 	adev->bios = NULL;
 	vram_base = pci_resource_start(adev->pdev, 0);
-	bios = ioremap_wc(vram_base, size);
+	if (drm_arch_can_wc_memory())
+		bios = ioremap_wc(vram_base, size);
+	else
+		bios = ioremap_uc(vram_base, size);
 	if (!bios) {
 		return false;
 	}
