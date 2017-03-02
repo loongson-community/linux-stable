@@ -100,7 +100,7 @@ int amdgpu_vm_fragment_size = -1;
 int amdgpu_vm_block_size = -1;
 int amdgpu_vm_fault_stop = 0;
 int amdgpu_vm_debug = 0;
-int amdgpu_vram_page_split = 512;
+int amdgpu_vram_page_split = 1024;
 int amdgpu_vm_update_mode = -1;
 int amdgpu_exp_hw_support = 0;
 int amdgpu_dc = -1;
@@ -319,9 +319,9 @@ module_param_named(vm_update_mode, amdgpu_vm_update_mode, int, 0444);
 
 /**
  * DOC: vram_page_split (int)
- * Override the number of pages after we split VRAM allocations (default 512, -1 = disable). The default is 512.
+ * Override the number of pages after we split VRAM allocations (default 1024, -1 = disable). The default is 1024.
  */
-MODULE_PARM_DESC(vram_page_split, "Number of pages after we split VRAM allocations (default 512, -1 = disable)");
+MODULE_PARM_DESC(vram_page_split, "Number of pages after we split VRAM allocations (default 1024, -1 = disable)");
 module_param_named(vram_page_split, amdgpu_vram_page_split, int, 0444);
 
 /**

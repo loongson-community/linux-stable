@@ -42,6 +42,8 @@
 #include <linux/module.h>
 #include <linux/atomic.h>
 #include <linux/reservation.h>
+#include <linux/dma-mapping.h>
+#include <asm/dma-coherence.h>
 
 static void ttm_bo_global_kobj_release(struct kobject *kobj);
 
@@ -843,6 +845,9 @@ static uint32_t ttm_bo_select_caching(struct ttm_mem_type_manager *man,
 {
 	uint32_t caching = proposed_placement & TTM_PL_MASK_CACHING;
 	uint32_t result = proposed_placement & ~TTM_PL_MASK_CACHING;
+
+	if (!dev_is_coherent(NULL))
+		caching &= ~TTM_PL_FLAG_CACHED;
 
 	/**
 	 * Keep current caching if possible.

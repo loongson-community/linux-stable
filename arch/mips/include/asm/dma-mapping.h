@@ -5,11 +5,14 @@
 #include <linux/swiotlb.h>
 
 extern const struct dma_map_ops jazz_dma_ops;
+extern const struct dma_map_ops loongson_dma_ops;
 
 static inline const struct dma_map_ops *get_arch_dma_ops(struct bus_type *bus)
 {
 #if defined(CONFIG_MACH_JAZZ)
 	return &jazz_dma_ops;
+#elif defined(CONFIG_CPU_LOONGSON3)
+	return &loongson_dma_ops;
 #elif defined(CONFIG_SWIOTLB)
 	return &swiotlb_dma_ops;
 #elif defined(CONFIG_DMA_NONCOHERENT_OPS)

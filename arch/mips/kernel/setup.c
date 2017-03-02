@@ -1127,6 +1127,7 @@ arch_initcall(debugfs_mips);
 enum coherent_io_user_state coherentio = IO_COHERENCE_DEFAULT;
 EXPORT_SYMBOL_GPL(coherentio);
 int hw_coherentio = 0;	/* Actual hardware supported DMA coherency setting. */
+EXPORT_SYMBOL_GPL(hw_coherentio);
 
 static int __init setcoherentio(char *str)
 {

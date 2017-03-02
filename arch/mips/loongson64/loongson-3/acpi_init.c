@@ -132,7 +132,7 @@ static int __init power_button_init(void)
 	int ret;
 	struct pci_dev *dev;
 
-	dev = pci_get_bus_and_slot(0, 0);
+	dev = pci_get_domain_bus_and_slot(0, 0, 0);
 	switch (dev->vendor) {
 	case PCI_VENDOR_ID_AMD:
 	case PCI_VENDOR_ID_ATI:
