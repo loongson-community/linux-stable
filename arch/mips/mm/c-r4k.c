@@ -1153,6 +1153,7 @@ static void __cpuinit probe_vcache(void)
 	vcache_size = c->vcache.sets * c->vcache.ways * c->vcache.linesz;
 
 	c->vcache.waybit = 0;
+	c->vcache.waysize = vcache_size / c->vcache.ways;
 
 	if (system_state == SYSTEM_BOOTING)
 		pr_info("Unified victim cache %ldkB %s, linesize %d bytes.\n",
@@ -1258,6 +1259,7 @@ static void __init loongson3_sc_init(void)
 	/* Loongson-3 has 4 cores, 1MB scache for each. scaches are shared */
 	scache_size *= 4;
 	c->scache.waybit = 0;
+	c->scache.waysize = scache_size / c->scache.ways;
 	if (system_state == SYSTEM_BOOTING)
 		pr_info("Unified secondary cache %ldkB %s, linesize %d bytes.\n",
 		       scache_size >> 10, way_string[c->scache.ways], c->scache.linesz);
