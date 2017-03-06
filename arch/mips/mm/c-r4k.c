@@ -342,10 +342,33 @@ static void __cpuinit r4k_blast_scache_setup(void)
 		r4k_blast_scache = blast_scache128;
 }
 
+static void (* r4k_blast_scache_node)(long node);
+
+static void __cpuinit r4k_blast_scache_node_setup(void)
+{
+	unsigned long sc_lsize = cpu_scache_line_size();
+
+	r4k_blast_scache_node = (void *)cache_noop;
+#ifdef CONFIG_CPU_LOONGSON3
+	if (sc_lsize == 16)
+		r4k_blast_scache_node = blast_scache16_node;
+	else if (sc_lsize == 32)
+		r4k_blast_scache_node = blast_scache32_node;
+	else if (sc_lsize == 64)
+		r4k_blast_scache_node = blast_scache64_node;
+	else if (sc_lsize == 128)
+		r4k_blast_scache_node = blast_scache128_node;
+#endif
+}
+
 static inline void local_r4k___flush_cache_all(void * args)
 {
-#if defined(CONFIG_CPU_LOONGSON2) || defined(CONFIG_CPU_LOONGSON3)
+#if defined(CONFIG_CPU_LOONGSON2)
 	r4k_blast_scache();
+	return;
+#endif
+#if defined(CONFIG_CPU_LOONGSON3)
+	r4k_blast_scache_node(((read_c0_ebase() & 0x3FF)) >> 2);
 	return;
 #endif
 	r4k_blast_dcache();
@@ -604,7 +627,11 @@ static void r4k_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 	preempt_disable();
 	if (cpu_has_inclusive_pcaches) {
 		if (size >= scache_size)
+#ifndef CONFIG_CPU_LOONGSON3
 			r4k_blast_scache();
+#else
+			r4k_blast_scache_node(pa_to_nid(addr));
+#endif
 		else
 			blast_scache_range(addr, addr + size);
 		preempt_enable();
@@ -637,7 +664,11 @@ static void r4k_dma_cache_inv(unsigned long addr, unsigned long size)
 	preempt_disable();
 	if (cpu_has_inclusive_pcaches) {
 		if (size >= scache_size)
+#ifndef CONFIG_CPU_LOONGSON3
 			r4k_blast_scache();
+#else
+			r4k_blast_scache_node(pa_to_nid(addr));
+#endif
 		else {
 			/*
 			 * There is no clearly documented alignment requirement
@@ -1521,6 +1552,7 @@ void __cpuinit r4k_cache_init(void)
 	r4k_blast_scache_page_setup();
 	r4k_blast_scache_page_indexed_setup();
 	r4k_blast_scache_setup();
+	r4k_blast_scache_node_setup();
 
 	/*
 	 * Some MIPS32 and MIPS64 processors have physically indexed caches.
