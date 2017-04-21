@@ -320,6 +320,17 @@ enum
 	CAM_STSCTRL_ON
 };
 
+/* data destroy led control */
+#define INDEX_DATA_DESTROY			0xB0
+enum
+{
+	DATA_DESTROY_OFF = 0,
+	DATA_DESTROY_ON
+};
+
+/* The led of board healthy */
+#define INDEX_BOARD_HEALTHY			0xB1
+
 /* EC_SC input */
 /* EC Status query, by direct read 66h port. */
 #define EC_SMI_EVT		(1 << 6)	/* 1 = SMI event padding */
