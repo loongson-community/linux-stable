@@ -593,7 +593,7 @@ int radeon_pm_init(struct radeon_device *rdev)
 
 	/* default to profile method */
 	rdev->pm.pm_method = PM_METHOD_PROFILE;
-	rdev->pm.profile = PM_PROFILE_DEFAULT;
+	rdev->pm.profile = PM_PROFILE_AUTO;
 	rdev->pm.dynpm_state = DYNPM_STATE_DISABLED;
 	rdev->pm.dynpm_planned_action = DYNPM_ACTION_NONE;
 	rdev->pm.dynpm_can_upclock = true;
