@@ -1296,7 +1296,7 @@ static int radeon_pm_init_old(struct radeon_device *rdev)
 {
 	int ret;
 
-	rdev->pm.profile = PM_PROFILE_DEFAULT;
+	rdev->pm.profile = PM_PROFILE_AUTO;
 	rdev->pm.dynpm_state = DYNPM_STATE_DISABLED;
 	rdev->pm.dynpm_planned_action = DYNPM_ACTION_NONE;
 	rdev->pm.dynpm_can_upclock = true;
