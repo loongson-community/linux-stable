@@ -80,6 +80,12 @@ setup_port(struct serial_private *priv, struct uart_8250_port *port,
 	if (bar >= PCI_NUM_BAR_RESOURCES)
 		return -EINVAL;
 
+	if ((dev->vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->device == PCI_DEVICE_ID_PLX_9050) &&
+	    (dev->subsystem_vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->subsystem_device == PCI_DEVICE_ID_PLX_9050))
+		offset += 0x80;
+
 	if (pci_resource_flags(dev, bar) & IORESOURCE_MEM) {
 		if (!pcim_iomap(dev, bar, 0) && !pcim_iomap_table(dev))
 			return -ENOMEM;
@@ -262,6 +268,12 @@ static int pci_plx9050_init(struct pci_dev *dev)
 		 * deep FIFOs
 		 */
 		irq_config = 0x5b;
+
+	if ((dev->vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->device == PCI_DEVICE_ID_PLX_9050) &&
+	    (dev->subsystem_vendor == PCI_VENDOR_ID_PLX) &&
+	    (dev->subsystem_device == PCI_DEVICE_ID_PLX_9050))
+		irq_config = 0x53;
 	/*
 	 * enable/disable interrupts
 	 */
@@ -2104,6 +2116,15 @@ static struct pci_serial_quirk pci_serial_quirks[] __refdata = {
 		.device		= PCI_DEVICE_ID_PLX_9050,
 		.subvendor	= PCI_SUBVENDOR_ID_EXSYS,
 		.subdevice	= PCI_SUBDEVICE_ID_EXSYS_4055,
+		.init		= pci_plx9050_init,
+		.setup		= pci_default_setup,
+		.exit		= pci_plx9050_exit,
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_PLX,
+		.device		= PCI_DEVICE_ID_PLX_9050,
+		.subvendor	= PCI_VENDOR_ID_PLX,
+		.subdevice	= PCI_DEVICE_ID_PLX_9050,
 		.init		= pci_plx9050_init,
 		.setup		= pci_default_setup,
 		.exit		= pci_plx9050_exit,
@@ -4232,6 +4253,10 @@ static struct pci_device_id serial_pci_tbl[] = {
 		PCI_SUBDEVICE_ID_UNKNOWN_0x1584, 0, 0,
 		pbn_b2_4_115200 },
 	/* Unknown card - subdevice 0x1588 */
+	{	PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
+		PCI_VENDOR_ID_PLX,
+		PCI_DEVICE_ID_PLX_9050, 0, 0,
+		pbn_b2_8_921600 },
 	{	PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9050,
 		PCI_VENDOR_ID_PLX,
 		PCI_SUBDEVICE_ID_UNKNOWN_0x1588, 0, 0,
