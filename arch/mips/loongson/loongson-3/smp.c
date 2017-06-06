@@ -310,6 +310,7 @@ static void loongson3_init_secondary(void)
 		i = MAX_LOOPS;
 	initcount = __get_cpu_var(core0_c0count) + i;
 	write_c0_count(initcount);
+	__cpu_full_name[cpu] = cpu_full_name;
 }
 
 static void loongson3_smp_finish(void)

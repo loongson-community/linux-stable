@@ -45,6 +45,7 @@ struct efi_cpuinfo_loongson {
 	u32 cpu_startup_core_id; /* Core id */
 	u32 cpu_clock_freq; /* cpu_clock */
 	u32 nr_cpus;
+	char cpuname[64];
 } __packed;
 
 struct system_loongson {
