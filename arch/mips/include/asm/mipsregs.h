@@ -48,6 +48,7 @@
 #define CP0_CONF $3
 #define CP0_CONTEXT $4
 #define CP0_PAGEMASK $5
+#define CP0_PAGEGRAIN $5, 1
 #define CP0_WIRED $6
 #define CP0_INFO $7
 #define CP0_HWRENA $7, 0
@@ -65,6 +66,7 @@
 #define CP0_CONFIG $16
 #define CP0_CONFIG3 $16, 3
 #define CP0_CONFIG5 $16, 5
+#define CP0_CONFIG6 $16, 6
 #define CP0_LLADDR $17
 #define CP0_WATCHLO $18
 #define CP0_WATCHHI $19
