@@ -19,19 +19,22 @@
 	.set	push
 	.set	mips64
 	/* Set LPA on LOONGSON3 config3 */
-	mfc0	t0, $16, 3
+	mfc0	t0, CP0_CONFIG3
 	or	t0, (0x1 << 7)
-	mtc0	t0, $16, 3
+	mtc0	t0, CP0_CONFIG3
 	/* Set ELPA on LOONGSON3 pagegrain */
-	mfc0	t0, $5, 1
+	mfc0	t0, CP0_PAGEGRAIN
 	or	t0, (0x1 << 29)
-	mtc0	t0, $5, 1
-#ifdef CONFIG_LOONGSON3_ENHANCEMENT
+	mtc0	t0, CP0_PAGEGRAIN
 	/* Enable STFill Buffer */
-	mfc0	t0, $16, 6
+	mfc0	t0, CP0_PRID
+	andi	t0, 0xffff
+	slti	t0, 0x6308
+	bnez	t0, 1f
+	mfc0	t0, CP0_CONFIG6
 	or	t0, 0x100
-	mtc0	t0, $16, 6
-#endif
+	mtc0	t0, CP0_CONFIG6
+1:
 	_ehb
 	.set	pop
 #endif
@@ -45,19 +48,22 @@
 	.set	push
 	.set	mips64
 	/* Set LPA on LOONGSON3 config3 */
-	mfc0	t0, $16, 3
+	mfc0	t0, CP0_CONFIG3
 	or	t0, (0x1 << 7)
-	mtc0	t0, $16, 3
+	mtc0	t0, CP0_CONFIG3
 	/* Set ELPA on LOONGSON3 pagegrain */
-	mfc0	t0, $5, 1
+	mfc0	t0, CP0_PAGEGRAIN
 	or	t0, (0x1 << 29)
-	mtc0	t0, $5, 1
-#ifdef CONFIG_LOONGSON3_ENHANCEMENT
+	mtc0	t0, CP0_PAGEGRAIN
 	/* Enable STFill Buffer */
-	mfc0	t0, $16, 6
+	mfc0	t0, CP0_PRID
+	andi	t0, 0xffff
+	slti	t0, 0x6308
+	bnez	t0, 1f
+	mfc0	t0, CP0_CONFIG6
 	or	t0, 0x100
-	mtc0	t0, $16, 6
-#endif
+	mtc0	t0, CP0_CONFIG6
+1:
 	_ehb
 	.set	pop
 #endif
