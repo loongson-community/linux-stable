@@ -878,10 +878,13 @@ static void e1000e_update_tdt_wa(struct e1000_ring *tx_ring, unsigned int i)
 	}
 }
 
-void e1000_check_82574_weird_hang(struct e1000_ring *rx_ring, bool ps)
+static void e1000_check_82574_weird_hang(struct e1000_ring *rx_ring, bool ps)
 {
 	u32 i, rdh, rdt, staterr, next_staterr;
 	struct e1000_adapter *adapter = rx_ring->adapter;
+
+	if (adapter->link_speed != SPEED_1000)
+		return;
 
 	i = rx_ring->next_to_clean;
 	rdh = readl(rx_ring->head);

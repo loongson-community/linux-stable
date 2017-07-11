@@ -5981,12 +5981,15 @@ static inline u16 igb_get_hlen(union e1000_adv_rx_desc *rx_desc)
 	return hlen;
 }
 
-void igb_check_weird_hang(struct igb_ring *rx_ring)
+static void igb_check_weird_hang(struct igb_ring *rx_ring)
 {
 	u32 i, rdh, rdt, staterr;
 	union e1000_adv_rx_desc *rx_desc, *next_rxd;
 	struct igb_q_vector *q_vector = rx_ring->q_vector;
 	struct e1000_hw *hw = &q_vector->adapter->hw;
+
+	if (q_vector->adapter->link_speed != SPEED_1000)
+		return;
 
 	i = rx_ring->next_to_clean;
 	rdh = rd32(E1000_RDH(rx_ring->reg_idx));
