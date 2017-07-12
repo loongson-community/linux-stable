@@ -74,6 +74,7 @@ config LOONGSON_MACH3X
 	select CSRC_R4K
 	select CEVT_R4K
 	select CPU_HAS_WB
+	select HAVE_CLK
 	select HW_HAS_PCI
 	select ISA
 	select HT_PCI
