@@ -276,6 +276,19 @@ config LOONGSON2_CPUFREQ
 
 	  If in doubt, say N.
 
+config LOONGSON3_CPUFREQ
+	tristate "Loongson3 CPUFreq Driver"
+	depends on CPU_LOONGSON3
+	help
+	  This option adds a CPUFreq driver for loongson processors which
+	  support software configurable cpu frequency.
+
+	  Loongson-3A and it's successors support this feature.
+
+	  For details, take a look at <file:Documentation/cpu-freq/>.
+
+	  If in doubt, say N.
+
 config LOONGSON1_CPUFREQ
 	tristate "Loongson1 CPUFreq Driver"
 	depends on LOONGSON1_LS1B
