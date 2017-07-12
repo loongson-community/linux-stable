@@ -17,15 +17,22 @@ static struct platform_device loongson2_cpufreq_device = {
 	.id = -1,
 };
 
-static int __init loongson2_cpufreq_init(void)
+static struct platform_device loongson3_cpufreq_device = {
+	.name = "loongson3_cpufreq",
+	.id = -1,
+};
+
+static int __init loongson_cpufreq_init(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
 	/* Only 2F revision and it's successors support CPUFreq */
-	if ((c->processor_id & PRID_REV_MASK) >= PRID_REV_LOONGSON2F)
+	if ((c->processor_id & PRID_REV_MASK) == PRID_REV_LOONGSON2F)
 		return platform_device_register(&loongson2_cpufreq_device);
+	if ((c->processor_id & PRID_REV_MASK) >= PRID_REV_LOONGSON3A_R1)
+		return platform_device_register(&loongson3_cpufreq_device);
 
 	return -ENODEV;
 }
 
-arch_initcall(loongson2_cpufreq_init);
+arch_initcall(loongson_cpufreq_init);
