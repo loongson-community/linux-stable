@@ -58,12 +58,17 @@ inline int mvs_tag_alloc(struct mvs_info *mvi, u32 *tag_out)
 	unsigned int index, tag;
 	void *bitmap = mvi->tags;
 
-	index = find_first_zero_bit(bitmap, mvi->tags_num);
-	tag = index;
-	if (tag >= mvi->tags_num)
+	index = find_next_zero_bit(bitmap, mvi->tags_num, mvi->next_tag);
+	index = (index < mvi->tags_num)?
+			index:find_first_zero_bit(bitmap, mvi->tags_num);
+
+	if (index >= mvi->tags_num)
 		return -SAS_QUEUE_FULL;
+
+	tag = index;
 	mvs_tag_set(mvi, tag);
 	*tag_out = tag;
+	mvi->next_tag = (tag + 1) % mvi->tags_num;
 	return 0;
 }
 
@@ -280,6 +285,20 @@ static void mvs_bytes_dmaed(struct mvs_info *mvi, int i)
 
 	mvi->sas->notify_port_event(sas_phy,
 				   PORTE_BYTES_DMAED);
+}
+
+int mvs_slave_configure(struct scsi_device *sdev)
+{
+	struct domain_device *dev = sdev_to_domain_dev(sdev);
+
+	sas_slave_configure(sdev);
+
+#ifdef CONFIG_CPU_LOONGSON3
+	if (!dev_is_sata(dev))
+		scsi_adjust_queue_depth(sdev, MSG_SIMPLE_TAG, MVS_QUEUE_SIZE);
+#endif
+
+	return 0;
 }
 
 void mvs_scan_start(struct Scsi_Host *shost)
