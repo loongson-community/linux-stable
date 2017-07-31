@@ -531,10 +531,14 @@ static int mvs_94xx_init(struct mvs_info *mvi)
 	 * it will make count 0.
 	 */
 	tmp = 0;
+#ifdef CONFIG_CPU_LOONGSON3
+	mw32(MVS_INT_COAL, (ATA_MAX_QUEUE - 1) | COAL_EN);
+#else
 	if (MVS_CHIP_SLOT_SZ > 0x1ff)
 		mw32(MVS_INT_COAL, 0x1ff | COAL_EN);
 	else
 		mw32(MVS_INT_COAL, MVS_CHIP_SLOT_SZ | COAL_EN);
+#endif
 
 	/* default interrupt coalescing time is 128us */
 	tmp = 0x10000 | interrupt_coalescing;
@@ -1042,10 +1046,14 @@ static void mvs_94xx_tune_interrupt(struct mvs_info *mvi, u32 time)
 		mw32(MVS_INT_COAL, 0);
 		mw32(MVS_INT_COAL_TMOUT, 0x10000);
 	} else {
+#ifdef CONFIG_CPU_LOONGSON3
+		mw32(MVS_INT_COAL, (ATA_MAX_QUEUE - 1) | COAL_EN);
+#else
 		if (MVS_CHIP_SLOT_SZ > 0x1ff)
 			mw32(MVS_INT_COAL, 0x1ff|COAL_EN);
 		else
 			mw32(MVS_INT_COAL, MVS_CHIP_SLOT_SZ|COAL_EN);
+#endif
 
 		tmp = 0x10000 | time;
 		mw32(MVS_INT_COAL_TMOUT, tmp);
