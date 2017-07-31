@@ -58,12 +58,17 @@ inline int mvs_tag_alloc(struct mvs_info *mvi, u32 *tag_out)
 	unsigned int index, tag;
 	void *bitmap = mvi->tags;
 
-	index = find_first_zero_bit(bitmap, mvi->tags_num);
-	tag = index;
-	if (tag >= mvi->tags_num)
+	index = find_next_zero_bit(bitmap, mvi->tags_num, mvi->next_tag);
+	index = (index < mvi->tags_num)?
+			index:find_first_zero_bit(bitmap, mvi->tags_num);
+
+	if (index >= mvi->tags_num)
 		return -SAS_QUEUE_FULL;
+
+	tag = index;
 	mvs_tag_set(mvi, tag);
 	*tag_out = tag;
+	mvi->next_tag = (tag + 1) % mvi->tags_num;
 	return 0;
 }
 
@@ -282,6 +287,20 @@ static void mvs_bytes_dmaed(struct mvs_info *mvi, int i)
 				   PORTE_BYTES_DMAED);
 }
 
+int mvs_slave_configure(struct scsi_device *sdev)
+{
+	struct domain_device *dev = sdev_to_domain_dev(sdev);
+
+	sas_slave_configure(sdev);
+
+#ifdef CONFIG_CPU_LOONGSON3
+	if (!dev_is_sata(dev))
+		scsi_change_queue_depth(sdev, MVS_QUEUE_SIZE);
+#endif
+
+	return 0;
+}
+
 void mvs_scan_start(struct Scsi_Host *shost)
 {
 	int i, j;
@@ -336,13 +355,13 @@ static int mvs_task_prep_smp(struct mvs_info *mvi,
 	 * DMA-map SMP request, response buffers
 	 */
 	sg_req = &task->smp_task.smp_req;
-	elem = dma_map_sg(mvi->dev, sg_req, 1, PCI_DMA_TODEVICE);
+	elem = dma_map_sg(mvi->dev, sg_req, 1, PCI_DMA_BIDIRECTIONAL);
 	if (!elem)
 		return -ENOMEM;
 	req_len = sg_dma_len(sg_req);
 
 	sg_resp = &task->smp_task.smp_resp;
-	elem = dma_map_sg(mvi->dev, sg_resp, 1, PCI_DMA_FROMDEVICE);
+	elem = dma_map_sg(mvi->dev, sg_resp, 1, PCI_DMA_BIDIRECTIONAL);
 	if (!elem) {
 		rc = -ENOMEM;
 		goto err_out;
@@ -416,10 +435,10 @@ static int mvs_task_prep_smp(struct mvs_info *mvi,
 
 err_out_2:
 	dma_unmap_sg(mvi->dev, &tei->task->smp_task.smp_resp, 1,
-		     PCI_DMA_FROMDEVICE);
+		     PCI_DMA_BIDIRECTIONAL);
 err_out:
 	dma_unmap_sg(mvi->dev, &tei->task->smp_task.smp_req, 1,
-		     PCI_DMA_TODEVICE);
+		     PCI_DMA_BIDIRECTIONAL);
 	return rc;
 }
 
@@ -904,9 +923,9 @@ static void mvs_slot_task_free(struct mvs_info *mvi, struct sas_task *task,
 	switch (task->task_proto) {
 	case SAS_PROTOCOL_SMP:
 		dma_unmap_sg(mvi->dev, &task->smp_task.smp_resp, 1,
-			     PCI_DMA_FROMDEVICE);
+			     PCI_DMA_BIDIRECTIONAL);
 		dma_unmap_sg(mvi->dev, &task->smp_task.smp_req, 1,
-			     PCI_DMA_TODEVICE);
+			     PCI_DMA_BIDIRECTIONAL);
 		break;
 
 	case SAS_PROTOCOL_SATA:

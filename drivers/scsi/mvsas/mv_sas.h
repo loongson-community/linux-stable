@@ -390,6 +390,7 @@ struct mvs_info {
 	const struct mvs_chip_info *chip;
 
 	int tags_num;
+	int next_tag;
 	unsigned long *tags;
 	/* further per-slot information */
 	struct mvs_phy phy[MVS_MAX_PHYS];
@@ -455,6 +456,7 @@ int mvs_phy_control(struct asd_sas_phy *sas_phy, enum phy_func func,
 			void *funcdata);
 void mvs_set_sas_addr(struct mvs_info *mvi, int port_id, u32 off_lo,
 		      u32 off_hi, u64 sas_addr);
+int mvs_slave_configure(struct scsi_device *sdev);
 void mvs_scan_start(struct Scsi_Host *shost);
 int mvs_scan_finished(struct Scsi_Host *shost, unsigned long time);
 int mvs_queue_command(struct sas_task *task, gfp_t gfp_flags);
