@@ -74,10 +74,7 @@ static unsigned long vdso_addr(unsigned long start)
 	if (current->flags & PF_RANDOMIZE) {
 		offset = get_random_int();
 		offset <<= PAGE_SHIFT;
-		if (TASK_IS_32BIT_ADDR)
-			offset &= 0xfffffful;
-		else
-			offset &= 0xffffffful;
+		offset &= 0x1ffffful; /* 2 MB */
 	}
 
 	return STACK_TOP + offset;

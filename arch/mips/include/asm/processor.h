@@ -12,6 +12,7 @@
 #define _ASM_PROCESSOR_H
 
 #include <linux/cpumask.h>
+#include <linux/sizes.h>
 #include <linux/threads.h>
 
 #include <asm/cachectl.h>
@@ -35,12 +36,6 @@ extern unsigned int vced_count, vcei_count;
  * MIPS does have an arch_pick_mmap_layout()
  */
 #define HAVE_ARCH_PICK_MMAP_LAYOUT 1
-
-/*
- * A special page (the vdso) is mapped into all processes at the very
- * top of the virtual memory space.
- */
-#define SPECIAL_PAGES_SIZE PAGE_SIZE
 
 #ifdef CONFIG_32BIT
 #ifdef CONFIG_KVM_GUEST
@@ -80,7 +75,7 @@ extern unsigned int vced_count, vcei_count;
 
 #endif
 
-#define STACK_TOP	((TASK_SIZE & PAGE_MASK) - SPECIAL_PAGES_SIZE)
+#define STACK_TOP	((TASK_SIZE & PAGE_MASK) - SZ_4M)
 
 /*
  * This decides where the kernel will search for a free chunk of vm
