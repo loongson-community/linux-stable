@@ -12,6 +12,7 @@
 #define _ASM_PROCESSOR_H
 
 #include <linux/cpumask.h>
+#include <linux/sizes.h>
 #include <linux/threads.h>
 
 #include <asm/cachectl.h>
@@ -74,7 +75,7 @@ extern unsigned int vced_count, vcei_count;
 
 #endif
 
-#define STACK_TOP	(TASK_SIZE & PAGE_MASK)
+#define STACK_TOP	((TASK_SIZE & PAGE_MASK) - SZ_4M)
 
 /*
  * This decides where the kernel will search for a free chunk of vm
