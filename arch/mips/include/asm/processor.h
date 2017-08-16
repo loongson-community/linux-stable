@@ -13,6 +13,7 @@
 
 #include <linux/atomic.h>
 #include <linux/cpumask.h>
+#include <linux/sizes.h>
 #include <linux/threads.h>
 
 #include <asm/cachectl.h>
@@ -82,9 +83,9 @@ extern unsigned int vced_count, vcei_count;
 
 /*
  * One page above the stack is used for branch delay slot "emulation".
- * See dsemul.c for details.
+ * See dsemul.c for details, other pages are for VDSO.
  */
-#define STACK_TOP	((TASK_SIZE & PAGE_MASK) - PAGE_SIZE)
+#define STACK_TOP	((TASK_SIZE & PAGE_MASK) - SZ_4M)
 
 /*
  * This decides where the kernel will search for a free chunk of vm
