@@ -27427,9 +27427,9 @@ rtl8168_tx_interrupt(struct net_device *dev,
                 RTLDEV->stats.tx_bytes += len;
                 RTLDEV->stats.tx_packets++;
 
-                rtl8168_unmap_tx_skb(tp->pci_dev,
-                                     tx_skb,
-                                     tp->TxDescArray + entry);
+                if (len)
+                        rtl8168_unmap_tx_skb(tp->pci_dev, tx_skb,
+                                             tp->TxDescArray + entry);
 
                 if (tx_skb->skb!=NULL) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
