@@ -195,7 +195,7 @@ static int amdgpu_cgs_alloc_gpu_mem(void *cgs_device,
 	placement.busy_placement = &place;
 	placement.num_busy_placement = 1;
 
-	ret = amdgpu_bo_create_restricted(adev, size, PAGE_SIZE,
+	ret = amdgpu_bo_create_restricted(adev, size, align,
 					  true, domain, flags,
 					  NULL, &placement, NULL,
 					  &obj);
