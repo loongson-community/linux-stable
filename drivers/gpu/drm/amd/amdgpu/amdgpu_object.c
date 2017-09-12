@@ -121,6 +121,9 @@ static void amdgpu_ttm_placement_init(struct amdgpu_device *adev,
 {
 	u32 c = 0;
 
+	if (!drm_arch_can_wc_memory())
+		flags &= ~AMDGPU_GEM_CREATE_CPU_GTT_USWC;
+
 	if (domain & AMDGPU_GEM_DOMAIN_VRAM) {
 		unsigned visible_pfn = adev->mc.visible_vram_size >> PAGE_SHIFT;
 
