@@ -15,7 +15,7 @@ Devices: [Advantech] PCI-1730 (adv_pci_dio), PCI-1733,
   PCI-1734, PCI-1735U, PCI-1736UP, PCI-1739U, PCI-1750,
   PCI-1751, PCI-1752, PCI-1753,
   PCI-1753+PCI-1753E, PCI-1754, PCI-1756,
-  PCI-1760, PCI-1762
+  PCI-1760, PCI-1761, PCI-1762
 Status: untested
 Updated: Mon, 09 Jan 2012 12:40:46 +0000
 
@@ -58,6 +58,7 @@ enum hw_cards_id {
 	TYPE_PCI1753, TYPE_PCI1753E,
 	TYPE_PCI1754, TYPE_PCI1756,
 	TYPE_PCI1760,
+	TYPE_PCI1761,
 	TYPE_PCI1762
 };
 
@@ -151,6 +152,14 @@ enum hw_io_access {
 #define PCI1754_ICR3	0x0e	/* R/W: Interrupt control register group 3 */
 #define PCI1752_6_CFC	0x12	/* R/W: set/read channel freeze function */
 #define PCI175x_BOARDID	0x10	/* R:   Board I/D switch for 1752/4/6 */
+
+/* Advantech PCI-1761 registers */
+#define PCI1761_RO	  	   0	/* R/W: Relays status/output */
+#define PCI1761_IDI	   	   1	/* R:   Isolated input status */
+#define PCI1761_BOARDID	   4	/* R:   Board I/D switch */
+#define PCI1761_INT_EN_REG	0x03	/* R/W: enable/disable interrupts */
+#define PCI1761_INT_RF_REG	0x04	/* R/W: falling/rising edge */
+#define PCI1761_INT_CLR_REG	0x05	/* R/W: clear interrupts */
 
 /*  Advantech PCI-1762 registers */
 #define PCI1762_RO	   0	/* R/W: Relays status/output */
@@ -277,6 +286,7 @@ static DEFINE_PCI_DEVICE_TABLE(pci_dio_pci_table) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1754) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1756) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1760) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1761) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_ADVANTECH, 0x1762) },
 	{ 0 }
 };
@@ -394,6 +404,14 @@ static const struct dio_boardtype boardtypes[] = {
 	 { {0, 0, 0, 0}, {0, 0, 0, 0} },
 	 { {0, 0, 0, 0}, {0, 0, 0, 0} },
 	 {0, 0, 0, 0},
+	 { {0, 0, 0, 0} },
+	 IO_8b},
+	{"pci1761", PCI_VENDOR_ID_ADVANTECH, 0x1761, PCIDIO_MAINREG,
+	 TYPE_PCI1761,
+	 { {0, 0, 0, 0}, {8, PCI1761_IDI, 1, 0} },
+	 { {0, 0, 0, 0}, {8, PCI1761_RO, 1, 0} },
+	 { {0, 0, 0, 0}, {0, 0, 0, 0} },
+	 {4, PCI1761_BOARDID, 1, SDF_INTERNAL},
 	 { {0, 0, 0, 0} },
 	 IO_8b},
 	{"pci1762", PCI_VENDOR_ID_ADVANTECH, 0x1762, PCIDIO_MAINREG,
@@ -949,6 +967,14 @@ static int pci_dio_reset(struct comedi_device *dev)
 		break;
 	case TYPE_PCI1760:
 		pci1760_reset(dev);
+		break;
+	case TYPE_PCI1761:
+		/* disable interrupts */
+		outb(0, dev->iobase + PCI1761_INT_EN_REG);
+		/* clear interrupts */
+		outb(0xff, dev->iobase + PCI1761_INT_CLR_REG);
+		/* set rising edge trigger */
+		outb(0, dev->iobase + PCI1761_INT_RF_REG);
 		break;
 	case TYPE_PCI1762:
 		outw(0x0101, dev->iobase + PCI1762_ICR); /* disable & clear
