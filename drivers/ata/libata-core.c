@@ -1841,8 +1841,19 @@ static u32 ata_pio_mask_no_iordy(const struct ata_device *adev)
 unsigned int ata_do_dev_read_id(struct ata_device *dev,
 					struct ata_taskfile *tf, u16 *id)
 {
-	return ata_exec_internal(dev, tf, NULL, DMA_FROM_DEVICE,
-				     id, sizeof(id[0]) * ATA_ID_WORDS, 0);
+	u16 *devid;
+	int res, size = sizeof(u16) * ATA_ID_WORDS;
+
+	if (plat_device_is_coherent(&dev->tdev))
+		res = ata_exec_internal(dev, tf, NULL, DMA_FROM_DEVICE, id, size, 0);
+	else {
+		devid = kmalloc(size, GFP_KERNEL);
+		res = ata_exec_internal(dev, tf, NULL, DMA_FROM_DEVICE, devid, size, 0);
+		memcpy(id, devid, size);
+		kfree(devid);
+	}
+
+	return res;
 }
 
 /**
