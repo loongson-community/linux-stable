@@ -1,0 +1,25 @@
+config DRM_SMI
+	tristate "SMI DRM driver"
+	depends on DRM && PCI
+	select DRM_TTM
+	select DRM_KMS_HELPER
+	help
+	 Say yes for SMI GPU driver (SM750 & SM768).
+
+config DRM_SMI_HDMI
+	bool "enable SMI HDMI"
+	depends on DRM_SMI
+	help
+	  Compile in support for HDMI.
+
+config DRM_SMI_AUDIO
+	bool "enable SMI Audio"
+	depends on DRM_SMI
+	help
+	  Compile in support for Audio.
+
+config DRM_SMI_PRIME
+	bool "enable SMI PRIME"
+	depends on DRM_SMI
+	help
+	  Compile in support for PRIME.
