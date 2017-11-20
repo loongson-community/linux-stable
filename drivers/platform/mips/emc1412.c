@@ -13,11 +13,15 @@
 #include <loongson_hwmon.h>
 
 #define MAX_EMC1412_CLIENTS 4
+#define EMC1412_THERMAL_THRESHOLD 90000
 
 #define EMC1412_TEMP_EXT_HI_REG 0x01
 #define EMC1412_TEMP_EXT_LO_REG 0x10
 #define EMC1412_TEMP_INT_HI_REG 0x00
 #define EMC1412_TEMP_INT_LO_REG 0x29
+#define EMC1412_THERM_LIMIT_EXT_REG 0x19
+#define EMC1412_THERM_LIMIT_INT_REG 0x20
+#define EMC1412_THERM_LIMIT_HYS_REG 0x21
 
 struct i2c_client *emc1412_client[MAX_EMC1412_CLIENTS] = {NULL};
 
@@ -29,6 +33,15 @@ static ssize_t get_emc1412_label(struct device *dev,
 			struct device_attribute *attr, char *buf);
 static ssize_t get_emc1412_temp(struct device *dev,
 			struct device_attribute *attr, char *buf);
+
+static ssize_t get_emc1412_crit(struct device *dev,
+			struct device_attribute *attr, char *buf);
+static ssize_t set_emc1412_crit(struct device *dev,
+			struct device_attribute *attr, const char *buf, size_t count);
+static ssize_t get_emc1412_crit_hyst(struct device *dev,
+			struct device_attribute *attr, char *buf);
+static ssize_t set_emc1412_crit_hyst(struct device *dev,
+			struct device_attribute *attr, const char *buf, size_t count);
 
 static SENSOR_DEVICE_ATTR(name, S_IRUGO, get_hwmon_name, NULL, 0);
 
@@ -53,35 +66,54 @@ static ssize_t get_hwmon_name(struct device *dev,
 
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, get_emc1412_temp, NULL, 1);
 static SENSOR_DEVICE_ATTR(temp1_label, S_IRUGO, get_emc1412_label, NULL, 1);
+static SENSOR_DEVICE_ATTR(temp1_crit, S_IRUGO | S_IWUSR, get_emc1412_crit, set_emc1412_crit, 1);
+static SENSOR_DEVICE_ATTR(temp1_crit_hyst, S_IRUGO | S_IWUSR, get_emc1412_crit_hyst, set_emc1412_crit_hyst, 1);
+
 static SENSOR_DEVICE_ATTR(temp2_input, S_IRUGO, get_emc1412_temp, NULL, 2);
 static SENSOR_DEVICE_ATTR(temp2_label, S_IRUGO, get_emc1412_label, NULL, 2);
+static SENSOR_DEVICE_ATTR(temp2_crit, S_IRUGO | S_IWUSR, get_emc1412_crit, set_emc1412_crit, 2);
+static SENSOR_DEVICE_ATTR(temp2_crit_hyst, S_IRUGO | S_IWUSR, get_emc1412_crit_hyst, set_emc1412_crit_hyst, 2);
+
 static SENSOR_DEVICE_ATTR(temp3_input, S_IRUGO, get_emc1412_temp, NULL, 3);
 static SENSOR_DEVICE_ATTR(temp3_label, S_IRUGO, get_emc1412_label, NULL, 3);
+static SENSOR_DEVICE_ATTR(temp3_crit, S_IRUGO | S_IWUSR, get_emc1412_crit, set_emc1412_crit, 3);
+static SENSOR_DEVICE_ATTR(temp3_crit_hyst, S_IRUGO | S_IWUSR, get_emc1412_crit_hyst, set_emc1412_crit_hyst, 3);
+
 static SENSOR_DEVICE_ATTR(temp4_input, S_IRUGO, get_emc1412_temp, NULL, 4);
 static SENSOR_DEVICE_ATTR(temp4_label, S_IRUGO, get_emc1412_label, NULL, 4);
+static SENSOR_DEVICE_ATTR(temp4_crit, S_IRUGO | S_IWUSR, get_emc1412_crit, set_emc1412_crit, 4);
+static SENSOR_DEVICE_ATTR(temp4_crit_hyst, S_IRUGO | S_IWUSR, get_emc1412_crit_hyst, set_emc1412_crit_hyst, 4);
 
-static const struct attribute *hwmon_temp[4][3] = {
+static const struct attribute *hwmon_temp[4][5] = {
 	{
 		&sensor_dev_attr_temp1_input.dev_attr.attr,
 		&sensor_dev_attr_temp1_label.dev_attr.attr,
+		&sensor_dev_attr_temp1_crit.dev_attr.attr,
+		&sensor_dev_attr_temp1_crit_hyst.dev_attr.attr,
 		NULL
 	},
 
 	{
 		&sensor_dev_attr_temp2_input.dev_attr.attr,
 		&sensor_dev_attr_temp2_label.dev_attr.attr,
+		&sensor_dev_attr_temp2_crit.dev_attr.attr,
+		&sensor_dev_attr_temp2_crit_hyst.dev_attr.attr,
 		NULL
 	},
 
 	{
 		&sensor_dev_attr_temp3_input.dev_attr.attr,
 		&sensor_dev_attr_temp3_label.dev_attr.attr,
+		&sensor_dev_attr_temp3_crit.dev_attr.attr,
+		&sensor_dev_attr_temp3_crit_hyst.dev_attr.attr,
 		NULL
 	},
 
 	{
 		&sensor_dev_attr_temp4_input.dev_attr.attr,
 		&sensor_dev_attr_temp4_label.dev_attr.attr,
+		&sensor_dev_attr_temp4_crit.dev_attr.attr,
+		&sensor_dev_attr_temp4_crit_hyst.dev_attr.attr,
 		NULL
 	}
 };
@@ -120,6 +152,9 @@ static int emc1412_probe(struct platform_device *dev)
 	r = sysfs_create_files(&emc1412_hwmon_dev->kobj, hwmon_temp[id]);
 	if (r)
 		goto fail;
+
+	i2c_smbus_write_byte_data(emc1412_client[id], EMC1412_THERM_LIMIT_EXT_REG, (EMC1412_THERMAL_THRESHOLD / 1000 + 10));
+	i2c_smbus_write_byte_data(emc1412_client[id], EMC1412_THERM_LIMIT_INT_REG, (EMC1412_THERMAL_THRESHOLD / 1000 + 10));
 
 	printk(KERN_INFO "Success to attach EMC1412 sensor\n");
 
@@ -198,7 +233,89 @@ static ssize_t get_emc1412_temp(struct device *dev,
 	return sprintf(buf, "%d\n", value);
 }
 
-#define EMC1412_THERMAL_THRESHOLD 90000
+static ssize_t get_emc1412_crit(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client;
+	int ext_limit, int_limit, ave_limit;
+	int id = (to_sensor_dev_attr(attr))->index - 1;
+
+	if (id < 0 || !(client = emc1412_client[id]))
+		return NOT_VALID_TEMP;
+
+	ext_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_EXT_REG);
+	int_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_INT_REG);
+	ave_limit = (ext_limit + int_limit) / 2;
+
+	return sprintf(buf, "%d\n", (ave_limit * 1000));
+}
+
+static ssize_t set_emc1412_crit(struct device *dev,
+			struct device_attribute *attr, const char *buf ,size_t count)
+{
+	unsigned long set_limit;
+	struct i2c_client *client;
+	int id = (to_sensor_dev_attr(attr))->index - 1;
+
+	if (id < 0 || !(client = emc1412_client[id]))
+		return NOT_VALID_TEMP;
+
+	if (kstrtoul(buf, 10, &set_limit))
+		return -EINVAL;
+
+	set_limit = clamp_val(set_limit, 0, 125000);
+	set_limit /= 1000;
+	i2c_smbus_write_byte_data(client, EMC1412_THERM_LIMIT_EXT_REG, set_limit);
+	i2c_smbus_write_byte_data(client, EMC1412_THERM_LIMIT_INT_REG, set_limit);
+
+	return count;
+}
+
+static ssize_t get_emc1412_crit_hyst(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client;
+	int ext_limit, int_limit, ave_limit, hyst;
+	int id = (to_sensor_dev_attr(attr))->index - 1;
+
+	if (id < 0 || !(client = emc1412_client[id]))
+		return NOT_VALID_TEMP;
+
+	ext_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_EXT_REG);
+	int_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_INT_REG);
+	ave_limit = (ext_limit + int_limit) / 2;
+
+	hyst = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_HYS_REG);
+
+	return sprintf(buf, "%d\n", (ave_limit - hyst) * 1000);
+}
+
+static ssize_t set_emc1412_crit_hyst(struct device *dev,
+			struct device_attribute *attr, const char *buf ,size_t count)
+{
+	unsigned long set_limit;
+	int ext_limit, int_limit, ave_limit, hyst;
+	struct i2c_client *client;
+	int id = (to_sensor_dev_attr(attr))->index - 1;
+
+	if (id < 0 || !(client = emc1412_client[id]))
+		return NOT_VALID_TEMP;
+
+	if (kstrtoul(buf, 10, &set_limit))
+		return -EINVAL;
+
+	ext_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_EXT_REG);
+	int_limit = i2c_smbus_read_byte_data(client, EMC1412_THERM_LIMIT_INT_REG);
+	ave_limit = (ext_limit + int_limit) / 2;
+	set_limit = clamp_val(set_limit, 0, 125000);
+	set_limit /= 1000;
+	hyst = ave_limit - set_limit;
+
+	i2c_smbus_write_byte_data(client, EMC1412_THERM_LIMIT_HYS_REG, hyst);
+
+	return count;
+}
+
 static struct delayed_work thermal_work;
 
 static void do_thermal_timer(struct work_struct *work)
