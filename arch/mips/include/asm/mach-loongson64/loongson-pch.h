@@ -136,6 +136,53 @@
 #define LS2H_PCI_EXP_LNKCAP			0x7c
 #define LS2H_CLK_CTRL3_BIT_PEREF_EN(portnum)	(1 << (24 + portnum))
 
+/* ============== LS7A registers =============== */
+
+#define LS7A_PCH_REG_BASE		0x10000000
+/* MISC reg base */
+#define LS7A_MISC_REG_BASE		(LS7A_PCH_REG_BASE + 0x00080000)
+/* CHIPCFG regs */
+#define LS7A_CHIPCFG_REG_BASE		(LS7A_PCH_REG_BASE + 0x0a000000)
+/* ACPI regs */
+#define LS7A_ACPI_REG_BASE		(LS7A_MISC_REG_BASE + 0x00050000)
+/* RTC regs */
+#define LS7A_RTC_REG_BASE		(LS7A_MISC_REG_BASE + 0x00050100)
+
+#define LS7A_INT_MASK_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x020)
+#define LS7A_INT_EDGE_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x060)
+#define LS7A_INT_CLEAR_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x080)
+#define LS7A_INT_HTMSI_EN_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x040)
+#define LS7A_INT_ROUTE_ENTRY_REG	(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x100)
+#define LS7A_INT_HTMSI_VEC_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x200)
+#define LS7A_INT_STATUS_REG		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x3a0)
+#define LS7A_LPC_INT_CTL		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x2000)
+#define LS7A_LPC_INT_ENA		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x2004)
+#define LS7A_LPC_INT_STS		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x2008)
+#define LS7A_LPC_INT_CLR		(void *)TO_UNCAC(LS7A_PCH_REG_BASE + 0x200c)
+
+#define LS7A_PMCON_SOC_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x000)
+#define LS7A_PMCON_RESUME_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x004)
+#define LS7A_PMCON_RTC_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x008)
+#define LS7A_PM1_EVT_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x00c)
+#define LS7A_PM1_ENA_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x010)
+#define LS7A_PM1_CNT_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x014)
+#define LS7A_PM1_TMR_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x018)
+#define LS7A_P_CNT_REG			(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x01c)
+#define LS7A_GPE0_STS_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x028)
+#define LS7A_GPE0_ENA_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x02c)
+#define LS7A_RST_CNT_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x030)
+#define LS7A_WD_SET_REG			(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x034)
+#define LS7A_WD_TIMER_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x038)
+#define LS7A_THSENS_CNT_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x04c)
+#define LS7A_GEN_RTC_1_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x050)
+#define LS7A_GEN_RTC_2_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x054)
+#define LS7A_DPM_CFG_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x400)
+#define LS7A_DPM_STS_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x404)
+#define LS7A_DPM_CNT_REG		(void *)TO_UNCAC(LS7A_ACPI_REG_BASE + 0x408)
+
+#define LS7A_PCIE_BAR_BASE(bus, dev, func) \
+	readl((void *)TO_UNCAC(LS7A_CHIPCFG_REG_BASE | (bus << 16) | (dev << 11) | (func << 8) | 0x10))
+
 /* ============== RS780/SBX00 registers =============== */
 
 #define SBX00_ACPI_IO_BASE 0x800
@@ -157,7 +204,8 @@
 
 enum b_type { /* BoardType(BridgeType) */
 	LS2H   = 1,
-	RS780E = 2
+	LS7A   = 2,
+	RS780E = 3
 };
 
 struct platform_controller_hub {
@@ -173,6 +221,7 @@ struct platform_controller_hub {
 };
 
 extern struct platform_controller_hub ls2h_pch;
+extern struct platform_controller_hub ls7a_pch;
 extern struct platform_controller_hub rs780_pch;
 extern struct platform_controller_hub *loongson_pch;
 
@@ -180,6 +229,11 @@ extern struct pci_ops ls2h_pci_ops[4];
 extern void ls2h_init_irq(void);
 extern void ls2h_irq_dispatch(void);
 extern int ls2h_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
+
+extern struct pci_ops ls7a_pci_ops;
+extern void ls7a_init_irq(void);
+extern void ls7a_irq_dispatch(void);
+extern int ls7a_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 
 extern struct pci_ops rs780_pci_ops;
 extern void rs780_init_irq(void);

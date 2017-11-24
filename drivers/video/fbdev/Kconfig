@@ -1996,6 +1996,15 @@ config FB_LS2H
 	---help---
 	  Frame buffer driver for the Loongson-2H Platform-Bridge.
 
+config FB_LS7A
+	tristate "Loongson-7A frame buffer support"
+	depends on FB && CPU_LOONGSON3
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	---help---
+	  Frame buffer driver for the Loongson-7A Platform-Bridge.
+
 source "drivers/video/fbdev/vivante/Kconfig"
 
 config FB_SH_MOBILE_LCDC

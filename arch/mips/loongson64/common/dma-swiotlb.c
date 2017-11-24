@@ -236,6 +236,16 @@ static phys_addr_t loongson_ls2h_dma_to_phys(struct device *dev, dma_addr_t dadd
 		(daddr + loongson_sysconf.high_physmem_start - SZ_256M);
 }
 
+static dma_addr_t loongson_ls7a_phys_to_dma(struct device *dev, phys_addr_t paddr)
+{
+	return paddr;
+}
+
+static phys_addr_t loongson_ls7a_dma_to_phys(struct device *dev, dma_addr_t daddr)
+{
+	return daddr;
+}
+
 static dma_addr_t loongson_rs780_phys_to_dma(struct device *dev, phys_addr_t paddr)
 {
 	long nid;
@@ -310,6 +320,10 @@ void __init plat_swiotlb_setup(void)
 	case LS2H:
 		loongson_linear_dma_map_ops.phys_to_dma = loongson_ls2h_phys_to_dma;
 		loongson_linear_dma_map_ops.dma_to_phys = loongson_ls2h_dma_to_phys;
+		break;
+	case LS7A:
+		loongson_linear_dma_map_ops.phys_to_dma = loongson_ls7a_phys_to_dma;
+		loongson_linear_dma_map_ops.dma_to_phys = loongson_ls7a_dma_to_phys;
 		break;
 	case RS780E:
 		loongson_linear_dma_map_ops.phys_to_dma = loongson_rs780_phys_to_dma;

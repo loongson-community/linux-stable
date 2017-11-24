@@ -230,6 +230,12 @@ void __init setup_hpet_timer(void)
 		hpet_mmio_base = LS2H_HPET_BASE;
 		hpet_irq_flags = HPET_TN_LEVEL;
 		break;
+	case LS7A:
+		hpet_freq = LS7A_HPET_FREQ;
+		hpet_t0_irq = LS7A_HPET_T0_IRQ;
+		hpet_mmio_base = LS7A_HPET_BASE;
+		hpet_irq_flags = HPET_TN_LEVEL;
+		break;
 	case RS780E:
 		hpet_freq = RS780_HPET_FREQ;
 		hpet_t0_irq = RS780_HPET_T0_IRQ;
