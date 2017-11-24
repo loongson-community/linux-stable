@@ -238,6 +238,13 @@ int __init loongson_acpi_init(void)
 		acpi_enable_reg  = LS2H_PM_ENA_REG;
 		gpe0_status_reg  = LS2H_GPE0_STS_REG;
 		break;
+	case LS7A:
+		acpi_irq = LS7A_PCH_ACPI_IRQ;
+		acpi_control_reg = LS7A_PM1_CNT_REG;
+		acpi_status_reg  = LS7A_PM1_EVT_REG;
+		acpi_enable_reg  = LS7A_PM1_ENA_REG;
+		gpe0_status_reg  = LS7A_GPE0_STS_REG;
+		break;
 	case RS780E:
 		acpi_irq = RS780_PCH_ACPI_IRQ;
 		acpi_control_reg = (void *)(mips_io_port_base + SBX00_PM_CNT_BLK + 0);
