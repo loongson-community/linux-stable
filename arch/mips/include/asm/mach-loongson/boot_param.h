@@ -222,5 +222,6 @@ extern struct sensor_device loongson_sensors[MAX_SENSORS];
 
 extern void *loongson_fdt_blob;
 extern u32 __dtb_loongson3_ls2h_begin[];
+extern u32 __dtb_loongson3_ls7a_begin[];
 extern u32 __dtb_loongson3_rs780_begin[];
 #endif
