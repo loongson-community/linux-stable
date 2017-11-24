@@ -1270,6 +1270,9 @@ DECLARE_PCI_FIXUP_CLASS_FINAL(PCI_ANY_ID, PCI_ANY_ID,
 
 bool usb_xhci_needs_pci_reset(struct pci_dev *pdev)
 {
+	if (pdev->bus->self->vendor == PCI_VENDOR_ID_LOONGSON)
+		return false;
+
 	/*
 	 * Our dear uPD72020{1,2} friend only partially resets when
 	 * asked to via the XHCI interface, and may end up doing DMA
