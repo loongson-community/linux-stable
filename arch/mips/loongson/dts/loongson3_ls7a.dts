@@ -1,0 +1,173 @@
+/dts-v1/;
+#include "loongson3.dtsi"
+/ {
+	model = "loongson,generic";
+	compatible = "loongson,loongson3";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+	};
+
+	cpuic: interrupt-controller {
+		compatible = "mti,cpu-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+	};
+
+	platic: interrupt-controller@1bd00040 {
+		compatible = "loongson,ls7a-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupts = <3>;
+		interrupt-parent = <&cpuic>;
+	};
+
+	aliases {
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		i2c2 = &i2c2;
+		i2c3 = &i2c3;
+		i2c4 = &i2c4;
+		i2c5 = &i2c5;
+		i2c6 = &i2c6;
+		i2c7 = &i2c7;
+	};
+
+	platform {
+		compatible = "loongson,nbus", "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <1>;
+		ranges = <0x000 0x00000000 0x000 0x00000000 0x20000000
+			  0x000 0x40000000 0x000 0x40000000 0x40000000
+			  0xe00 0x00000000 0xe00 0x00000000 0x80000000>;
+
+		uart0: serial@0x10080000 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x10080000 0x100>;
+			clock-frequency = <125000000>;
+			interrupts = <72>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart1: serial@0x10080100 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x10080100 0x100>;
+			clock-frequency = <125000000>;
+			interrupts = <72>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart2: serial@0x10080200 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x10080200 0x100>;
+			clock-frequency = <125000000>;
+			interrupts = <72>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		uart3: serial@0x10080300 {
+			device_type = "serial";
+			compatible = "ns16550a";
+			reg = <0 0x10080300 0x100>;
+			clock-frequency = <125000000>;
+			interrupts = <72>;
+			interrupt-parent = <&platic>;
+			no-loopback-test;
+		};
+
+		i2c0: i2c@10090000 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090000 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@10090100 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090100 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c2: i2c@10090200 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090200 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c3: i2c@10090300 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090300 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c4: i2c@10090400 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090400 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c5: i2c@10090500 {
+			compatible = "loongson,ls7a-i2c";
+			reg = <0 0x10090500 0x8>;
+			interrupts = <73>;
+			interrupt-parent = <&platic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c6: i2c-gpio@0 {
+			compatible = "i2c-gpio";
+			gpios = <&gpio 0 0 /* sda */
+				 &gpio 1 0 /* scl */
+				>;
+			i2c-gpio,delay-us = <100>;
+		};
+
+		i2c7: i2c-gpio@1 {
+			compatible = "i2c-gpio";
+			gpios = <&gpio 2 0 /* sda */
+				 &gpio 3 0 /* scl */
+				>;
+			i2c-gpio,delay-us = <100>;
+		};
+
+		rtc0: rtc@100d0100 {
+			compatible = "loongson,ls7a-rtc";
+			reg = <0 0x100d0100 0x100>;
+			interrupts = <116>;
+			interrupt-parent = <&platic>;
+		};
+
+		gpio: gpio@100e0000 {
+			compatible = "loongson,ls7a-gpio";
+			reg = <0 0x100e0000 0xc00>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupts = <124>;
+			interrupt-parent = <&platic>;
+		};
+	};
+};
