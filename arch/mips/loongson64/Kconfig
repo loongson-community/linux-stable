@@ -117,7 +117,7 @@ config LOONGSON_HPET
 	depends on LOONGSON_MACH3X
 	select MIPS_EXTERNAL_TIMER
 	help
-	  This option enables the hpet timer of LS2H or AMD RS780/SBX00.
+	  This option enables the hpet timer of LS2H or LS7A or AMD RS780/SBX00.
 
 	  If you want to enable the Loongson3 CPUFreq Driver, Please enable
 	  this option at first, otherwise, You will get wrong system time.
