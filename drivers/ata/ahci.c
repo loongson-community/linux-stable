@@ -52,6 +52,7 @@
 #define DRV_VERSION	"3.0"
 
 enum {
+	AHCI_PCI_BAR_LOONGSON	= 0,
 	AHCI_PCI_BAR_STA2X11	= 0,
 	AHCI_PCI_BAR_STANDARD	= 5,
 };
@@ -413,6 +414,9 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 	{ PCI_VDEVICE(ASMEDIA, 0x0602), board_ahci },	/* ASM1060 */
 	{ PCI_VDEVICE(ASMEDIA, 0x0611), board_ahci },	/* ASM1061 */
 	{ PCI_VDEVICE(ASMEDIA, 0x0612), board_ahci },	/* ASM1062 */
+
+	/* Loongson */
+	{ PCI_VDEVICE(LOONGSON, 0x7a08), board_ahci },
 
 	/* Generic, PCI class code for AHCI */
 	{ PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID,
@@ -1105,6 +1109,8 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* The Connext uses non-standard BAR */
 	if (pdev->vendor == PCI_VENDOR_ID_STMICRO && pdev->device == 0xCC06)
 		ahci_pci_bar = AHCI_PCI_BAR_STA2X11;
+	else if (pdev->vendor == PCI_VENDOR_ID_LOONGSON && pdev->device == 0x7a08)
+		ahci_pci_bar = AHCI_PCI_BAR_LOONGSON;
 
 	/* acquire resources */
 	rc = pcim_enable_device(pdev);
