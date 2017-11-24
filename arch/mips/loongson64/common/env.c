@@ -193,8 +193,11 @@ void __init prom_init_env(void)
 		loongson_pch = &ls2h_pch;
 		loongson_sysconf.ec_sci_irq = 0x80;
 		loongson_fdt_blob = __dtb_loongson3_ls2h_begin;
-	}
-	else {
+	} else if (strstr(eboard->name,"7A")) {
+		loongson_pch = &ls7a_pch;
+		loongson_sysconf.ec_sci_irq = 0x07;
+		loongson_fdt_blob = __dtb_loongson3_ls7a_begin;
+	} else {
 		loongson_pch = &rs780_pch;
 		loongson_sysconf.ec_sci_irq = 0x07;
 		loongson_fdt_blob = __dtb_loongson3_rs780_begin;

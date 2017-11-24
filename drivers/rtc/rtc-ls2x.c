@@ -62,7 +62,7 @@
 #define rtc_write(val, addr)   writel(val, rtc_reg_base + (addr))
 #define rtc_read(addr)         readl(rtc_reg_base + (addr))
 
-struct ls2h_rtc_info {
+struct ls2x_rtc_info {
 	struct platform_device *pdev;
 	struct rtc_device *rtc_dev;
 	struct resource *mem_res;
@@ -72,7 +72,7 @@ struct ls2h_rtc_info {
 
 static void __iomem *rtc_reg_base;
 
-static int ls2h_rtc_read_time(struct device *dev, struct rtc_time *tm)
+static int ls2x_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	unsigned int val;
 	unsigned long flags;
@@ -93,7 +93,7 @@ static int ls2h_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
-static int ls2h_rtc_set_time(struct device *dev, struct rtc_time *tm)
+static int ls2x_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	unsigned int val = 0;
 	unsigned long flags;
@@ -114,18 +114,18 @@ static int ls2h_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
-static struct rtc_class_ops ls2h_rtc_ops = {
-	.read_time = ls2h_rtc_read_time,
-	.set_time = ls2h_rtc_set_time,
+static struct rtc_class_ops ls2x_rtc_ops = {
+	.read_time = ls2x_rtc_read_time,
+	.set_time = ls2x_rtc_set_time,
 };
 
-static int ls2h_rtc_probe(struct platform_device *pdev)
+static int ls2x_rtc_probe(struct platform_device *pdev)
 {
 	struct resource *res, *mem;
 	struct rtc_device *rtc;
-	struct ls2h_rtc_info *info;
+	struct ls2x_rtc_info *info;
 
-	info = kzalloc(sizeof(struct ls2h_rtc_info), GFP_KERNEL);
+	info = kzalloc(sizeof(struct ls2x_rtc_info), GFP_KERNEL);
 	if (!info) {
 		pr_debug("%s: no enough memory\n", pdev->name);
 		return -ENOMEM;
@@ -155,12 +155,12 @@ static int ls2h_rtc_probe(struct platform_device *pdev)
 	info->rtc_base = ioremap(res->start, resource_size(res));
 	if (!info->rtc_base) {
 		pr_debug("%s: RTC registers can't be mapped\n", pdev->name);
-		goto fail;
+		goto fail1;
 	}
 	rtc_reg_base = info->rtc_base;
 
 	rtc = info->rtc_dev = rtc_device_register(pdev->name, &pdev->dev,
-						  &ls2h_rtc_ops, THIS_MODULE);
+						  &ls2x_rtc_ops, THIS_MODULE);
 	if (IS_ERR(info->rtc_dev)) {
 		pr_debug("%s: can't register RTC device, err %ld\n",
 			 pdev->name, PTR_ERR(rtc));
@@ -168,19 +168,21 @@ static int ls2h_rtc_probe(struct platform_device *pdev)
 	}
 	platform_set_drvdata(pdev, info);
 	dev_set_drvdata(&rtc->dev, info);
+
 	return 0;
 
-      fail0:
+fail0:
 	iounmap(info->rtc_base);
-      fail:
+fail1:
 	release_resource(mem);
 	kfree(info);
+
 	return -EIO;
 }
 
-static int ls2h_rtc_remove(struct platform_device *pdev)
+static int ls2x_rtc_remove(struct platform_device *pdev)
 {
-	struct ls2h_rtc_info *info = platform_get_drvdata(pdev);
+	struct ls2x_rtc_info *info = platform_get_drvdata(pdev);
 	struct rtc_device *rtc = info->rtc_dev;
 
 	iounmap(info->rtc_base);
@@ -188,36 +190,39 @@ static int ls2h_rtc_remove(struct platform_device *pdev)
 	release_resource(info->mem_res);
 	rtc_device_unregister(rtc);
 	kfree(info);
+
 	return 0;
 }
 
 #ifdef CONFIG_OF
-static struct of_device_id ls2h_rtc_id_table[] = {
+static struct of_device_id ls2x_rtc_id_table[] = {
 	{.compatible = "loongson,ls2h-rtc"},
+	{.compatible = "loongson,ls2k-rtc"},
+	{.compatible = "loongson,ls7a-rtc"},
 	{},
 };
 #endif
 
-static struct platform_driver ls2h_rtc_driver = {
-	.probe		= ls2h_rtc_probe,
-	.remove		= ls2h_rtc_remove,
+static struct platform_driver ls2x_rtc_driver = {
+	.probe		= ls2x_rtc_probe,
+	.remove		= ls2x_rtc_remove,
 	.driver		= {
-		.name	= "ls2h-rtc",
+		.name	= "ls2x-rtc",
 		.owner	= THIS_MODULE,
 #ifdef CONFIG_OF
-		.of_match_table = of_match_ptr(ls2h_rtc_id_table),
+		.of_match_table = of_match_ptr(ls2x_rtc_id_table),
 #endif
 	},
 };
 
 static int __init rtc_init(void)
 {
-	return platform_driver_register(&ls2h_rtc_driver);
+	return platform_driver_register(&ls2x_rtc_driver);
 }
 
 static void __exit rtc_exit(void)
 {
-	platform_driver_unregister(&ls2h_rtc_driver);
+	platform_driver_unregister(&ls2x_rtc_driver);
 }
 
 module_init(rtc_init);
@@ -225,4 +230,4 @@ module_exit(rtc_exit);
 
 MODULE_AUTHOR("Liu Shaozong");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:ls2h-rtc");
+MODULE_ALIAS("platform:ls2x-rtc");
