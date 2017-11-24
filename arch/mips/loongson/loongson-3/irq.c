@@ -67,10 +67,12 @@ static struct irq_chip loongson_irq_chip = {
 };
 
 extern int __init ls2h_irq_of_init(struct device_node *node, struct device_node *parent);
+extern int __init ls7a_irq_of_init(struct device_node *node, struct device_node *parent);
 
 static struct of_device_id __initdata of_irq_ids[] = {
 	{ .compatible = "mti,cpu-interrupt-controller", .data = mips_cpu_intc_init },
 	{ .compatible = "loongson,ls2h-interrupt-controller", .data = ls2h_irq_of_init },
+	{ .compatible = "loongson,ls7a-interrupt-controller", .data = ls7a_irq_of_init },
 	{ .compatible = "intel,i8259", .data = i8259_of_init },
 	{},
 };
