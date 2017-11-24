@@ -34,6 +34,7 @@
 
 DEFINE_PER_CPU(int, cpu_state);
 extern unsigned int ls2h_ipi_pos2irq[];
+extern unsigned int ls7a_ipi_pos2irq[];
 extern void maybe_enable_cpufreq(void);
 extern void maybe_disable_cpufreq(void);
 
@@ -239,6 +240,12 @@ void loongson3_ipi_interrupt(struct pt_regs *regs)
 				irqs &= ~(1 << (irq-1));
 			}
  			break;
+		case LS7A:
+			while ((irq = ffs(irqs))) {
+				do_IRQ(ls7a_ipi_pos2irq[irq-1]);
+				irqs &= ~(1 << (irq-1));
+			}
+			break;
  		case RS780E:
 			while ((irq = ffs(irqs))) {
 				do_IRQ(irq-1);
