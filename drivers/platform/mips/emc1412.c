@@ -118,18 +118,28 @@ static const struct attribute *emc1412_hwmon_temp[4][5] = {
 	}
 };
 
+#define BUS_MASK  0xffffffff00000000ul
+#define ADDR_MASK 0x00000000fffffffful
+
 static int emc1412_probe(struct platform_device *dev)
 {
-	struct i2c_adapter *adapter = NULL;
+	char i2c_name[16];
 	struct i2c_board_info info;
-	int i = 0, r = 0, found = 0, id = dev->id - 1;
+	struct i2c_adapter *adapter = NULL;
+	int i = 0, r = 0, found = 0, i2c_bus, id = dev->id - 1;
 	struct sensor_device *sdev = (struct sensor_device *)dev->dev.platform_data;
 
 	memset(&info, 0, sizeof(struct i2c_board_info));
 
+	i2c_bus = ((sdev->base_addr & BUS_MASK) >> 32) - 1;
+	if (i2c_bus < 0)
+		sprintf(i2c_name, "SMBus PIIX4");
+	else
+		sprintf(i2c_name, "LS2X I2C%d", i2c_bus);
+
 	adapter = i2c_get_adapter(i++);
 	while (adapter) {
-		if (strncmp(adapter->name, "SMBus PIIX4", 11) == 0) {
+		if (strncmp(adapter->name, i2c_name, strlen(i2c_name)) == 0) {
 			found = 1;
 			break;
 		}
@@ -140,7 +150,7 @@ static int emc1412_probe(struct platform_device *dev)
 	if (!found)
 		goto fail;
 
-	info.addr = sdev->base_addr;
+	info.addr = sdev->base_addr & ADDR_MASK;
 	info.platform_data = dev->dev.platform_data;
 	strncpy(info.type, "emc1412", I2C_NAME_SIZE);
 	emc1412_client[id] = i2c_new_device(adapter, &info);
