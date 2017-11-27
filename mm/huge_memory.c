@@ -1277,15 +1277,9 @@ struct page *follow_trans_huge_pmd(struct vm_area_struct *vma,
 
 	if (flags & FOLL_TOUCH) {
 		pmd_t _pmd;
-		/*
-		 * We should set the dirty bit only for FOLL_WRITE but
-		 * for now the dirty bit in the pmd is meaningless.
-		 * And if the dirty bit will become meaningful and
-		 * we'll only set it with FOLL_WRITE, an atomic
-		 * set_bit will be required on the pmd to set the
-		 * young bit, instead of the current set_pmd_at.
-		 */
-		_pmd = pmd_mkyoung(pmd_mkdirty(*pmd));
+		_pmd = pmd_mkyoung(*pmd);
+		if (flags & FOLL_WRITE)
+			_pmd = pmd_mkdirty(_pmd);
 		set_pmd_at(mm, addr & HPAGE_PMD_MASK, pmd, _pmd);
 	}
 	if ((flags & FOLL_MLOCK) && (vma->vm_flags & VM_LOCKED)) {
