@@ -94,7 +94,7 @@ module_param(fastClear, int, 0644);
 static int compression = -1;
 module_param(compression, int, 0644);
 
-static int powerManagement = 1;
+static int powerManagement = 0;
 module_param(powerManagement, int, 0644);
 
 static int signal = 48;
@@ -443,29 +443,30 @@ long loongson_drv_ioctl(
     {
 	gctUINT32 data;
 
-	printk("set outstanding register \n");
+	if(loongson_pch->type != LS7A){
+		printk("set outstanding register \n");
+	        for (i = 0; i < gcdMAX_GPU_COUNT; i++)
+	        {
+	            if (device->kernels[i] != gcvNULL)
+	            {
+			gcmkONERROR(
+		                gckOS_ReadRegisterEx(device->kernels[i]->hardware->os,
+		                                     device->kernels[i]->hardware->core,
+		                                     0x00414,
+		                                     &data));
+			data &= 0xffffff80;
 
-        for (i = 0; i < gcdMAX_GPU_COUNT; i++)
-        {
-            if (device->kernels[i] != gcvNULL)
-            {
-		gcmkONERROR(
-	                gckOS_ReadRegisterEx(device->kernels[i]->hardware->os,
-	                                     device->kernels[i]->hardware->core,
-	                                     0x00414,
-	                                     &data));
-		data &= 0xffffff80;
-	
-	        gcmkONERROR(
-	                gckOS_WriteRegisterEx(device->kernels[i]->hardware->os,
-	                                      device->kernels[i]->hardware->core,
-	                                      0x00414,
-	                                      data));
+		        gcmkONERROR(
+		                gckOS_WriteRegisterEx(device->kernels[i]->hardware->os,
+		                                      device->kernels[i]->hardware->core,
+		                                      0x00414,
+		                                      data));
 
-		printk("0x414 in ioctl.c is %x: \n", data);
-		break;
-            }
-        }
+			printk("0x414 in ioctl.c is %x: \n", data);
+			break;
+	            }
+	        }
+	}
     }
 
     if (iface.command == gcvHAL_CHIP_INFO)
@@ -1004,10 +1005,12 @@ int loongson_gpu_probe(struct platform_device *pdev)
 
     printk("all reserved_size is %lx\n", all_reserved_size);
 
-    if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
-    	device_addr = bus_addr | 0x40000000;
-    if(loongson_sysconf.vram_type == VRAM_TYPE_SP)
-    	device_addr = bus_addr & 0xffffffff;
+    if(loongson_sysconf.vram_type == VRAM_TYPE_UMA_LOW)
+		device_addr = bus_addr;
+    if(loongson_sysconf.vram_type == VRAM_TYPE_SP_LOW)
+		device_addr = bus_addr | 0x40000000;
+    else if(loongson_sysconf.vram_type == VRAM_TYPE_SP)
+		device_addr = bus_addr & 0xffffffff;
 
 #ifdef ALL_IN_2H
     if (!dma_declare_coherent_memory(GPU_DEV, bus_addr, device_addr, all_reserved_size, flags))
