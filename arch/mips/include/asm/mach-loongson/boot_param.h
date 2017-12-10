@@ -15,7 +15,12 @@
 #define MAX_MEMORY_TYPE		12
 
 #define VRAM_TYPE_SP	0
-#define VRAM_TYPE_UMA	1
+#define VRAM_TYPE_UMA  1
+#define VRAM_TYPE_UMA_SP	1	/*GPU use his private memory with unified address space*/
+#define VRAM_TYPE_UMA_LOW	2	/*GPU use low address syetem memory with unified address space*/
+#define VRAM_TYPE_UMA_HIGH	3	/*GPU use high address syetem memory with unified address space*/
+#define VRAM_TYPE_SP_LOW	4	/*GPU use low address syetem memory with special address space*/
+#define VRAM_TYPE_SP_HIGH	5	/*GPU use high address syetem memory with special address space*/
 
 #define LOONGSON3_BOOT_MEM_MAP_MAX 128
 struct efi_memory_map_loongson{
@@ -212,6 +217,7 @@ extern u64 high_physmem_start;
 extern u32 vram_type;
 extern u64 uma_vram_addr;
 extern u64 uma_vram_size;
+extern u32 gpu_brust_type;
 
 extern u32 loongson_nr_uarts;
 extern struct uart_device loongson_uarts[MAX_UARTS];

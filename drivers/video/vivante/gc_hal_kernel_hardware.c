@@ -1221,7 +1221,7 @@ gckHARDWARE_InitializeHardware(
         }
     }
 	/*outstanding register, 0x01: NoneBurst */
-    if(vram_type == VRAM_TYPE_UMA)
+    if(gpu_brust_type == 0)
     {
          gctUINT32 data;
          gcmkONERROR(
