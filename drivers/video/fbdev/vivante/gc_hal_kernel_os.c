@@ -742,7 +742,7 @@ _FreeAllNonPagedMemoryCache(
         }
 
 #ifndef NO_DMA_COHERENT
-        if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+        if(lsgpu_hw_coherent != 0)
         {
             dma_free_coherent(GPU_DEV,
                     cache->size,
@@ -1592,15 +1592,19 @@ gckOS_MapMemory(
         }
 
 #ifndef NO_DMA_COHERENT
-	if(loongson_sysconf.vram_type == VRAM_TYPE_SP)
+        if(lsgpu_hw_coherent != 0)
 	{
-        	mdlMap->vma->vm_page_prot = pgprot_noncached(mdlMap->vma->vm_page_prot);
+		mdlMap->vma->vm_page_prot = pgprot_noncached(mdlMap->vma->vm_page_prot);
+#ifdef LS_GPU_RESERVE_FOR_OLD_ARCH
 	#if !gcdPAGED_MEMORY_CACHEABLE
-	        mdlMap->vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND; // | VM_RESERVED
+	    mdlMap->vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_RESERVED;
 	#endif
+#else
+	    mdlMap->vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND;
+#endif
 	}
-        mdlMap->vma->vm_pgoff = 0;
-	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+    mdlMap->vma->vm_pgoff = 0;
+	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA_LOW)
 	{
 		res_tmp =remap_pfn_range(mdlMap->vma,
 	                            mdlMap->vma->vm_start,
@@ -1638,7 +1642,7 @@ gckOS_MapMemory(
         }
 #else
 #if !gcdPAGED_MEMORY_CACHEABLE
-	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+	if(lsgpu_hw_coherent != 0)
 	{
 	        mdlMap->vma->vm_page_prot = pgprot_writecombine(mdlMap->vma->vm_page_prot);
 	}else{
@@ -1953,7 +1957,7 @@ gckOS_AllocateNonPagedMemory(
                 &mdl->dmaHandle,
                 GFP_KERNEL | gcdNOWARN);
 
-	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+	if(lsgpu_hw_coherent != 0)
 	{
       		 if(addr != gcvNULL)
       		         addr = (gctSTRING)((gctUINT64)addr | 0x9800000000000000ULL);
@@ -2082,14 +2086,14 @@ gckOS_AllocateNonPagedMemory(
         }
 
 #ifndef NO_DMA_COHERENT
-	if (loongson_sysconf.vram_type == VRAM_TYPE_SP){
+	if(lsgpu_hw_coherent != 0) {
 	    mdlMap->vma->vm_page_prot = gcmkNONPAGED_MEMROY_PROT(mdlMap->vma->vm_page_prot);
             mdlMap->vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND;// | VM_RESERVED
 	}
 
         mdlMap->vma->vm_pgoff = 0;
 
-	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA_LOW)
 	{
 		res_tmp = remap_pfn_range(mdlMap->vma,
 	                            mdlMap->vma->vm_start,
@@ -2264,16 +2268,13 @@ gceSTATUS gckOS_FreeNonPagedMemory(
 #endif
     {
 
-	if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+	if(lsgpu_hw_coherent != 0)
 	{
 		dma_free_coherent(GPU_DEV,
 	                mdl->numPages * PAGE_SIZE,
 	                (gctSTRING)((gctUINT64)(mdl->addr) & 0x90ffffffffffffffULL),
        		         mdl->dmaHandle);
-	}
-
-	if(loongson_sysconf.vram_type == VRAM_TYPE_SP)
-	{
+	}else{
 		dma_free_coherent(GPU_DEV,
 	                mdl->numPages * PAGE_SIZE,
 	                mdl->addr,
@@ -4325,11 +4326,11 @@ gckOS_LockPages(
         if (Cacheable == gcvFALSE)
         {
             /* Make this mapping non-cached. */
-		if(loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+		if(lsgpu_hw_coherent != 0)
 		{
 	            mdlMap->vma->vm_page_prot = pgprot_writecombine(mdlMap->vma->vm_page_prot);
 		}else{
-		    mdlMap->vma->vm_page_prot = pgprot_noncached(mdlMap->vma->vm_page_prot);	
+		    mdlMap->vma->vm_page_prot = pgprot_noncached(mdlMap->vma->vm_page_prot);
 		}
         }
 #endif
