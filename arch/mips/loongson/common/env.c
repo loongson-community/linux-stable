@@ -48,6 +48,7 @@ u32 loongson_nr_uarts;
 struct uart_device loongson_uarts[MAX_UARTS];
 u32 loongson_nr_sensors;
 struct sensor_device loongson_sensors[MAX_SENSORS];
+u32 gpu_brust_type;
 
 void *loongson_fdt_blob;
 struct platform_controller_hub dummy_pch;
