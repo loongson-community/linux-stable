@@ -41,6 +41,7 @@ u64 loongson_pciio_base;
 u64 vgabios_addr;
 u64 poweroff_addr, restart_addr, suspend_addr;
 u64 low_physmem_start, high_physmem_start;
+u32 gpu_brust_type;
 u32 vram_type;
 u64 uma_vram_addr;
 u64 uma_vram_size;
