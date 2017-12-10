@@ -90,4 +90,6 @@ GetOrder(
 	return order;
 }
 
+extern int lsgpu_hw_coherent;
+
 #endif /* __gc_hal_kernel_linux_h_ */

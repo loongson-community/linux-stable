@@ -388,6 +388,7 @@ gckGALDEVICE_Construct(
         /* Set up register memory region. */
         if (physical != 0)
         {
+#ifdef LS_GPU_RESERVE_FOR_OLD_ARCH
             mem_region = request_mem_region(
                 physical, device->requestedRegisterMemSizes[i], "galcore register region"
                 );
@@ -403,7 +404,7 @@ gckGALDEVICE_Construct(
 
                 gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
             }
-
+#endif
             device->registerBases[i] = (gctPOINTER) ioremap_nocache(
                 physical, device->requestedRegisterMemSizes[i]);
 
@@ -842,7 +843,7 @@ gckGALDEVICE_Construct(
             }
             else
             {
-                if (loongson_sysconf.vram_type == VRAM_TYPE_UMA)
+                if (loongson_sysconf.vram_type == VRAM_TYPE_SP)
                 {
                     mem_region = request_mem_region(
                         ContiguousBase, ContiguousSize, "galcore managed memory"

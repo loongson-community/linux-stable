@@ -39,6 +39,7 @@ u64 loongson_freqctrl[MAX_PACKAGES];
 unsigned long long smp_group[4];
 unsigned int has_systab = 0;
 unsigned long systab_addr;
+u32 gpu_brust_type;
 
 void *loongson_fdt_blob;
 struct platform_controller_hub dummy_pch;
