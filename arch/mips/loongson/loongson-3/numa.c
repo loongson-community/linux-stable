@@ -181,12 +181,15 @@ static void __init szmem(unsigned int node)
 				memblock_reserve(((node_id << 44) | emap->map[i].mem_start), 0x2000);
 				break;
 			case UMA_VIDEO_RAM:
+#ifdef LS_VRAM_ADD_BY_PMON
 				vram_type = VRAM_TYPE_UMA;
-				uma_vram_addr = emap->map[i].mem_start & 0xffffffff;
-				uma_vram_size = emap->map[i].mem_size;
 				add_memory_region((node_id << 44) + emap->map[i].mem_start,
 					(u64)emap->map[i].mem_size << 20, BOOT_MEM_RESERVED);
 				memblock_reserve(((node_id << 44) | emap->map[i].mem_start), mem_size << 20);
+#endif
+
+				uma_vram_addr = emap->map[i].mem_start & 0xffffffff;
+				uma_vram_size = emap->map[i].mem_size;
 				break;
 			}
 		}
