@@ -62,6 +62,33 @@ static void loongson_dma_free_coherent(struct device *dev, size_t size,
 	swiotlb_free_coherent(dev, size, vaddr, dma_handle);
 }
 
+static int loongson_dma_mmap(struct device *dev, struct vm_area_struct *vma,
+	void *cpu_addr, dma_addr_t dma_addr, size_t size, struct dma_attrs *attrs)
+{
+	int ret = -ENXIO;
+	unsigned long user_count = vma_pages(vma);
+	unsigned long count = PAGE_ALIGN(size) >> PAGE_SHIFT;
+	unsigned long pfn = page_to_pfn(virt_to_page(cpu_addr));
+	unsigned long off = vma->vm_pgoff;
+
+	if (!plat_device_is_coherent(dev)) {
+		if (dma_get_attr(DMA_ATTR_WRITE_COMBINE, attrs))
+			vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+		else
+			vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	}
+
+	if (dma_mmap_from_coherent(dev, vma, cpu_addr, size, &ret))
+		return ret;
+
+	if (off < count && user_count <= (count - off)) {
+		ret = remap_pfn_range(vma, vma->vm_start, pfn + off,
+				      user_count << PAGE_SHIFT, vma->vm_page_prot);
+	}
+
+	return ret;
+}
+
 #define PCIE_DMA_ALIGN 16
 
 static dma_addr_t loongson_dma_map_page(struct device *dev, struct page *page,
@@ -259,6 +286,7 @@ static struct loongson_dma_map_ops loongson_linear_dma_map_ops = {
 	.dma_map_ops = {
 		.alloc = loongson_dma_alloc_coherent,
 		.free = loongson_dma_free_coherent,
+		.mmap = loongson_dma_mmap,
 		.map_page = loongson_dma_map_page,
 		.unmap_page = loongson_dma_unmap_page,
 		.map_sg = loongson_dma_map_sg,
