@@ -87,39 +87,29 @@ void radeon_ttm_placement_from_domain(struct radeon_bo *rbo, u32 domain)
 		rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED |
 					     TTM_PL_FLAG_VRAM;
 
-	if (plat_device_is_coherent(NULL)) {
-		if (domain & RADEON_GEM_DOMAIN_GTT) {
-			if (rbo->rdev->flags & RADEON_IS_AGP) {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT;
-			} else {
-				rbo->placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_TT;
-			}
+	if (domain & RADEON_GEM_DOMAIN_GTT) {
+		if (rbo->rdev->flags & RADEON_IS_AGP) {
+			rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT;
+		} else if (plat_device_is_coherent(NULL)) {
+			rbo->placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_TT;
+		} else {
+			rbo->placements[c++].flags = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_TT;
 		}
-		if (domain & RADEON_GEM_DOMAIN_CPU) {
-			if (rbo->rdev->flags & RADEON_IS_AGP) {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM;
-			} else {
-				rbo->placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_SYSTEM;
-			}
+	}
+
+	if (domain & RADEON_GEM_DOMAIN_CPU) {
+		if (rbo->rdev->flags & RADEON_IS_AGP) {
+			rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM;
+		} else if (plat_device_is_coherent(NULL)) {
+			rbo->placements[c++].flags = TTM_PL_FLAG_CACHED | TTM_PL_FLAG_SYSTEM;
+		} else {
+			rbo->placements[c++].flags = TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
 		}
-		if (!c)
+	}
+	if (!c) {
+		if (plat_device_is_coherent(NULL))
 			rbo->placements[c++].flags = TTM_PL_MASK_CACHING | TTM_PL_FLAG_SYSTEM;
-	} else {
-		if (domain & RADEON_GEM_DOMAIN_GTT) {
-			if (rbo->rdev->flags & RADEON_IS_AGP) {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT;
-			} else {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_TT;
-			}
-		}
-		if (domain & RADEON_GEM_DOMAIN_CPU) {
-			if (rbo->rdev->flags & RADEON_IS_AGP) {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM;
-			} else {
-				rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_SYSTEM;
-			}
-		}
-		if (!c)
+		else
 			rbo->placements[c++].flags = TTM_PL_FLAG_WC | TTM_PL_FLAG_UNCACHED | TTM_PL_FLAG_SYSTEM;
 	}
 
