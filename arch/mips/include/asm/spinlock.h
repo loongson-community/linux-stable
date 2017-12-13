@@ -175,24 +175,9 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 
 static inline void arch_spin_unlock(arch_spinlock_t *lock)
 {
-#ifndef CONFIG_CPU_LOONGSON3
 	unsigned int serving_now = lock->h.serving_now + 1;
 	wmb();
 	lock->h.serving_now = (u16)serving_now;
-#else
-	int tmp1, tmp2;
-
-	__asm__ __volatile__(
-	"1:	sync					\n"
-	"	ll	%1, %3				\n"
-	"	addiu   %2, %1, 1			\n"
-	"	ins	%1, %2, 0, 16			\n"
-	"	sc	%1, %0				\n"
-	"	beqz	%1, 1b				\n"
-	: "=m" (lock->lock), "=&r" (tmp1), "=&r" (tmp2)
-	: "m" (lock->lock)
-	: "memory");
-#endif
 	nudge_writes();
 }
 
