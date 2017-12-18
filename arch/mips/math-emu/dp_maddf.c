@@ -71,6 +71,12 @@ static ieee754dp _dp_maddf(ieee754dp z, ieee754dp x,
 
 	CLEARCX;
 
+	rs = xs ^ ys;
+	if (flags & MADDF_NEGATE_PRODUCT)
+		rs ^= 1;
+	if (flags & MADDF_NEGATE_ADDITION)
+		zs ^= 1;
+
 	/*
 	 * Handle the cases when at least one of x, y or z is a NaN.
 	 * Order of precedence is sNaN, qNaN and z, x, y.
@@ -107,9 +113,7 @@ static ieee754dp _dp_maddf(ieee754dp z, ieee754dp x,
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_NORM):
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_DNORM):
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_INF):
-		if ((zc == IEEE754_CLASS_INF) &&
-		    ((!(flags & MADDF_NEGATE_PRODUCT) && (zs != (xs ^ ys))) ||
-		     ((flags & MADDF_NEGATE_PRODUCT) && (zs == (xs ^ ys))))) {
+		if ((zc == IEEE754_CLASS_INF) && (zs != rs)) {
 			/*
 			 * Cases of addition of infinities with opposite signs
 			 * or subtraction of infinities with same signs.
@@ -119,15 +123,10 @@ static ieee754dp _dp_maddf(ieee754dp z, ieee754dp x,
 		}
 		/*
 		 * z is here either not an infinity, or an infinity having the
-		 * same sign as product (x*y) (in case of MADDF.D instruction)
-		 * or product -(x*y) (in MSUBF.D case). The result must be an
-		 * infinity, and its sign is determined only by the value of
-		 * (flags & MADDF_NEGATE_PRODUCT) and the signs of x and y.
+		 * same sign as product (x*y). The result must be an infinity,
+		 * and its sign is determined only by the sign of product (x*y).
 		 */
-		if (flags & MADDF_NEGATE_PRODUCT)
-			return ieee754dp_inf(1 ^ (xs ^ ys));
-		else
-			return ieee754dp_inf(xs ^ ys);
+		return ieee754dp_inf(rs);
 
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_ZERO):
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_NORM):
@@ -138,10 +137,7 @@ static ieee754dp _dp_maddf(ieee754dp z, ieee754dp x,
 			return ieee754dp_inf(zs);
 		if (zc == IEEE754_CLASS_ZERO) {
 			/* Handle cases +0 + (-0) and similar ones. */
-			if ((!(flags & MADDF_NEGATE_PRODUCT)
-					&& (zs == (xs ^ ys))) ||
-			    ((flags & MADDF_NEGATE_PRODUCT)
-					&& (zs != (xs ^ ys))))
+			if (zs == rs)
 				/*
 				 * Cases of addition of zeros of equal signs
 				 * or subtraction of zeroes of opposite signs.
@@ -189,9 +185,6 @@ static ieee754dp _dp_maddf(ieee754dp z, ieee754dp x,
 	assert(ym & DP_HIDDEN_BIT);
 
 	re = xe + ye;
-	rs = xs ^ ys;
-	if (flags & MADDF_NEGATE_PRODUCT)
-		rs ^= 1;
 
 	/* shunt to top of word */
 	xm <<= 64 - (DP_MBITS + 1);
@@ -341,6 +334,30 @@ ieee754dp ieee754dp_maddf(ieee754dp z, ieee754dp x,
 }
 
 ieee754dp ieee754dp_msubf(ieee754dp z, ieee754dp x,
+				ieee754dp y)
+{
+	return _dp_maddf(z, x, y, MADDF_NEGATE_PRODUCT);
+}
+
+ieee754dp ieee754dp_madd(ieee754dp z, ieee754dp x,
+				ieee754dp y)
+{
+	return _dp_maddf(z, x, y, 0);
+}
+
+ieee754dp ieee754dp_msub(ieee754dp z, ieee754dp x,
+				ieee754dp y)
+{
+	return _dp_maddf(z, x, y, MADDF_NEGATE_ADDITION);
+}
+
+ieee754dp ieee754dp_nmadd(ieee754dp z, ieee754dp x,
+				ieee754dp y)
+{
+	return _dp_maddf(z, x, y, MADDF_NEGATE_PRODUCT|MADDF_NEGATE_ADDITION);
+}
+
+ieee754dp ieee754dp_nmsub(ieee754dp z, ieee754dp x,
 				ieee754dp y)
 {
 	return _dp_maddf(z, x, y, MADDF_NEGATE_PRODUCT);
