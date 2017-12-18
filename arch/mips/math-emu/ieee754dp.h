@@ -44,6 +44,7 @@
   while( (m >> DP_MBITS) == 0) { m <<= 1; e--; }
 #define DPDNORMX	DPDNORMx(xm, xe)
 #define DPDNORMY	DPDNORMx(ym, ye)
+#define DPDNORMZ	DPDNORMx(zm, ze)
 
 static inline ieee754dp builddp(int s, int bx, u64 m)
 {
