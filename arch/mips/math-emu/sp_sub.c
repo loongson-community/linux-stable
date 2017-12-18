@@ -136,12 +136,14 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 		/* have to shift y fraction right to align
 		 */
 		int s = xe - ye;
-		SPXSRSYn(s);
+		ym = XSPSRS(ym, s);
+		ye += s;
 	} else if (ye > xe) {
 		/* have to shift x fraction right to align
 		 */
 		int s = ye - xe;
-		SPXSRSXn(s);
+		xm = XSPSRS(xm, s);
+		xe += s;
 	}
 	assert(xe == ye);
 	assert(xe <= SP_EMAX);

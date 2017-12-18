@@ -177,7 +177,8 @@ ieee754sp ieee754sp_format(int sn, int xe, unsigned xm)
 		else {
 			/* sticky right shift es bits
 			 */
-			SPXSRSXn(es);
+			xm = XSPSRS(xm, es);
+			xe += es;
 			assert((xm & (SP_HIDDEN_BIT << 3)) == 0);
 			assert(xe == SP_EMIN);
 		}
