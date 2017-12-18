@@ -59,6 +59,7 @@
 
 enum maddf_flags {
 	MADDF_NEGATE_PRODUCT	= 1 << 0,
+	MADDF_NEGATE_ADDITION	= 1 << 1,
 };
 
 #define CLEARCX	\
