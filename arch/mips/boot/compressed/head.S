@@ -14,11 +14,18 @@
 
 #include <asm/asm.h>
 #include <asm/regdef.h>
+#include <asm/mipsregs.h>
 
 	.set noreorder
 	.cprestore
 	LEAF(start)
 start:
+#ifdef CONFIG_CPU_LOONGSON3
+	mfc0    t0, CP0_STATUS
+	or	t0, ST0_MM
+	mtc0    t0, CP0_STATUS
+#endif
+
 	/* Save boot rom start args */
 	move	s0, a0
 	move	s1, a1
