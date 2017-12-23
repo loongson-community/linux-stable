@@ -31,6 +31,7 @@
 
 #include <drm/drmP.h>
 #include <drm/radeon_drm.h>
+#include "radeon.h"
 #include "radeon_drv.h"
 
 #include <drm/drm_pciids.h>
@@ -364,11 +365,10 @@ radeon_pci_remove(struct pci_dev *pdev)
 static void
 radeon_pci_shutdown(struct pci_dev *pdev)
 {
-	/* if we are running in a VM, make sure the device
-	 * torn down properly on reboot/shutdown
-	 */
-	if (radeon_device_is_virtual())
-		radeon_pci_remove(pdev);
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct radeon_device *rdev = dev->dev_private;
+
+	radeon_suspend(rdev);
 }
 
 static int radeon_pmops_suspend(struct device *dev)

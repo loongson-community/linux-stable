@@ -1331,7 +1331,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	rdev->vm_manager.max_pfn = radeon_vm_size << 18;
 
 	/* Set asic functions */
-	r = radeon_asic_init(rdev);
+	r = radeon_asic_setup(rdev);
 	if (r)
 		return r;
 
@@ -1445,7 +1445,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	if (runtime)
 		vga_switcheroo_init_domain_pm_ops(rdev->dev, &rdev->vga_pm_domain);
 
-	r = radeon_init(rdev);
+	r = radeon_asic_init(rdev);
 	if (r)
 		goto failed;
 
@@ -1464,9 +1464,9 @@ int radeon_device_init(struct radeon_device *rdev,
 		 * with fallback to PCI or PCIE GART
 		 */
 		radeon_asic_reset(rdev);
-		radeon_fini(rdev);
+		radeon_asic_fini(rdev);
 		radeon_agp_disable(rdev);
-		r = radeon_init(rdev);
+		r = radeon_asic_init(rdev);
 		if (r)
 			goto failed;
 	}
@@ -1533,7 +1533,7 @@ void radeon_device_fini(struct radeon_device *rdev)
 	rdev->shutdown = true;
 	/* evict vram memory */
 	radeon_bo_evict_vram(rdev);
-	radeon_fini(rdev);
+	radeon_asic_fini(rdev);
 	if (!pci_is_thunderbolt_attached(rdev->pdev))
 		vga_switcheroo_unregister_client(rdev->pdev);
 	if (rdev->flags & RADEON_IS_PX)
