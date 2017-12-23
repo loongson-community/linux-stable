@@ -31,6 +31,7 @@
 
 #include <drm/drmP.h>
 #include <drm/radeon_drm.h>
+#include "radeon.h"
 #include "radeon_drv.h"
 
 #include <drm/drm_pciids.h>
@@ -561,6 +562,15 @@ static const struct file_operations radeon_driver_kms_fops = {
 #endif
 };
 
+static void
+radeon_pci_shutdown(struct pci_dev *pdev)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct radeon_device *rdev = dev->dev_private;
+
+	radeon_suspend(rdev);
+}
+
 static struct drm_driver kms_driver = {
 	.driver_features =
 	    DRIVER_USE_AGP |
@@ -630,6 +640,7 @@ static struct pci_driver radeon_kms_pci_driver = {
 	.id_table = pciidlist,
 	.probe = radeon_pci_probe,
 	.remove = radeon_pci_remove,
+	.shutdown = radeon_pci_shutdown,
 	.driver.pm = &radeon_pm_ops,
 };
 
