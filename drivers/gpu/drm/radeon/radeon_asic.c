@@ -2304,7 +2304,7 @@ static struct radeon_asic kv_asic = {
 };
 
 /**
- * radeon_asic_init - register asic specific callbacks
+ * radeon_asic_setup - register asic specific callbacks
  *
  * @rdev: radeon device pointer
  *
@@ -2313,7 +2313,7 @@ static struct radeon_asic kv_asic = {
  * of crtcs and the register aperture accessors (all asics).
  * Returns 0 for success.
  */
-int radeon_asic_init(struct radeon_device *rdev)
+int radeon_asic_setup(struct radeon_device *rdev)
 {
 	radeon_register_accessor_init(rdev);
 

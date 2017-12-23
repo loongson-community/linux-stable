@@ -2204,11 +2204,10 @@ union radeon_asic_config {
 };
 
 /*
- * asic initizalization from radeon_asic.c
+ * asic setup from radeon_asic.c
  */
+int radeon_asic_setup(struct radeon_device *rdev);
 void radeon_agp_disable(struct radeon_device *rdev);
-int radeon_asic_init(struct radeon_device *rdev);
-
 
 /*
  * IOCTL.
@@ -2706,8 +2705,8 @@ static inline void radeon_ring_write(struct radeon_ring *ring, uint32_t v)
 /*
  * ASICs macro.
  */
-#define radeon_init(rdev) (rdev)->asic->init((rdev))
-#define radeon_fini(rdev) (rdev)->asic->fini((rdev))
+#define radeon_asic_init(rdev) (rdev)->asic->init((rdev))
+#define radeon_asic_fini(rdev) (rdev)->asic->fini((rdev))
 #define radeon_resume(rdev) (rdev)->asic->resume((rdev))
 #define radeon_suspend(rdev) (rdev)->asic->suspend((rdev))
 #define radeon_cs_parse(rdev, r, p) (rdev)->asic->ring[(r)]->cs_parse((p))
