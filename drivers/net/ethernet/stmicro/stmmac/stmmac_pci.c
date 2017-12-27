@@ -146,6 +146,37 @@ static struct stmmac_pci_info quark_pci_info = {
 	.dmi = quark_pci_dmi_data,
 };
 
+static int loongson_default_data(struct plat_stmmacenet_data *plat,
+			      struct stmmac_pci_info *info)
+{
+	struct pci_dev *pdev = info->pdev;
+
+	plat->bus_id = PCI_DEVID(pdev->bus->number, pdev->devfn);
+	plat->phy_addr = -1;
+	plat->interface = PHY_INTERFACE_MODE_GMII;
+	plat->clk_csr = 2;	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
+	plat->has_gmac = 1;
+	plat->force_sf_dma_mode = 1;
+
+	plat->mdio_bus_data->phy_reset = NULL;
+	plat->mdio_bus_data->phy_mask = 0;
+
+	plat->dma_cfg->pbl = 32;
+	/* AXI (TODO) */
+
+	/* Set default value for multicast hash bins */
+	plat->multicast_filter_bins = HASH_TABLE_SIZE;
+
+	/* Set default value for unicast filter entries */
+	plat->unicast_filter_entries = 1;
+
+	return 0;
+}
+
+static struct stmmac_pci_info loongson_pci_info = {
+	.setup = loongson_default_data,
+};
+
 /**
  * stmmac_pci_probe
  *
@@ -218,6 +249,8 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	res.addr = pcim_iomap_table(pdev)[i];
 	res.wol_irq = pdev->irq;
 	res.irq = pdev->irq;
+	if (pdev->vendor == PCI_VENDOR_ID_LOONGSON)
+		res.lpi_irq = pdev->irq + 1;
 
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
 }
@@ -280,6 +313,7 @@ static const struct pci_device_id stmmac_id_table[] = {
 	{PCI_DEVICE(STMMAC_VENDOR_ID, STMMAC_DEVICE_ID)},
 	{PCI_DEVICE(PCI_VENDOR_ID_STMICRO, PCI_DEVICE_ID_STMICRO_MAC)},
 	{PCI_VDEVICE(INTEL, STMMAC_QUARK_ID), (kernel_ulong_t)&quark_pci_info},
+	{PCI_VDEVICE(LOONGSON, PCI_DEVICE_ID_LOONGSON_GMAC), (kernel_ulong_t)&loongson_pci_info},
 	{}
 };
 
