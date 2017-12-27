@@ -220,6 +220,27 @@ static const struct stmmac_pci_info quark_pci_info = {
 	.setup = quark_default_data,
 };
 
+static int loongson_default_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	/* Set common default data first */
+	common_default_data(plat);
+
+	plat->bus_id = PCI_DEVID(pdev->bus->number, pdev->devfn);
+	plat->phy_addr = -1;
+	plat->interface = PHY_INTERFACE_MODE_GMII;
+
+	plat->dma_cfg->pbl = 32;
+	plat->dma_cfg->pblx8 = true;
+	/* AXI (TODO) */
+
+	return 0;
+}
+
+static struct stmmac_pci_info loongson_pci_info = {
+	.setup = loongson_default_data,
+};
+
 /**
  * stmmac_pci_probe
  *
@@ -286,6 +307,8 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	res.addr = pcim_iomap_table(pdev)[i];
 	res.wol_irq = pdev->irq;
 	res.irq = pdev->irq;
+	if (pdev->vendor == PCI_VENDOR_ID_LOONGSON)
+		res.lpi_irq = pdev->irq + 1;
 
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
 }
@@ -355,6 +378,7 @@ static const struct pci_device_id stmmac_id_table[] = {
 	STMMAC_DEVICE(STMMAC, STMMAC_DEVICE_ID, stmmac_pci_info),
 	STMMAC_DEVICE(STMICRO, PCI_DEVICE_ID_STMICRO_MAC, stmmac_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_QUARK_ID, quark_pci_info),
+	STMMAC_DEVICE(LOONGSON, PCI_DEVICE_ID_LOONGSON_GMAC, loongson_pci_info),
 	{}
 };
 
