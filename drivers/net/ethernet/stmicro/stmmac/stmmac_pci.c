@@ -26,6 +26,25 @@
 #include <linux/pci.h>
 #include "stmmac.h"
 
+static void loongson_default_data(struct plat_stmmacenet_data *plat)
+{
+	static int bus_id = 1;
+
+	bus_id++;
+	plat->bus_id = bus_id;
+	plat->phy_addr = -1;
+	plat->interface = PHY_INTERFACE_MODE_GMII;
+	plat->clk_csr = 2;	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
+	plat->has_gmac = 1;
+	plat->force_sf_dma_mode = 1;
+
+	plat->mdio_bus_data->phy_reset = NULL;
+	plat->mdio_bus_data->phy_mask = 0;
+
+	plat->dma_cfg->pbl = 32;
+	plat->dma_cfg->burst_len = DMA_AXI_BLEN_256;
+}
+
 static void stmmac_default_data(struct plat_stmmacenet_data *plat)
 {
 	plat->bus_id = 1;
@@ -106,7 +125,14 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	}
 	pci_set_master(pdev);
 
-	stmmac_default_data(plat);
+	switch (pdev->vendor) {
+	case PCI_VENDOR_ID_LOONGSON:
+		loongson_default_data(plat);
+		break;
+	default:
+		stmmac_default_data(plat);
+		break;
+	}
 
 	priv = stmmac_dvr_probe(&(pdev->dev), plat, addr);
 	if (!priv) {
@@ -115,6 +141,8 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	}
 	priv->dev->irq = pdev->irq;
 	priv->wol_irq = pdev->irq;
+	if (pdev->vendor == PCI_VENDOR_ID_LOONGSON)
+		priv->lpi_irq = pdev->irq + 1;
 
 	pci_set_drvdata(pdev, priv->dev);
 
@@ -182,6 +210,7 @@ static int stmmac_pci_resume(struct pci_dev *pdev)
 static DEFINE_PCI_DEVICE_TABLE(stmmac_id_table) = {
 	{PCI_DEVICE(STMMAC_VENDOR_ID, STMMAC_DEVICE_ID)},
 	{PCI_DEVICE(PCI_VENDOR_ID_STMICRO, PCI_DEVICE_ID_STMICRO_MAC)},
+	{PCI_DEVICE(PCI_VENDOR_ID_LOONGSON, PCI_DEVICE_ID_LOONGSON_GMAC)},
 	{}
 };
 
