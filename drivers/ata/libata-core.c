@@ -2740,6 +2740,10 @@ int ata_dev_configure(struct ata_device *dev)
 	}
 
 	if ((dev->class == ATA_DEV_ATAPI) &&
+	    (ap->flags & ATA_FLAG_ATAPI_DMA))
+		dev->horkage |= ATA_HORKAGE_ATAPI_MOD16_DMA;
+
+	if ((dev->class == ATA_DEV_ATAPI) &&
 	    (atapi_command_packet_set(id) == TYPE_TAPE)) {
 		dev->max_sectors = ATA_MAX_SECTORS_TAPE;
 		dev->horkage |= ATA_HORKAGE_STUCK_ERR;
@@ -4954,7 +4958,7 @@ int atapi_check_dma(struct ata_queued_cmd *qc)
 	 */
 	if (!(qc->dev->horkage & ATA_HORKAGE_ATAPI_MOD16_DMA) &&
 	    unlikely(qc->nbytes & 15))
-		return 1;
+		return -EOPNOTSUPP;
 
 	if (ap->ops->check_atapi_dma)
 		return ap->ops->check_atapi_dma(qc);

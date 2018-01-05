@@ -1771,6 +1771,9 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (hpriv->cap & HOST_CAP_PMP)
 		pi.flags |= ATA_FLAG_PMP;
 
+	if (pdev->vendor == PCI_VENDOR_ID_MARVELL_EXT)
+		pi.flags |= ATA_FLAG_ATAPI_DMA;
+
 	ahci_set_em_messages(hpriv, &pi);
 
 	if (ahci_broken_system_poweroff(pdev)) {
