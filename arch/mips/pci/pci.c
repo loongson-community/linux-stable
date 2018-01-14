@@ -111,8 +111,12 @@ static void pcibios_scanbus(struct pci_controller *hose)
 		}
 
 		if (!pci_has_flag(PCI_PROBE_ONLY)) {
+			struct pci_bus *child;
+
 			pci_bus_size_bridges(bus);
 			pci_bus_assign_resources(bus);
+			list_for_each_entry(child, &bus->children, node)
+				pcie_bus_configure_settings(child);
 		}
 	}
 }
