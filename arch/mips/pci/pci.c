@@ -111,9 +111,18 @@ static void __devinit pcibios_scanbus(struct pci_controller *hose)
 		}
 
 		if (!pci_has_flag(PCI_PROBE_ONLY)) {
+			struct pci_bus *child;
+
 			pci_bus_size_bridges(bus);
 			pci_bus_assign_resources(bus);
 			pci_enable_bridges(bus);
+			list_for_each_entry(child, &bus->children, node) {
+				struct pci_dev *self = child->self;
+				if (!self)
+					continue;
+
+				pcie_bus_configure_settings(child, self->pcie_mpss);
+			}
 		}
 		bus->dev.of_node = hose->of_node;
 	}
