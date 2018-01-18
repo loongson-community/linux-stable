@@ -889,7 +889,7 @@ static struct platform_driver azx_driver = {
 	.remove = azx_remove,
 	.shutdown = azx_shutdown,
 	.driver = {
-		.name = "ls2h-audio",
+		.name = "loongson-audio",
 		.owner = THIS_MODULE,
 		.pm = AZX_PM_OPS,
 #ifdef CONFIG_OF
@@ -898,9 +898,88 @@ static struct platform_driver azx_driver = {
 	},
 };
 
+static const struct pci_device_id azx_ids[] = {
+	{PCI_DEVICE(PCI_VENDOR_ID_LOONGSON, PCI_DEVICE_ID_LOONGSON_HDA)},
+	{}
+};
+
+MODULE_DEVICE_TABLE(pci, azx_ids);
+
+static struct resource loongson_hda_resources[] = {
+	[0] = {
+		.flags	= IORESOURCE_MEM,
+	},
+	[1] = {
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static struct platform_device loongson_hda_device = {
+	.name           = "loongson-audio",
+	.id             = 0,
+	.num_resources	= ARRAY_SIZE(loongson_hda_resources),
+	.resource	= loongson_hda_resources,
+};
+
+static int azx_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+{
+	int ret;
+	unsigned char v8;
+
+	/* Enable device in PCI config */
+	ret = pci_enable_device(pdev);
+	if (ret < 0) {
+		printk(KERN_ERR "ls7a hda (%s): Cannot enable PCI device\n",
+		       pci_name(pdev));
+		goto err_out;
+	}
+
+	/* request the mem regions */
+	ret = pci_request_region(pdev, 0, "loongson hda");
+	if (ret < 0) {
+		printk( KERN_ERR "loongson HDA (%s): cannot request region 0.\n",
+			pci_name(pdev));
+		goto err_out;
+	}
+
+	loongson_hda_resources[0].start = pci_resource_start (pdev, 0);
+	loongson_hda_resources[0].end = pci_resource_end(pdev, 0);
+
+	ret = pci_read_config_byte(pdev, PCI_INTERRUPT_LINE, &v8); //need api from pci irq
+
+	if (ret == PCIBIOS_SUCCESSFUL) {
+		loongson_hda_resources[1].start = v8;
+		loongson_hda_resources[1].end = v8;
+
+		platform_device_register(&loongson_hda_device);
+		platform_driver_register(&azx_driver);
+
+	}
+
+	return 0;
+err_out:
+	return ret;
+}
+
+static void azx_pci_remove(struct pci_dev *pdev)
+{
+}
+
+/* pci_driver definition */
+static struct pci_driver azx_pci_driver = {
+	.name = "azx_pci_driver",
+	.id_table = azx_ids,
+	.probe = azx_pci_probe,
+	.remove = azx_pci_remove,
+};
+
 static int __init alsa_card_azx_init(void)
 {
-	return platform_driver_register(&azx_driver);
+	int err;
+	err = pci_register_driver(&azx_pci_driver);
+	if (err)
+		pr_err("hda azx pci driver register\n");
+	return err;
 }
 
 static void __exit alsa_card_azx_exit(void)
