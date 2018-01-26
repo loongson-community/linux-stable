@@ -91,8 +91,8 @@ lpfc_memcpy_to_slim( void __iomem *dest, void *src, unsigned int bytes)
 static inline void
 lpfc_memcpy_from_slim( void *dest, void __iomem *src, unsigned int bytes)
 {
-	/* actually returns 1 byte past dest */
-	memcpy_fromio( dest, src, bytes);
+	/* convert bytes in argument list to word count for copy function */
+	__ioread32_copy(dest, src, bytes / sizeof(uint32_t));
 }
 
 #endif	/* __BIG_ENDIAN */
