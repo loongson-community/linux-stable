@@ -19,6 +19,7 @@ extern const size_t relocate_new_kernel_size;
 extern unsigned long kexec_start_address;
 extern unsigned long kexec_indirection_page;
 
+static unsigned long reboot_code_buffer;
 int (*_machine_kexec_prepare)(struct kimage *) = NULL;
 void (*_machine_kexec_shutdown)(void) = NULL;
 void (*_machine_crash_shutdown)(struct pt_regs *regs) = NULL;
@@ -79,12 +80,50 @@ machine_crash_shutdown(struct pt_regs *regs)
 		default_machine_crash_shutdown(regs);
 }
 
-typedef void (*noretfun_t)(void) __noreturn;
+void kexec_reboot(void)
+{
+	void (*do_kexec)(void) __noreturn;
+
+	/*
+	 * We know we were online, and there will be no incoming IPIs at
+	 * this point. Mark online again before rebooting so that the crash
+	 * analysis tool will see us correctly.
+	 */
+	set_cpu_online(smp_processor_id(), true);
+
+	/* Ensure remote CPUs observe that we're online before rebooting. */
+	smp_mb();
+
+#ifdef CONFIG_SMP
+	if (smp_processor_id() > 0) {
+		/*
+		 * Instead of cpu_relax() or wait, this is needed for kexec
+		 * smp reboot. Kdump usually doesn't require an smp new
+		 * kernel, but kexec may do.
+		 */
+		local_flush_icache_range((unsigned long)relocated_kexec_smp_wait,
+				 reboot_code_buffer + relocate_new_kernel_size);
+
+		relocated_kexec_smp_wait(NULL);
+
+		/* NOTREACHED */
+	}
+#endif
+
+	/*
+	 * Make sure we get correct instructions written by the
+	 * machine_kexec() CPU.
+	 */
+	local_flush_icache_range(reboot_code_buffer,
+				 reboot_code_buffer + relocate_new_kernel_size);
+
+	do_kexec = (void *)reboot_code_buffer;
+	do_kexec();
+}
 
 void
 machine_kexec(struct kimage *image)
 {
-	unsigned long reboot_code_buffer;
 	unsigned long entry;
 	unsigned long *ptr;
 
@@ -136,5 +175,5 @@ machine_kexec(struct kimage *image)
 	smp_wmb();
 	atomic_set(&kexec_ready_to_reboot, 1);
 #endif
-	((noretfun_t) reboot_code_buffer)();
+	kexec_reboot();
 }
