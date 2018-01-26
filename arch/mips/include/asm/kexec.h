@@ -11,12 +11,26 @@
 
 #include <asm/stacktrace.h>
 
+#ifdef CONFIG_32BIT
+
 /* Maximum physical address we can use pages from */
 #define KEXEC_SOURCE_MEMORY_LIMIT (0x20000000)
 /* Maximum address we can reach in physical address mode */
 #define KEXEC_DESTINATION_MEMORY_LIMIT (0x20000000)
  /* Maximum address we can use for the control code buffer */
 #define KEXEC_CONTROL_MEMORY_LIMIT (0x20000000)
+
+#else
+
+/* Maximum physical address we can use pages from */
+#define KEXEC_SOURCE_MEMORY_LIMIT (0x20000000000L)
+/* Maximum address we can reach in physical address mode */
+#define KEXEC_DESTINATION_MEMORY_LIMIT (0x20000000000L)
+ /* Maximum address we can use for the control code buffer */
+#define KEXEC_CONTROL_MEMORY_LIMIT (0x20000000000L)
+
+#endif
+
 /* Reserve 3*4096 bytes for board-specific info */
 #define KEXEC_CONTROL_PAGE_SIZE (4096 + 3*4096)
 
@@ -36,6 +50,7 @@ static inline void crash_setup_regs(struct pt_regs *newregs,
 #ifdef CONFIG_KEXEC
 struct kimage;
 extern unsigned long kexec_args[4];
+extern const size_t relocate_new_kernel_size;
 extern int (*_machine_kexec_prepare)(struct kimage *);
 extern void (*_machine_kexec_shutdown)(void);
 extern void (*_machine_crash_shutdown)(struct pt_regs *regs);
