@@ -27,6 +27,7 @@
 #include <linux/mpage.h>
 #include <linux/rmap.h>
 #include <linux/percpu.h>
+#include <linux/sizes.h>
 #include <linux/smp.h>
 #include <linux/sysctl.h>
 #include <linux/cpu.h>
@@ -2075,6 +2076,38 @@ static int page_writeback_cpu_online(unsigned int cpu)
  */
 void __init page_writeback_init(void)
 {
+#ifdef CONFIG_CPU_LOONGSON3
+	uint64_t x, d;
+	unsigned long ratio = dirty_background_ratio;
+	unsigned long avail = global_dirtyable_memory();
+	unsigned long limit = 2*800*1024*1024UL / PAGE_SIZE;
+
+	if (avail*ratio > limit*100) {
+		dirty_background_ratio = 0;
+		vm_dirty_ratio = 0;
+		dirty_background_bytes = limit * PAGE_SIZE;
+		vm_dirty_bytes = 2 * dirty_background_bytes;
+	}
+	dirty_expire_interval = 10 * 100;
+
+	avail = avail * PAGE_SIZE / SZ_1G;
+
+	switch (avail) {
+	case 0 ... 89:
+		d = avail / 2;
+		break;
+	case 90 ... 269:
+		x = avail / 4;
+		x = x*x*x*x*x*x*x*x*x*x;
+		d = fls64(x) - 1;
+		break;
+	default:
+		/* 270 ... ULONG_MAX */
+		d = vm_swappiness;
+	}
+	vm_swappiness -= d;
+#endif
+
 	BUG_ON(wb_domain_init(&global_wb_domain, GFP_KERNEL));
 
 	cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "mm/writeback:online",
