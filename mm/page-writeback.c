@@ -34,6 +34,7 @@
 #include <linux/syscalls.h>
 #include <linux/buffer_head.h> /* __set_page_dirty_buffers */
 #include <linux/pagevec.h>
+#include <asm-generic/sizes.h>
 #include <trace/events/writeback.h>
 
 /*
@@ -1607,6 +1608,37 @@ static struct notifier_block __cpuinitdata ratelimit_nb = {
 void __init page_writeback_init(void)
 {
 	int shift;
+#ifdef CONFIG_CPU_LOONGSON3
+	uint64_t x, d;
+	unsigned long ratio = dirty_background_ratio;
+	unsigned long avail = global_dirtyable_memory();
+	unsigned long limit = 2*800*1024*1024UL / PAGE_SIZE;
+
+	if (avail*ratio > limit*100) {
+		dirty_background_ratio = 0;
+		vm_dirty_ratio = 0;
+		dirty_background_bytes = limit * PAGE_SIZE;
+		vm_dirty_bytes = 2 * dirty_background_bytes;
+	}
+	dirty_expire_interval = 10 * 100;
+
+	avail = avail * PAGE_SIZE / SZ_1G;
+
+	switch (avail) {
+	case 0 ... 89:
+		d = avail / 2;
+		break;
+	case 90 ... 269:
+		x = avail / 4;
+		x = x*x*x*x*x*x*x*x*x*x;
+		d = fls64(x) - 1;
+		break;
+	default:
+		/* 270 ... ULONG_MAX */
+		d = vm_swappiness;
+	}
+	vm_swappiness -= d;
+#endif
 
 	writeback_set_ratelimit();
 	register_cpu_notifier(&ratelimit_nb);
