@@ -296,6 +296,12 @@ void loongson3_ipi_interrupt(struct pt_regs *regs)
 		__wbflush(); /* Let others see the result ASAP */
 	}
 
+	if (action & SMP_CPU_BACKTRACE) {
+		irq_enter();
+		arch_dump_stack();
+		irq_exit();
+	}
+
 	if (irqs) {
 		int irq;
 		while ((irq = ffs(irqs))) {

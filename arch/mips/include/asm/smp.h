@@ -43,6 +43,7 @@ extern int __cpu_logical_map[NR_CPUS];
 /* Octeon - Tell another core to flush its icache */
 #define SMP_ICACHE_FLUSH	0x4
 #define SMP_ASK_C0COUNT		0x8
+#define SMP_CPU_BACKTRACE	0x10
 
 extern cpumask_t cpu_callin_map;
 
@@ -80,6 +81,8 @@ static inline void __cpu_die(unsigned int cpu)
 
 extern void play_dead(void);
 #endif
+
+void arch_dump_stack(void);
 
 static inline void arch_send_call_function_single_ipi(int cpu)
 {
