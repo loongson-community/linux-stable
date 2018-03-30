@@ -54,6 +54,13 @@ resume_userspace:
 #endif
 
 	LONG_L	a2, TI_FLAGS($28)	# current->work
+	li	t0, _TIF_LOAD_WATCH
+	and	t0, a2
+	beqz	t0, 1f
+	move	a0, $28
+	jal	mips_install_watch_registers
+	LONG_L	a2, TI_FLAGS($28)	# current->work
+1:
 	andi	t0, a2, _TIF_WORK_MASK	# (ignoring syscall_trace)
 	bnez	t0, work_pending
 	j	restore_all
@@ -87,7 +94,15 @@ FEXPORT(syscall_exit)
 	local_irq_disable		# make sure need_resched and
 					# signals dont change between
 					# sampling and return
+
 	LONG_L	a2, TI_FLAGS($28)	# current->work
+	li	t0, _TIF_LOAD_WATCH
+	and	t0, a2
+	beqz	t0, 1f
+	move	a0, $28
+	jal	mips_install_watch_registers
+	LONG_L	a2, TI_FLAGS($28)	# current->work
+1:
 	li	t0, _TIF_ALLWORK_MASK
 	and	t0, a2, t0
 	bnez	t0, syscall_exit_work
@@ -161,7 +176,15 @@ work_notifysig:				# deal with pending signals and
 FEXPORT(syscall_exit_partial)
 	local_irq_disable		# make sure need_resched doesn't
 					# change between and return
+
 	LONG_L	a2, TI_FLAGS($28)	# current->work
+	li	t0, _TIF_LOAD_WATCH
+	and	t0, a2
+	beqz	t0, 1f
+	move	a0, $28
+	jal	mips_install_watch_registers
+	LONG_L	a2, TI_FLAGS($28)	# current->work
+1:
 	li	t0, _TIF_ALLWORK_MASK
 	and	t0, a2
 	beqz	t0, restore_partial

@@ -1529,7 +1529,7 @@ asmlinkage void do_watch(struct pt_regs *regs)
 	 * their values and send SIGTRAP.  Otherwise another thread
 	 * left the registers set, clear them and continue.
 	 */
-	if (test_tsk_thread_flag(current, TIF_LOAD_WATCH)) {
+	if (user_mode(regs) && test_tsk_thread_flag(current, TIF_LOAD_WATCH)) {
 		mips_read_watch_registers();
 		local_irq_enable();
 		force_sig_info(SIGTRAP, &info, current);
