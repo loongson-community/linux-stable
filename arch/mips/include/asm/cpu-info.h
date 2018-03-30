@@ -91,6 +91,7 @@ struct cpuinfo_mips {
 	void			*data;	/* Additional data */
 	unsigned int		watch_reg_count;   /* Number that exist */
 	unsigned int		watch_reg_use_cnt; /* Usable by ptrace */
+	unsigned int		ejtag_watch;
 #define NUM_WATCH_REGS 4
 	u16			watch_reg_masks[NUM_WATCH_REGS];
 	unsigned int		kscratch_mask; /* Usable KScratch mask. */

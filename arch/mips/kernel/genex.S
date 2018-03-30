@@ -348,10 +348,6 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
 	MTC0	k0, CP0_DESAVE
-	mfc0	k0, CP0_DEBUG
-
-	sll	k0, k0, 30	# Check for SDBBP.
-	bgez	k0, ejtag_return
 
 #ifdef CONFIG_SMP
 1:	PTR_LA	k0, ejtag_debug_buffer_spinlock
@@ -401,7 +397,6 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 	LONG_L	k1, 0(k0)
 #endif
 
-ejtag_return:
 	back_to_back_c0_hazard
 	MFC0	k0, CP0_DESAVE
 	.set	mips32
