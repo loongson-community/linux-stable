@@ -200,9 +200,12 @@ static struct ttm_backend_func smi_tt_backend_func = {
 };
 
 
-struct ttm_tt *smi_ttm_tt_create(struct ttm_bo_device *bdev,
-				 unsigned long size, uint32_t page_flags,
-				 struct page *dummy_read_page)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,16,0)
+struct ttm_tt *smi_ttm_tt_create(struct ttm_buffer_object *bo, uint32_t page_flags)
+#else
+struct ttm_tt *smi_ttm_tt_create(struct ttm_bo_device *bdev, unsigned long size,
+				 uint32_t page_flags, struct page *dummy_read_page)
+#endif
 {
 	struct ttm_tt *tt;
 
@@ -210,14 +213,22 @@ struct ttm_tt *smi_ttm_tt_create(struct ttm_bo_device *bdev,
 	if (tt == NULL)
 		return NULL;
 	tt->func = &smi_tt_backend_func;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,16,0)
+	if (ttm_tt_init(tt, bo, page_flags)) {
+#else
 	if (ttm_tt_init(tt, bdev, size, page_flags, dummy_read_page)) {
+#endif
 		kfree(tt);
 		return NULL;
 	}
 	return tt;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0)
 static int smi_ttm_tt_populate(struct ttm_tt *ttm)
+#else
+static int smi_ttm_tt_populate(struct ttm_tt *ttm, struct ttm_operation_ctx *ctx)
+#endif
 {
 	bool slave = !!(ttm->page_flags & TTM_PAGE_FLAG_SG);
 
@@ -231,7 +242,11 @@ static int smi_ttm_tt_populate(struct ttm_tt *ttm)
 		return 0;
 	}
 	
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0)
 	return ttm_pool_populate(ttm);
+#else
+	return ttm_pool_populate(ttm, ctx);
+#endif
 }
 
 static void smi_ttm_tt_unpopulate(struct ttm_tt *ttm)
@@ -265,7 +280,7 @@ struct ttm_bo_driver smi_bo_driver = {
 	.verify_access = smi_bo_verify_access,
 	.io_mem_reserve = &smi_ttm_io_mem_reserve,
 	.io_mem_free = &smi_ttm_io_mem_free,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0) && LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
 	.io_mem_pfn = ttm_bo_default_io_mem_pfn,
 #endif
 };
@@ -293,17 +308,13 @@ int smi_mm_init(struct smi_device *smi)
 		DRM_ERROR("Error initialising bo driver; %d\n", ret);
 		return ret;
 	}
-#ifdef PRIME
+
 	if(g_specId == SPC_SM750)  //SM750 has only 16MB vram. We have to report 64MB vram for the prime function.
 		ret = ttm_bo_init_mm(bdev, TTM_PL_VRAM,
 			     0x4000000 >> PAGE_SHIFT);
 	else
 		ret = ttm_bo_init_mm(bdev, TTM_PL_VRAM,
 			     smi->mc.vram_size >> PAGE_SHIFT);
-#else
-	ret = ttm_bo_init_mm(bdev, TTM_PL_VRAM,
-			     smi->mc.vram_size >> PAGE_SHIFT);
-#endif
 
 	if (ret) {
 		DRM_ERROR("Failed ttm VRAM init: %d\n", ret);
@@ -427,10 +438,14 @@ int smi_bo_create(struct drm_device *dev, int size, int align,
 
 	ret = ttm_bo_init(&smi->ttm.bdev, &smibo->bo, size,
 			  type, &smibo->placement,
-			  align >> PAGE_SHIFT, false, NULL, acc_size, sg,
+			  align >> PAGE_SHIFT, false,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,16,0)
+			  NULL,
+#endif
+			  acc_size, sg,
 #if LINUX_VERSION_CODE > KERNEL_VERSION(3,18,0)
 			  resv,
-#endif			   
+#endif
 			  smi_bo_ttm_destroy);
 	if (ret)
 		goto error;
@@ -452,6 +467,9 @@ static inline u64 smi_bo_gpu_offset(struct smi_bo *bo)
 int smi_bo_pin(struct smi_bo *bo, u32 pl_flag, u64 *gpu_addr)
 {
 	int i, ret;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+	struct ttm_operation_ctx ctx = { false, false };
+#endif
 
 	if (bo->pin_count) {
 		bo->pin_count++;
@@ -466,7 +484,11 @@ int smi_bo_pin(struct smi_bo *bo, u32 pl_flag, u64 *gpu_addr)
 #else
 		bo->placements[i] |= TTM_PL_FLAG_NO_EVICT;
 #endif		
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+	ret = ttm_bo_validate(&bo->bo, &bo->placement, &ctx);
+#else
 	ret = ttm_bo_validate(&bo->bo, &bo->placement, false, false);
+#endif
 	if (ret)
 		return ret;
 
@@ -479,6 +501,9 @@ int smi_bo_pin(struct smi_bo *bo, u32 pl_flag, u64 *gpu_addr)
 int smi_bo_unpin(struct smi_bo *bo)
 {
 	int i, ret;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+	struct ttm_operation_ctx ctx = { false, false };
+#endif
 	if (!bo->pin_count) {
 		dbg_msg("unpin bad %p\n", bo);
 		return 0;
@@ -493,7 +518,11 @@ int smi_bo_unpin(struct smi_bo *bo)
 #else
 		bo->placements[i] &= ~TTM_PL_FLAG_NO_EVICT;
 #endif		
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,15,0)
+	ret = ttm_bo_validate(&bo->bo, &bo->placement, &ctx);
+#else
 	ret = ttm_bo_validate(&bo->bo, &bo->placement, false, false);
+#endif
 	if (ret)
 		return ret;
 

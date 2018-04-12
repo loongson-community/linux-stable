@@ -57,6 +57,10 @@ int smi_handle_damage(struct smi_framebuffer *fb, int x, int y,
 	dbg_msg("src: %p, dst: %p, bpp = %u\n", src, bo->dma_buf_vmap.virtual, (bytesPerPixel << 3));
 
 	dst = bo->dma_buf_vmap.virtual;
+
+	if (height == 600 || height == 900)  // workaround for 1440x900 and 800x600. need to find a better way
+		height = height + 150;
+
 #if 1
 	offset = (y * fb->base.width + x) * bytesPerPixel;
 	for (i = 0; i < height; i++) {
@@ -119,9 +123,9 @@ static int smi_user_framebuffer_dirty(struct drm_framebuffer *fb,
 	if (smi_fb->obj->import_attach) {
 		dma_buf_end_cpu_access(smi_fb->obj->import_attach->dmabuf,
 #if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
-						0, smi_fb->obj->size,
+					0, smi_fb->obj->size,
 #endif
-						DMA_FROM_DEVICE);
+					DMA_FROM_DEVICE);
 	}
 	
 unlock:
@@ -335,6 +339,7 @@ int smi_driver_load(struct drm_device *dev, unsigned long flags)
 		return -ENOMEM;
 	dev->dev_private = (void *)cdev;
 
+	pci_enable_device(dev->pdev);
 
 	r = smi_device_init(cdev, dev, dev->pdev, flags);
 	if (r) {
@@ -366,7 +371,6 @@ int smi_driver_load(struct drm_device *dev, unsigned long flags)
 #endif
 	}
 	
-
 	r = smi_mm_init(cdev);
 	if (r){
 		dev_err(&dev->pdev->dev, "fatal err on mm init\n");

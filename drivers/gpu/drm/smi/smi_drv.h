@@ -36,7 +36,7 @@
 
 #define DRIVER_MAJOR		1
 #define DRIVER_MINOR		2
-#define DRIVER_PATCHLEVEL	3
+#define DRIVER_PATCHLEVEL	4
 
 #define SMIFB_CONN_LIMIT 3
 
@@ -45,7 +45,7 @@
 #define SUPPORT_CHIP "SM750, SM768"
 #define SUPPORT_XVERSION "All Linux distribution"
 
-#define _version_	"1.2.3.1"
+#define _version_	"1.2.4.0"
 
 #ifdef CONFIG_CPU_LOONGSON3
 #define NO_WC
@@ -361,12 +361,6 @@ void smi_gem_prime_unpin(struct drm_gem_object *obj);
 
 struct reservation_object *smi_gem_prime_res_obj(struct drm_gem_object *obj);
 
-int smi_crtc_cursor_set2(struct drm_crtc *crtc,
-				 struct drm_file *file,
-				 uint32_t handle,
-				 uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
-int smi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y);
-
 #if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
 int smi_crtc_page_flip(struct drm_crtc *crtc,struct drm_framebuffer *fb,
 	struct drm_pending_vblank_event *event, uint32_t page_flip_flags);
@@ -375,11 +369,8 @@ int smi_crtc_page_flip(struct drm_crtc *crtc,struct drm_framebuffer *fb,
 	struct drm_pending_vblank_event *event, uint32_t page_flip_flags, struct drm_modeset_acquire_ctx *ctx);
 #endif
 
-
-
 int smi_audio_init(struct pci_dev *pci);
 void smi_audio_remove(struct pci_dev *pci);
-
 
 /* please use revision id to distinguish sm750le and sm750*/
 #define SPC_SM750 	0
