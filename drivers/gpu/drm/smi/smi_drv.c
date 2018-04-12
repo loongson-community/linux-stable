@@ -18,7 +18,7 @@
 
 int smi_modeset = -1;
 int smi_indent = 0;
-int smi_bpp = 16;
+int smi_bpp = 32;
 int force_connect = 0;
 int g_specId;
 int smi_pat = 0xff;
@@ -32,7 +32,7 @@ module_param(smi_pat,int, S_IWUSR | S_IRUSR);
 
 MODULE_PARM_DESC(modeset, "Disable/Enable modesetting");
 module_param_named(modeset, smi_modeset, int, 0400);
-MODULE_PARM_DESC(bpp, "Max bits-per-pixel (default:16)");
+MODULE_PARM_DESC(bpp, "Max bits-per-pixel (default:32)");
 module_param_named(bpp, smi_bpp, int, 0400);
 MODULE_PARM_DESC(nopnp, "Force conncet to the monitor without monitor EDID (default:0)");
 module_param_named(nopnp, force_connect, int, 0400);

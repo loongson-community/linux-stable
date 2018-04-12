@@ -11,15 +11,11 @@
 *******************************************************************/
 #include "ddk750_defs.h"
 #include "ddk750_regdc.h"
-//#include "ddk750_hardware.h"
 #include "ddk750_helper.h"
 #include "ddk750_power.h"
 #include "ddk750_clock.h"
 #include "ddk750_chip.h"
 #include "ddk750_help.h"
-//#include "ddk750_os.h"
-
-//#include "ddkdebug.h"
 
 /*
  *  Get the default memory clock value used by this DDK

@@ -19,9 +19,6 @@
 #include "ddk750_help.h"
 #include "ddk750_regde.h"
 
-
-//#include "ddkdebug.h"
-
 /* Flag to enable the 192 bytes patch to workaround the 2D errata, where the engine
    will draws incorrectly for BITBLT function that involves READ from memory. 
    Currently, this definition flag is only used for testing. */

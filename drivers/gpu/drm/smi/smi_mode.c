@@ -29,7 +29,6 @@ struct drm_encoder * smi_enc_tab[MAX_ENCODER];
 
 int g_m_connector = 0;//bit 0: DVI, bit 1: VGA, bit 2: HDMI.
 
-
 int smi_calc_hdmi_ctrl(int m_connector)
 {
 		int smi_ctrl = 0;
@@ -701,11 +700,9 @@ int smi_connector_get_modes(struct drm_connector *connector)
 		if(connector->connector_type == DRM_MODE_CONNECTOR_VGA)
 		{
 			tmpedid = &edid1;
-			ret = ddk750_edidReadMonitorEx(SMI1_CTRL, tmpedid, 128, 0, 17, 18);
+			ret = ddk750_edidReadMonitorEx(SMI1_CTRL, tmpedid, 256, 0, 17, 18);
 
-			if(ret == 0){
-				edid1.checksum += edid1.extensions;
-				edid1.extensions = 0;
+			if(ret){
 				drm_mode_connector_update_edid_property(connector, &edid1);
 				count = drm_add_edid_modes(connector, &edid1);
 			}else{
@@ -726,7 +723,7 @@ int smi_connector_get_modes(struct drm_connector *connector)
 			ret = ddk768_edidReadMonitorExHwI2C(tmpedid,256,0,0);
 			dbg_msg("DVI edid size= %d\n",ret);
 #else
-			ddk768_edidReadMonitorEx(tmpedid, 256, 0, 30,31 );//GPIO 30,31 for DVI,HW I2C0   
+			ddk768_edidReadMonitorEx(tmpedid, 256, 0, 30, 31); // GPIO 30,31 for DVI,HW I2C0
 #endif
 			if(ret){
 				drm_mode_connector_update_edid_property(connector, &edid0);
@@ -734,7 +731,7 @@ int smi_connector_get_modes(struct drm_connector *connector)
 			}else{
 				drm_mode_connector_update_edid_property(connector, NULL);
 				count = drm_add_modes_noedid(connector, 1920, 1080);
-				drm_set_preferred_mode(connector, 1280, 1024);
+				drm_set_preferred_mode(connector, 1024, 768);
 			}
 
 		}
@@ -772,7 +769,7 @@ int smi_connector_get_modes(struct drm_connector *connector)
 			}else{
 				drm_mode_connector_update_edid_property(connector, NULL);
 				count = drm_add_modes_noedid(connector, 1920, 1080);
-				drm_set_preferred_mode(connector, 1280, 1024);
+				drm_set_preferred_mode(connector, 1024, 768);
 			}
 
 		}
@@ -1054,7 +1051,11 @@ int smi_modeset_init(struct smi_device *cdev)
 #endif
 
 	cdev->dev->mode_config.fb_base = cdev->mc.vram_base;
+#ifdef PRIME
 	cdev->dev->mode_config.preferred_depth = smi_bpp;
+#else
+	cdev->dev->mode_config.preferred_depth = min(24, smi_bpp);
+#endif
 	cdev->dev->mode_config.prefer_shadow = 1;
 
 	int index;

@@ -988,6 +988,9 @@ unsigned char edidGetExtension(
 }
 
 #define EDID_TOTAL_RETRY_COUNTER            4
+
+#if 0
+
 /*
  *  edidReadMonitor
  *      This function reads the EDID structure from the attached monitor
@@ -1072,6 +1075,86 @@ long ddk750_edidReadMonitorEx(
 
     return 0;
 }
+
+#else
+/*
+ *  ddk750_edidReadMonitor
+ *      This function reads the EDID structure from the attached monitor
+ *
+ *  Input:
+ *      displayPath - Display device which EDID to be read from.
+ *      pEDIDBuffer - Buffer that contains the EDID structure of the monitor
+ *      bufferSize  - The EDID Buffer size index (usually 128-bytes)
+ *      edidExtNo   - Extension Index of the EDID Structure to be read
+ *      sclGpio     - GPIO pin used as the I2C Clock (SCL)
+ *      sdaGpio     - GPIO pin used as the I2C Data (SDA)
+ *
+ *  Output:
+ *      0   - Fail
+ *      edidSize   - Success and return the edid's size
+ */
+long ddk750_edidReadMonitorEx(
+	disp_path_t displayPath,
+    unsigned char *pEDIDBuffer,
+    unsigned long bufferSize,
+    unsigned char edidExtNo,
+    unsigned char sclGpio,
+    unsigned char sdaGpio
+)
+{
+    unsigned char value, retry, edidVersion, edidRevision;
+    unsigned char edidBuffer[TOTAL_EDID_REGISTERS_256];
+    unsigned long offset;
+    long edidSize = TOTAL_EDID_REGISTERS_128;
+
+    /* Initialize the i2c bus */
+    swI2CInit(sclGpio, sdaGpio);
+
+    for (retry = 0; retry < EDID_TOTAL_RETRY_COUNTER; retry++)
+    {
+       // DDKDEBUGPRINT((DISPLAY_LEVEL, "retry: %d\n", retry));
+
+        /* Read the EDID from the monitor. */
+        for (offset = 0; offset < TOTAL_EDID_REGISTERS_128; offset++)
+            edidBuffer[offset] = swI2CReadReg(EDID_DEVICE_I2C_ADDRESS, (unsigned char)offset);
+		if(edidBuffer[EDID_EXTEND_BLOCK])
+		{
+			for (offset = TOTAL_EDID_REGISTERS_128; offset < TOTAL_EDID_REGISTERS_256; offset++)
+				edidBuffer[offset] = swI2CReadReg(EDID_DEVICE_I2C_ADDRESS, (unsigned char)offset);
+			edidSize = TOTAL_EDID_REGISTERS_256;
+		}
+
+        /* Check if the EDID is valid. */
+        edidVersion = edidGetVersion((unsigned char *)&edidBuffer, (unsigned char *)&edidRevision);
+        //DDKDEBUGPRINT((DISPLAY_LEVEL, "EDID Structure Version: %d.%d\n", edidVersion, edidRevision));
+        if (edidVersion != 0)
+            break;
+    }
+
+    /*
+     *  The monitor might not be DDC2B compliance. Therefore, need to use DDC1 protocol,
+     *  which uses the Vertical Sync to clock in the EDID data.
+     *  Currently this function return error. DDC1 protocol can be added later.
+     */
+    if (retry == EDID_TOTAL_RETRY_COUNTER)
+    {
+        /* DDC1 uses the SDA line to transmit 9 bit data per byte. The last bit is
+         * only an acknowledge flag, which could be high or low. However, SCL line
+         * is not used. Instead the data is clock-in using vertical sync.
+         */
+        return 0;
+    }
+
+    /* Copy the data to the given buffer */
+    if (pEDIDBuffer != (unsigned char *)0)
+    {
+        for (offset = 0; offset < edidSize; offset++)
+            pEDIDBuffer[offset] = edidBuffer[offset];
+    }
+
+    return edidSize;
+}
+#endif
 
 long ddk750_edidReadMonitorEx_HW(
     disp_path_t displayPath,
