@@ -196,8 +196,9 @@
 		};
 
 		dc@0x1be50000 {
-			compatible = "loongson,ls2h-fb";
-			reg = <0 0x1be50000 0x2000>;
+			compatible = "loongson,ls2h-drmfb";
+			reg = <0x000 0x1be50000 0x0002000
+			       0xe00 0x02000000 0x2000000>;
 			interrupts = <103>;
 			interrupt-parent = <&platic>;
 		};

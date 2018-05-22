@@ -1,0 +1,18 @@
+
+config DRM_LOONGSON
+	tristate "DRM support for LS2H/LS7A Display Controller"
+	depends on DRM && PCI
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	select DRM_KMS_HELPER
+	select DRM_KMS_FB_HELPER
+	select DRM_TTM
+	default n
+	help
+	  Support the display controllers found on the Loongson LS2H/LS7A
+	  bridge.
+
+	  This driver provides no built-in acceleration; acceleration is
+	  performed by Vivante GC1000. This driver provides kernel mode
+	  setting and buffer management to userspace.
