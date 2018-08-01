@@ -635,6 +635,9 @@ void rs600_gart_set_page(struct radeon_device *rdev, unsigned i, uint64_t addr)
 		addr |= R600_PTE_SYSTEM | R600_PTE_SNOOPED;
 	else
 		addr |= R600_PTE_GART;
+#ifdef CONFIG_CRASH_DUMP
+	addr |= R600_PTE_VALID | R600_PTE_READABLE | R600_PTE_WRITEABLE;
+#endif
 	writeq(addr, ptr + (i * 8));
 }
 
