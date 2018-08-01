@@ -643,6 +643,9 @@ uint64_t rs600_gart_get_page_entry(uint64_t addr, uint32_t flags)
 		addr |= R600_PTE_WRITEABLE;
 	if (flags & RADEON_GART_PAGE_SNOOP)
 		addr |= R600_PTE_SNOOPED;
+#ifdef CONFIG_CRASH_DUMP
+	addr |= R600_PTE_VALID | R600_PTE_READABLE | R600_PTE_WRITEABLE;
+#endif
 	return addr;
 }
 
