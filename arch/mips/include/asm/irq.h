@@ -67,6 +67,8 @@ extern void free_irqno(unsigned int irq);
 extern int plat_set_irq_affinity(struct irq_data *d,
 				 const struct cpumask *affinity, bool force);
 
+#define NR_IRQS_LEGACY 16
+
 /*
  * Before R2 the timer and performance counter interrupts were both fixed to
  * IE7.	 Since R2 their number has to be read from the c0_intctl register.

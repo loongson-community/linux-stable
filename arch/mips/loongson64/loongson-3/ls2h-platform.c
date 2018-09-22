@@ -131,6 +131,8 @@ static void pcie_port_init(int port)
 	writel(data, reg);
 }
 
+void pci_no_msi(void);
+
 static void ls2h_early_config(void)
 {
 	u32 i, val;
@@ -150,6 +152,9 @@ static void ls2h_early_config(void)
 
 	en_ref_clock();
 	pcie_bus_config = PCIE_BUS_PERFORMANCE;
+
+	if (!cpu_support_msi())
+		pci_no_msi();
 
 	val = readl((void *)(LS2H_PCIE_PORT_REG_BASE(0) | LS2H_PCIE_PORT_REG_CTR_STAT));
 	val |= LS2H_PCIE_REG_CTR_STAT_BIT_ISRC;  /* Enable RC mode */
@@ -198,4 +203,8 @@ struct platform_controller_hub ls2h_pch = {
 	.irq_dispatch		= ls2h_irq_dispatch,
 	.pch_arch_initcall	= ls2h_arch_initcall,
 	.pch_device_initcall	= ls2h_device_initcall,
+#ifdef CONFIG_PCI_MSI
+	.setup_msi_irq		= ls2h_setup_msi_irq,
+	.teardown_msi_irq	= ls2h_teardown_msi_irq,
+#endif
 };

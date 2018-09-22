@@ -12,6 +12,16 @@
 #include <linux/smp.h>
 #include <linux/platform_device.h>
 
+#include <loongson-pch.h>
+
+bool cpu_support_msi(void)
+{
+	struct cpuinfo_mips *c = &boot_cpu_data;
+
+	return ((c->processor_id & (PRID_IMP_MASK | PRID_REV_MASK)) >=
+			(PRID_IMP_LOONGSON_64C | PRID_REV_LOONGSON3A_R2_1));
+}
+
 static struct platform_device loongson2_cpufreq_device = {
 	.name = "loongson2_cpufreq",
 	.id = -1,

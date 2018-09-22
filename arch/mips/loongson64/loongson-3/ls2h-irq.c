@@ -107,7 +107,7 @@ void ls2h_irq_dispatch(void)
 	struct cpumask affinity;
 	unsigned int i, irq, inten, intstatus;
 
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 4; i++) {
 		raw_spin_lock_irqsave(&pch_irq_lock, flags);
 		inten = (int_ctrl_regs + i)->int_en;
 		intstatus = (int_ctrl_regs + i)->int_isr;
@@ -151,6 +151,47 @@ void ls2h_irq_dispatch(void)
 	}
 }
 
+#define MSI_IRQ_BASE 160
+#define MSI_LAST_IRQ 192
+
+static DEFINE_SPINLOCK(bitmap_lock);
+
+int ls2h_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc)
+{
+	int irq = irq_alloc_desc_from(MSI_IRQ_BASE, 0);
+	struct msi_msg msg;
+
+	if (irq < 0)
+		return irq;
+
+	if (irq >= MSI_LAST_IRQ) {
+		irq_free_desc(irq);
+		return -ENOSPC;
+	}
+
+	spin_lock(&bitmap_lock);
+	create_ipi_dirq(irq);
+	spin_unlock(&bitmap_lock);
+	irq_set_msi_desc(irq, desc);
+
+	msg.data = irq;
+	msg.address_hi = 0;
+	msg.address_lo = 0;
+
+	write_msi_msg(irq, &msg);
+	irq_set_chip_and_handler(irq, &loongson_msi_irq_chip, handle_edge_irq);
+
+	return 0;
+}
+
+void ls2h_teardown_msi_irq(unsigned int irq)
+{
+	irq_free_desc(irq);
+	spin_lock(&bitmap_lock);
+	destroy_ipi_dirq(irq);
+	spin_unlock(&bitmap_lock);
+}
+
 void ls2h_init_irq(void)
 {
 	int i;
@@ -181,40 +222,50 @@ void ls2h_init_irq(void)
 	(int_ctrl_regs + 2)->int_en	= 0x00000000;
 	(int_ctrl_regs + 2)->int_clr	= 0xffffffff;
 
+	(int_ctrl_regs + 3)->int_edge	= 0xffffffff;
+	(int_ctrl_regs + 3)->int_pol	= 0xffffffff;
+	(int_ctrl_regs + 3)->int_en	= 0x00000000;
+	(int_ctrl_regs + 3)->int_clr	= 0xffffffff;
+
 	/* Enable the LPC interrupt */
 	writel(0x80000000, LS2H_LPC_INT_CTL);
 	/* Clear all 18-bit interrupt bits */
 	writel(0x3ffff, LS2H_LPC_INT_CLR);
 
-	for (i = 0; i < NR_IRQS; i++)
-		loongson_ipi_irq2pos[i] = -1;
-	for (i = 0; i < NR_DIRQS; i++)
-		loongson_ipi_pos2irq[i] = -1;
-	create_ipi_dirq(LS2H_PCH_SATA_IRQ);
-	create_ipi_dirq(LS2H_PCH_GMAC0_IRQ);
-	create_ipi_dirq(LS2H_PCH_GMAC1_IRQ);
-	create_ipi_dirq(LS2H_PCH_PCIE_PORT0_IRQ);
-	create_ipi_dirq(LS2H_PCH_PCIE_PORT1_IRQ);
-	create_ipi_dirq(LS2H_PCH_PCIE_PORT2_IRQ);
-	create_ipi_dirq(LS2H_PCH_PCIE_PORT3_IRQ);
-	create_ipi_dirq(LS2H_PCH_OTG_IRQ);
-	create_ipi_dirq(LS2H_PCH_EHCI_IRQ);
-	create_ipi_dirq(LS2H_PCH_OHCI_IRQ);
+	if (!pci_msi_enabled()) {
+		for (i = 0; i < NR_IRQS; i++)
+			loongson_ipi_irq2pos[i] = -1;
+		for (i = 0; i < NR_DIRQS; i++)
+			loongson_ipi_pos2irq[i] = -1;
+		create_ipi_dirq(LS2H_PCH_SATA_IRQ);
+		create_ipi_dirq(LS2H_PCH_GMAC0_IRQ);
+		create_ipi_dirq(LS2H_PCH_GMAC1_IRQ);
+		create_ipi_dirq(LS2H_PCH_PCIE_PORT0_IRQ);
+		create_ipi_dirq(LS2H_PCH_PCIE_PORT1_IRQ);
+		create_ipi_dirq(LS2H_PCH_PCIE_PORT2_IRQ);
+		create_ipi_dirq(LS2H_PCH_PCIE_PORT3_IRQ);
+		create_ipi_dirq(LS2H_PCH_OTG_IRQ);
+		create_ipi_dirq(LS2H_PCH_EHCI_IRQ);
+		create_ipi_dirq(LS2H_PCH_OHCI_IRQ);
+	}
 }
 
 int __init ls2h_irq_of_init(struct device_node *node, struct device_node *parent)
 {
 	u32 i;
 
-	irq_domain_add_legacy(node, 160, LS2H_PCH_IRQ_BASE,
+	irq_alloc_descs(-1, LS2H_PCH_IRQ_BASE, 96, 0);
+	irq_domain_add_legacy(node, 96, LS2H_PCH_IRQ_BASE,
 			LS2H_PCH_IRQ_BASE, &irq_domain_simple_ops, NULL);
 
 	irq_set_chip_and_handler(1, &pch_irq_chip, handle_level_irq);
 	irq_set_chip_and_handler(4, &pch_irq_chip, handle_level_irq);
 	irq_set_chip_and_handler(12, &pch_irq_chip, handle_level_irq);
 
-	for (i = LS2H_PCH_IRQ_BASE; i < LS2H_PCH_LAST_IRQ; i++)
+	for (i = LS2H_PCH_IRQ_BASE; i < LS2H_PCH_LAST_IRQ; i++) {
+		irq_set_noprobe(i);
 		irq_set_chip_and_handler(i, &pch_irq_chip, handle_level_irq);
+	}
 	setup_irq(LS2H_PCH_IRQ_BASE + LPC_OFFSET, &lpc_irqaction);
 
 	return 0;

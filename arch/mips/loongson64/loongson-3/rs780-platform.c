@@ -9,9 +9,14 @@
 #include <boot_param.h>
 #include <loongson-pch.h>
 
+void pci_no_msi(void);
+
 static void rs780_early_config(void)
 {
 	pci_request_acs();
+
+	if (!cpu_support_msi())
+		pci_no_msi();
 }
 
 static struct resource pci_mem_resource = {
@@ -55,4 +60,8 @@ struct platform_controller_hub rs780_pch = {
 	.irq_dispatch		= rs780_irq_dispatch,
 	.pch_arch_initcall	= rs780_arch_initcall,
 	.pch_device_initcall	= rs780_device_initcall,
+#ifdef CONFIG_PCI_MSI
+	.setup_msi_irq		= rs780_setup_msi_irq,
+	.teardown_msi_irq	= rs780_teardown_msi_irq,
+#endif
 };

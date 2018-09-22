@@ -99,7 +99,13 @@ static struct irq_chip loongson_irq_chip = {
 
 void __init mach_init_irq(void)
 {
+	int i;
+
 	clear_c0_status(ST0_IM | ST0_BEV);
+
+	irq_alloc_descs(-1, MIPS_CPU_IRQ_BASE, 8, 0);
+	for (i = MIPS_CPU_IRQ_BASE; i < MIPS_CPU_IRQ_BASE + 8; i++)
+		irq_set_noprobe(i);
 
 	irqchip_init();
 	loongson_pch->init_irq();

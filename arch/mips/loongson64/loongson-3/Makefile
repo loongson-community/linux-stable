@@ -13,6 +13,8 @@ obj-$(CONFIG_SUSPEND)	+= pm.o sleep.o
 
 obj-$(CONFIG_LOONGSON_HPET) += hpet.o
 
+obj-$(CONFIG_PCI_MSI)  += pci_msi.o
+
 obj-$(CONFIG_LOONGSON3_CPUAUTOPLUG) += loongson3_cpuautoplug.o
 
 obj-$(CONFIG_I2C_GPIO)	+= ls7a-gpio.o

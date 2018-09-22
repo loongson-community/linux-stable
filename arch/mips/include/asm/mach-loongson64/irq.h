@@ -165,6 +165,7 @@
 
 #endif
 
+extern struct irq_chip loongson_msi_irq_chip;
 extern unsigned int loongson_ipi_irq2pos[NR_IRQS];
 extern unsigned int loongson_ipi_pos2irq[NR_DIRQS];
 

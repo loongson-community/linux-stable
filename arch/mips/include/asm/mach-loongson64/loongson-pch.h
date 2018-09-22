@@ -6,8 +6,9 @@
 #ifndef _LOONGSON_PCH_H
 #define _LOONGSON_PCH_H
 
-#include <linux/types.h>
+#include <linux/msi.h>
 #include <linux/pci.h>
+#include <linux/types.h>
 #include <asm/addrspace.h>
 
 /* ============== LS2H registers =============== */
@@ -206,6 +207,10 @@ struct platform_controller_hub {
 	int	(*pcibios_dev_init)(struct pci_dev *dev);
 	void	(*pch_arch_initcall)(void);
 	void	(*pch_device_initcall)(void);
+#ifdef CONFIG_PCI_MSI
+	int	(*setup_msi_irq)(struct pci_dev *pdev, struct msi_desc *desc);
+	void	(*teardown_msi_irq)(unsigned int irq);
+#endif
 };
 
 extern struct platform_controller_hub ls2h_pch;
@@ -213,19 +218,27 @@ extern struct platform_controller_hub ls7a_pch;
 extern struct platform_controller_hub rs780_pch;
 extern struct platform_controller_hub *loongson_pch;
 
+extern bool cpu_support_msi(void);
+
 extern struct pci_ops ls2h_pci_ops[4];
 extern void ls2h_init_irq(void);
 extern void ls2h_irq_dispatch(void);
 extern int ls2h_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
+extern int ls2h_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc);
+extern void ls2h_teardown_msi_irq(unsigned int irq);
 
 extern struct pci_ops ls7a_pci_ops;
 extern void ls7a_init_irq(void);
 extern void ls7a_irq_dispatch(void);
 extern int ls7a_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
+extern int ls7a_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc);
+extern void ls7a_teardown_msi_irq(unsigned int irq);
 
 extern struct pci_ops rs780_pci_ops;
 extern void rs780_init_irq(void);
 extern void rs780_irq_dispatch(void);
 extern int rs780_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
+extern int rs780_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc);
+extern void rs780_teardown_msi_irq(unsigned int irq);
 
 #endif

@@ -25,12 +25,17 @@
 
 u32 node_id_offset;
 
+void pci_no_msi(void);
+
 #define LS7A_DMA_CFG	(void *)TO_UNCAC(LS7A_CHIPCFG_REG_BASE + 0x041c)
 
 static void ls7a_early_config(void)
 {
 	pcie_bus_config = PCIE_BUS_PERFORMANCE;
 	node_id_offset = ((readl(LS7A_DMA_CFG) & 0x1f00) >> 8) + 36;
+
+	if (!cpu_support_msi())
+		pci_no_msi();
 }
 
 static struct resource pci_mem_resource = {
@@ -74,4 +79,8 @@ struct platform_controller_hub ls7a_pch = {
 	.irq_dispatch		= ls7a_irq_dispatch,
 	.pch_arch_initcall	= ls7a_arch_initcall,
 	.pch_device_initcall	= ls7a_device_initcall,
+#ifdef CONFIG_PCI_MSI
+	.setup_msi_irq		= ls7a_setup_msi_irq,
+	.teardown_msi_irq	= ls7a_teardown_msi_irq,
+#endif
 };
