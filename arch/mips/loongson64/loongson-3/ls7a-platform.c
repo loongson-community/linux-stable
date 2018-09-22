@@ -23,9 +23,16 @@
 #include <linux/i2c.h>
 #include <linux/platform_data/i2c-gpio.h>
 
+void pci_no_msi(void);
+
 static void ls7a_early_config(void)
 {
+	struct cpuinfo_mips *c = &boot_cpu_data;
+
 	pcie_bus_config = PCIE_BUS_PERFORMANCE;
+
+	if ((c->processor_id & PRID_REV_MASK) < PRID_REV_LOONGSON3A_R2_1)
+		pci_no_msi();
 }
 
 static struct resource pci_mem_resource = {
@@ -69,4 +76,8 @@ struct platform_controller_hub ls7a_pch = {
 	.irq_dispatch		= ls7a_irq_dispatch,
 	.pch_arch_initcall	= ls7a_arch_initcall,
 	.pch_device_initcall	= ls7a_device_initcall,
+#ifdef CONFIG_PCI_MSI
+	.setup_msi_irq		= ls7a_setup_msi_irq,
+	.teardown_msi_irq	= ls7a_teardown_msi_irq,
+#endif
 };

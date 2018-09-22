@@ -161,6 +161,8 @@
 
 #endif
 
+extern struct irq_chip loongson_msi_irq_chip;
+
 extern void fixup_irqs(void);
 extern void loongson3_ipi_interrupt(struct pt_regs *regs);
 
