@@ -1115,8 +1115,10 @@ int ohci_resume(struct usb_hcd *hcd, bool hibernated)
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
 	/* Make sure resume from hibernation re-enumerates everything */
-	if (hibernated)
+	if (hibernated) {
+		ohci_writel(ohci, OHCI_INTR_MIE, &ohci->regs->intrdisable);
 		ohci_usb_reset(ohci);
+	}
 
 	/* See if the controller is already running or has been reset */
 	ohci->hc_control = ohci_readl(ohci, &ohci->regs->control);
