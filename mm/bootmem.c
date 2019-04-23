@@ -18,6 +18,7 @@
 #include <linux/bug.h>
 #include <linux/io.h>
 #include <linux/bootmem.h>
+#include <linux/memblock.h>
 
 #include "internal.h"
 
@@ -306,7 +307,8 @@ void __init reset_all_zones_managed_pages(void)
 
 unsigned long __init free_all_bootmem(void)
 {
-	unsigned long total_pages = 0;
+	unsigned long i, total_pages = 0;
+	phys_addr_t start, end;
 	bootmem_data_t *bdata;
 
 	reset_all_zones_managed_pages();
@@ -315,6 +317,9 @@ unsigned long __init free_all_bootmem(void)
 		total_pages += free_all_bootmem_core(bdata);
 
 	totalram_pages += total_pages;
+
+	for_each_reserved_mem_region(i, &start, &end)
+		reserve_bootmem_region(start, end);
 
 	return total_pages;
 }
