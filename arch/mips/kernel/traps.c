@@ -2121,7 +2121,7 @@ static void configure_hwrena(void)
 
 static void configure_exception_vector(void)
 {
-	if (cpu_has_veic || cpu_has_vint) {
+	if (cpu_has_mips_r2_r6) {
 		unsigned long sr = set_c0_status(ST0_BEV);
 		/* If available, use WG to set top bits of EBASE */
 		if (cpu_has_ebase_wg) {
@@ -2133,6 +2133,8 @@ static void configure_exception_vector(void)
 		}
 		write_c0_ebase(ebase);
 		write_c0_status(sr);
+	}
+	if (cpu_has_veic || cpu_has_vint) {
 		/* Setting vector spacing enables EI/VI mode  */
 		change_c0_intctl(0x3e0, VECTORSPACING);
 	}
@@ -2163,22 +2165,6 @@ void per_cpu_trap_init(bool is_boot_cpu)
 	 *  o read IntCtl.IPFDC to determine the fast debug channel interrupt
 	 */
 	if (cpu_has_mips_r2_r6) {
-		/*
-		 * We shouldn't trust a secondary core has a sane EBASE register
-		 * so use the one calculated by the boot CPU.
-		 */
-		if (!is_boot_cpu) {
-			/* If available, use WG to set top bits of EBASE */
-			if (cpu_has_ebase_wg) {
-#ifdef CONFIG_64BIT
-				write_c0_ebase_64(ebase | MIPS_EBASE_WG);
-#else
-				write_c0_ebase(ebase | MIPS_EBASE_WG);
-#endif
-			}
-			write_c0_ebase(ebase);
-		}
-
 		cp0_compare_irq_shift = CAUSEB_TI - CAUSEB_IP;
 		cp0_compare_irq = (read_c0_intctl() >> INTCTLB_IPTI) & 7;
 		cp0_perfcount_irq = (read_c0_intctl() >> INTCTLB_IPPCI) & 7;
