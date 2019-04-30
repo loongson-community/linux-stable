@@ -2256,9 +2256,16 @@ void __init trap_init(void)
 
 	check_wait();
 
-	if (cpu_has_veic || cpu_has_vint) {
-		unsigned long size = 0x200 + VECTORSPACING*64;
+	if (!cpu_has_mips_r2_r6) {
+		ebase = CAC_BASE;
+	} else {
+		unsigned long size;
 		phys_addr_t ebase_pa;
+
+		if (cpu_has_veic || cpu_has_vint)
+			size = 0x200 + VECTORSPACING*64;
+		else
+			size = PAGE_SIZE;
 
 		ebase = (unsigned long)
 			__alloc_bootmem(size, 1 << fls(size), 0);
@@ -2277,20 +2284,6 @@ void __init trap_init(void)
 		ebase_pa = __pa(ebase);
 		if (!IS_ENABLED(CONFIG_EVA) && !WARN_ON(ebase_pa >= 0x20000000))
 			ebase = CKSEG0ADDR(ebase_pa);
-	} else {
-		ebase = CAC_BASE;
-
-		if (cpu_has_mips_r2_r6) {
-			if (cpu_has_ebase_wg) {
-#ifdef CONFIG_64BIT
-				ebase = (read_c0_ebase_64() & ~0xfff);
-#else
-				ebase = (read_c0_ebase() & ~0xfff);
-#endif
-			} else {
-				ebase += (read_c0_ebase() & 0x3ffff000);
-			}
-		}
 	}
 
 	if (cpu_has_mmips) {
