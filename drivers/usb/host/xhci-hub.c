@@ -274,6 +274,9 @@ static void xhci_usb3_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 	}
 
 	desc->u.ss.DeviceRemovable = cpu_to_le16(port_removable);
+
+	if (xhci->quirks & XHCI_ETRON_HOST)
+		desc->bPwrOn2PwrGood = 255;
 }
 
 static void xhci_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
@@ -775,6 +778,10 @@ static void xhci_hub_report_usb3_link_state(struct xhci_hcd *xhci,
 		 * caused by a delay on the host-device negotiation.
 		 */
 		if ((xhci->quirks & XHCI_COMP_MODE_QUIRK) &&
+				(pls == USB_SS_PORT_LS_COMP_MOD))
+			pls |= USB_PORT_STAT_CONNECTION;
+
+		if ((xhci->quirks & XHCI_ETRON_HOST) &&
 				(pls == USB_SS_PORT_LS_COMP_MOD))
 			pls |= USB_PORT_STAT_CONNECTION;
 	}

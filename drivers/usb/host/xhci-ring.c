@@ -2195,6 +2195,7 @@ static int process_bulk_intr_td(struct xhci_hcd *xhci, struct xhci_td *td,
 	struct xhci_ring *ep_ring;
 	u32 trb_comp_code;
 	u32 remaining, requested, ep_trb_len;
+	union xhci_trb *cur_trb;
 
 	ep_ring = xhci_dma_to_transfer_ring(ep, le64_to_cpu(event->buffer));
 	trb_comp_code = GET_COMP_CODE(le32_to_cpu(event->transfer_len));
@@ -2232,9 +2233,15 @@ static int process_bulk_intr_td(struct xhci_hcd *xhci, struct xhci_td *td,
 		break;
 	}
 
-	if (ep_trb == td->last_trb)
+	if (ep_trb == td->last_trb) {
 		td->urb->actual_length = requested - remaining;
-	else
+		if ((xhci->quirks & XHCI_ETRON_HOST) && (ep->ep_state & EP_EJ188_FIX)) {
+			cur_trb = ep_ring->dequeue;
+			td->urb->actual_length =
+				TRB_LEN(le32_to_cpu(cur_trb->generic.field[2])) -
+				EVENT_TRB_LEN(le32_to_cpu(event->transfer_len));
+		}
+	} else
 		td->urb->actual_length =
 			sum_trb_lengths(xhci, ep_ring, ep_trb) +
 			ep_trb_len - remaining;
@@ -3223,7 +3230,9 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	int sent_len, ret;
 	u32 field, length_field, remainder;
 	u64 addr, send_addr;
+	struct xhci_virt_ep *ep;
 
+	ep = &xhci->devs[slot_id]->eps[ep_index];
 	ring = xhci_urb_to_transfer_ring(xhci, urb);
 	if (!ring)
 		return -EINVAL;
@@ -3317,6 +3326,13 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		length_field = TRB_LEN(trb_buff_len) |
 			TRB_TD_SIZE(remainder) |
 			TRB_INTR_TARGET(0);
+
+		if ((xhci->quirks & XHCI_ETRON_HOST) &&
+			(ep->ep_state & EP_EJ188_FIX)) {
+			length_field = TRB_LEN(9) |
+				TRB_TD_SIZE(remainder) |
+				TRB_INTR_TARGET(0);
+		}
 
 		queue_trb(xhci, ring, more_trbs_coming | need_zero_pkt,
 				lower_32_bits(send_addr),

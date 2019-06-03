@@ -1436,9 +1436,15 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 	unsigned int mult;
 	unsigned int avg_trb_len;
 	unsigned int err_count = 0;
+	u8 reg8;
+	unsigned long flags;
+	struct usb_hcd *hcd;
+	struct xhci_virt_ep *virt_ep;
 
+	hcd = xhci_to_hcd(xhci);
 	ep_index = xhci_get_endpoint_index(&ep->desc);
 	ep_ctx = xhci_get_ep_ctx(xhci, virt_dev->in_ctx, ep_index);
+	virt_ep = &virt_dev->eps[ep_index];
 
 	endpoint_type = xhci_get_endpoint_type(ep);
 	if (!endpoint_type)
@@ -1490,6 +1496,19 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 	/* xhci 1.1 with LEC support doesn't use mult field, use RsvdZ */
 	if ((xhci->hci_version > 0x100) && HCC2_LEC(xhci->hcc_params2))
 		mult = 0;
+
+	if (xhci->quirks & XHCI_ETRON_HOST) {
+		if (udev->speed == USB_SPEED_LOW && usb_endpoint_is_int_in(&ep->desc)) {
+			spin_lock_irqsave(&xhci->lock, flags);
+			reg8 = readb(hcd->regs + 0x4300);
+			reg8 |= 0x04;
+			writeb(reg8, hcd->regs + 0x4300);
+			spin_unlock_irqrestore(&xhci->lock, flags);
+
+			max_packet = 9;
+			virt_ep->ep_state |= EP_EJ188_FIX;
+		}
+	}
 
 	/* Set up the endpoint ring */
 	virt_dev->eps[ep_index].new_ring =
