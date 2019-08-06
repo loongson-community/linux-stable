@@ -37,6 +37,7 @@ struct font_desc {
 #define ACORN8x8_IDX	8
 #define	MINI4x6_IDX	9
 #define FONT6x10_IDX	10
+#define UTF8x16_IDX    12
 
 extern const struct font_desc	font_vga_8x8,
 			font_vga_8x16,
@@ -48,7 +49,8 @@ extern const struct font_desc	font_vga_8x8,
 			font_sun_12x22,
 			font_acorn_8x8,
 			font_mini_4x6,
-			font_6x10;
+			font_6x10,
+			font_utf8_8x16;
 
 /* Find a font with a specific name */
 
