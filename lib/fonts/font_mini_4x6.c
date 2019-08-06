@@ -2153,6 +2153,9 @@ const struct font_desc font_mini_4x6 = {
 	.width	= 4,
 	.height	= 6,
 	.data	= fontdata_mini_4x6,
+#ifdef FONT_CHARCOUNT
+	.count  = 256,
+#endif
 	.pref	= 3,
 };
 

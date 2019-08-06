@@ -268,6 +268,9 @@ const struct font_desc font_sun_8x16 = {
 	.width	= 8,
 	.height	= 16,
 	.data	= fontdata_sun8x16,
+#ifdef FONT_CHARCOUNT
+	.count  = 256,
+#endif
 #ifdef __sparc__
 	.pref	= 10,
 #else

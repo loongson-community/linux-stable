@@ -18,6 +18,8 @@
 #include "fbcon.h"
 #include "fbcon_rotate.h"
 
+extern u16 utf8_pos(struct vc_data *vc, const unsigned short *utf8);
+
 /*
  * Rotation 90 degrees
  */
@@ -90,13 +92,29 @@ static inline void cw_putcs_aligned(struct vc_data *vc, struct fb_info *info,
 	u32 idx = (vc->vc_font.height + 7) >> 3;
 	u8 *src;
 
+	int utf8_c = 0;
 	while (cnt--) {
-		src = ops->fontbuffer + (scr_readw(s++) & charmask)*cellsize;
-
+		utf8_c = utf8_pos(vc, s);
+		if(((scr_readw(s) & charmask) == 0xff || (scr_readw(s) & charmask) == 0xfe ) &&  utf8_c != 0){
+			char dst[16];
+			utf8_c -= 128;
+			if((scr_readw(s) & charmask) == 0xff){
+				src = vc->vc_font.data + (utf8_c * 32);
+			}else{
+				src = vc->vc_font.data + (utf8_c * 32 + 16);
+			}
+			memset(dst, 0, 16);
+			rotate_cw(src, dst, vc->vc_font.width,
+				  vc->vc_font.height);
+			src = dst;
+		}else{
+			src = ops->fontbuffer + (scr_readw(s) & charmask)*cellsize;
+		}
 		if (attr) {
 			cw_update_attr(buf, src, attr, vc);
 			src = buf;
 		}
+		s++;
 
 		if (likely(idx == 1))
 			__fb_pad_aligned_buffer(dst, d_pitch, src, idx,
@@ -207,6 +225,7 @@ static void cw_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 	struct fb_cursor cursor;
 	struct fbcon_ops *ops = info->fbcon_par;
 	unsigned short charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
+	int c_extra;
 	int w = (vc->vc_font.height + 7) >> 3, c;
 	int y = real_y(ops->p, vc->vc_y);
 	int attribute, use_sw = (vc->vc_cursor_type & 0x10);
@@ -229,8 +248,23 @@ static void cw_cursor(struct vc_data *vc, struct fb_info *info, int mode,
 	}
 
  	c = scr_readw((u16 *) vc->vc_pos);
+ 	c_extra = utf8_pos(vc, (u16 *) vc->vc_pos);
 	attribute = get_attribute(info, c);
-	src = ops->fontbuffer + ((c & charmask) * (w * vc->vc_font.width));
+	if(((c&charmask) == 0xff || (c & charmask) == 0xfe) && c_extra != 0){
+		char dst[16];
+		c_extra -= 128;
+		if((c & charmask) == 0xff){
+			src = vc->vc_font.data + (c_extra * 32);
+		}else{
+			src = vc->vc_font.data + (c_extra * 32 + 16);
+		}
+		memset(dst, 0, 16);
+		rotate_cw(src, dst, vc->vc_font.width,
+			  vc->vc_font.height);
+		src = dst;
+	}else{
+		src = ops->fontbuffer + ((c & charmask) * (w * vc->vc_font.width));
+	}
 
 	if (ops->cursor_state.image.data != src ||
 	    ops->cursor_reset) {

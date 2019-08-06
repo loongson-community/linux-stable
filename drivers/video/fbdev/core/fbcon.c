@@ -197,6 +197,14 @@ static void fbcon_start(void);
 static void fbcon_exit(void);
 static struct device *fbcon_device;
 
+int fbcon_is_softback(const unsigned short *str)
+{
+	unsigned long p = (long)str;
+	if(p >= softback_buf && p <softback_end)
+		return 1;
+	return 0;
+}
+
 #ifdef CONFIG_FRAMEBUFFER_CONSOLE_ROTATION
 static inline void fbcon_set_rotation(struct fb_info *info)
 {
@@ -993,7 +1001,7 @@ static const char *fbcon_startup(void)
 			if (!softback_buf) {
 				softback_buf =
 				    (unsigned long)
-				    kmalloc(fbcon_softback_size,
+				    kmalloc(fbcon_softback_size * 2,
 					    GFP_KERNEL);
 				if (!softback_buf) {
 					fbcon_softback_size = 0;
@@ -1023,7 +1031,7 @@ static const char *fbcon_startup(void)
 		vc->vc_font.width = font->width;
 		vc->vc_font.height = font->height;
 		vc->vc_font.data = (void *)(p->fontdata = font->data);
-		vc->vc_font.charcount = 256; /* FIXME  Need to support more fonts */
+		vc->vc_font.charcount = font->count;
 	} else {
 		p->fontdata = vc->vc_font.data;
 	}
@@ -1081,6 +1089,7 @@ static void fbcon_init(struct vc_data *vc, int init)
 						    fvc->vc_font.data);
 			vc->vc_font.width = fvc->vc_font.width;
 			vc->vc_font.height = fvc->vc_font.height;
+			vc->vc_font.charcount = fvc->vc_font.charcount;
 			p->userfont = t->userfont;
 
 			if (p->userfont)
@@ -1096,8 +1105,7 @@ static void fbcon_init(struct vc_data *vc, int init)
 			vc->vc_font.width = font->width;
 			vc->vc_font.height = font->height;
 			vc->vc_font.data = (void *)(p->fontdata = font->data);
-			vc->vc_font.charcount = 256; /* FIXME  Need to
-							support more fonts */
+			vc->vc_font.charcount = font->count;
 		}
 	}
 
@@ -1327,10 +1335,7 @@ static void fbcon_putcs(struct vc_data *vc, const unsigned short *s,
 
 static void fbcon_putc(struct vc_data *vc, int c, int ypos, int xpos)
 {
-	unsigned short chr;
-
-	scr_writew(c, &chr);
-	fbcon_putcs(vc, &chr, 1, ypos, xpos);
+	fbcon_putcs(vc, (unsigned short *)&c, 1, ypos, xpos);
 }
 
 static void fbcon_clear_margins(struct vc_data *vc, int bottom_only)
@@ -1582,6 +1587,7 @@ static __inline__ void ypan_down_redraw(struct vc_data *vc, int t, int count)
 static void fbcon_redraw_softback(struct vc_data *vc, struct display *p,
 				  long delta)
 {
+	u16 charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
 	int count = vc->vc_rows;
 	unsigned short *d, *s;
 	unsigned long n;
@@ -1644,6 +1650,8 @@ static void fbcon_redraw_softback(struct vc_data *vc, struct display *p,
 					start = s;
 				}
 			}
+			if( ((scr_readw(s) & charmask) == 0xff || (scr_readw(s) & charmask) == 0xfe) && scr_readw(s + (vc->vc_screenbuf_size >> 1)) != 0){
+			}else{
 			if (c == scr_readw(d)) {
 				if (s > start) {
 					fbcon_putcs(vc, start, s - start,
@@ -1654,6 +1662,7 @@ static void fbcon_redraw_softback(struct vc_data *vc, struct display *p,
 					x++;
 					start++;
 				}
+			}
 			}
 			s++;
 			d++;
@@ -1737,6 +1746,7 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 			}
 
 			scr_writew(c, d);
+			scr_writew(scr_readw(s + (vc->vc_screenbuf_size >> 1)), d + (vc->vc_screenbuf_size >> 1));
 			console_conditional_schedule();
 			s++;
 			d++;
@@ -1759,6 +1769,7 @@ static void fbcon_redraw_blit(struct vc_data *vc, struct fb_info *info,
 static void fbcon_redraw(struct vc_data *vc, struct display *p,
 			 int line, int count, int offset)
 {
+	u16 charmask = vc->vc_hi_font_mask ? 0x1ff : 0xff;
 	unsigned short *d = (unsigned short *)
 	    (vc->vc_origin + vc->vc_size_row * line);
 	unsigned short *s = d + offset;
@@ -1781,18 +1792,22 @@ static void fbcon_redraw(struct vc_data *vc, struct display *p,
 					start = s;
 				}
 			}
-			if (c == scr_readw(d)) {
-				if (s > start) {
-					fbcon_putcs(vc, start, s - start,
-						     line, x);
-					x += s - start + 1;
-					start = s + 1;
-				} else {
-					x++;
-					start++;
+			if( ((scr_readw(s) & charmask) == 0xff || (scr_readw(s) & charmask) == 0xfe) && scr_readw(s + (vc->vc_screenbuf_size >> 1)) != 0){
+			}else{
+				if (c == scr_readw(d)) {
+					if (s > start) {
+						fbcon_putcs(vc, start, s - start,
+							     line, x);
+						x += s - start + 1;
+						start = s + 1;
+					} else {
+						x++;
+						start++;
+					}
 				}
 			}
 			scr_writew(c, d);
+			scr_writew(scr_readw(s + (vc->vc_screenbuf_size >> 1)), d + (vc->vc_screenbuf_size >> 1));
 			console_conditional_schedule();
 			s++;
 			d++;
@@ -1822,6 +1837,7 @@ static inline void fbcon_softback_note(struct vc_data *vc, int t,
 
 	while (count) {
 		scr_memcpyw((u16 *) softback_in, p, vc->vc_size_row);
+		scr_memcpyw((u16 *) softback_in + (fbcon_softback_size >> 1), p + (vc->vc_screenbuf_size >> 1), vc->vc_size_row);
 		count--;
 		p = advance_row(p, 1);
 		softback_in += vc->vc_size_row;
@@ -2436,7 +2452,7 @@ static int fbcon_get_font(struct vc_data *vc, struct console_font *font)
 
 	font->width = vc->vc_font.width;
 	font->height = vc->vc_font.height;
-	font->charcount = vc->vc_hi_font_mask ? 512 : 256;
+	font->charcount = vc->vc_font.charcount;
 	if (!font->data)
 		return 0;
 
@@ -2565,6 +2581,7 @@ static int fbcon_do_set_font(struct vc_data *vc, int w, int h,
 		REFCOUNT(data)++;
 	vc->vc_font.width = w;
 	vc->vc_font.height = h;
+	vc->vc_font.charcount = cnt;
 	if (vc->vc_hi_font_mask && cnt == 256)
 		set_vc_hi_font(vc, false);
 	else if (!vc->vc_hi_font_mask && cnt == 512)
@@ -2624,11 +2641,6 @@ static int fbcon_set_font(struct vc_data *vc, struct console_font *font,
 	int i, csum;
 	u8 *new_data, *data = font->data;
 	int pitch = (font->width+7) >> 3;
-
-	/* Is there a reason why fbconsole couldn't handle any charcount >256?
-	 * If not this check should be changed to charcount < 256 */
-	if (charcount != 256 && charcount != 512)
-		return -EINVAL;
 
 	/* Make sure drawing engine can handle the font */
 	if (!(info->pixmap.blit_x & (1 << (font->width - 1))) ||
@@ -2740,7 +2752,20 @@ static u16 *fbcon_screen_pos(struct vc_data *vc, int offset)
 {
 	unsigned long p;
 	int line;
-	
+
+	if (offset < 0) {
+		offset = -offset - 1;
+		if (vc->vc_num != fg_console || !softback_lines)
+			return (u16 *)(vc->vc_origin + offset + (vc->vc_screenbuf_size));
+		line = offset / vc->vc_size_row;
+		if (line >= softback_lines)
+			return (u16 *) (vc->vc_origin + offset - softback_lines * vc->vc_size_row + (vc->vc_screenbuf_size));
+		p = softback_curr + offset;
+		if (p >= softback_end)
+			p += softback_buf - softback_end;
+		return (u16 *) (p + (fbcon_softback_size));
+	}
+
 	if (vc->vc_num != fg_console || !softback_lines)
 		return (u16 *) (vc->vc_origin + offset);
 	line = offset / vc->vc_size_row;
@@ -2847,6 +2872,8 @@ static void fbcon_scrolldelta(struct vc_data *vc, int lines)
 					p -= vc->vc_size_row;
 					q -= vc->vc_size_row;
 					scr_memcpyw((u16 *) q, (u16 *) p,
+						    vc->vc_size_row);
+					scr_memcpyw((u16 *) (q + (vc->vc_screenbuf_size >> 1)), (u16 *) (p + (fbcon_softback_size >> 1)),
 						    vc->vc_size_row);
 				}
 				softback_in = softback_curr = p;

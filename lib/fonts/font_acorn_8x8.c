@@ -268,6 +268,9 @@ const struct font_desc font_acorn_8x8 = {
 	.width	= 8,
 	.height	= 8,
 	.data	= acorndata_8x8,
+#ifdef FONT_CHARCOUNT
+	.count  = 256,
+#endif
 #ifdef CONFIG_ARCH_ACORN
 	.pref	= 20,
 #else

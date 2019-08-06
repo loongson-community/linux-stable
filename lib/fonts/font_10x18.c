@@ -5139,6 +5139,9 @@ const struct font_desc font_10x18 = {
 	.width	= 10,
 	.height	= 18,
 	.data	= fontdata_10x18,
+#ifdef FONT_CHARCOUNT
+	.count  = 256,
+#endif
 #ifdef __sparc__
 	.pref	= 5,
 #else

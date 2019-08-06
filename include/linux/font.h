@@ -13,11 +13,16 @@
 
 #include <linux/types.h>
 
+#ifndef FONT_CHARCOUNT
+#  define FONT_CHARCOUNT
+#endif
+
 struct font_desc {
     int idx;
     const char *name;
     int width, height;
     const void *data;
+    int count;
     int pref;
 };
 

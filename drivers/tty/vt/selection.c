@@ -327,6 +327,8 @@ static int __set_selection(const struct tiocl_selection __user *sel, struct tty_
 			}
 			obp = bp;
 		}
+		if (c > 0x80)
+			i += 2;
 	}
 	sel_buffer_lth = bp - sel_buffer;
 

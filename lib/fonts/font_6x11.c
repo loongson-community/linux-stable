@@ -3348,6 +3348,9 @@ const struct font_desc font_vga_6x11 = {
 	.width	= 6,
 	.height	= 11,
 	.data	= fontdata_6x11,
+#ifdef FONT_CHARCOUNT
+	.count  = 256,
+#endif
 	/* Try avoiding this font if possible unless on MAC */
 	.pref	= -2000,
 };
