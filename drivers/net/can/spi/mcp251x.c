@@ -1045,11 +1045,11 @@ static int mcp251x_can_probe(struct spi_device *spi)
 	int freq, ret;
 
 	clk = devm_clk_get(&spi->dev, NULL);
-	if (IS_ERR(clk)) {
+	if (IS_ERR_OR_NULL(clk)) {
 		if (pdata)
 			freq = pdata->oscillator_frequency;
 		else
-			return PTR_ERR(clk);
+			freq = 24000000;
 	} else {
 		freq = clk_get_rate(clk);
 	}

@@ -789,6 +789,12 @@ config SPI_TLE62X0
 # Add new SPI protocol masters in alphabetical order above this line
 #
 
+config SPI_LS2X
+	tristate "Loongson LS2X SPI Controller Support"
+	depends on CPU_LOONGSON3
+	help
+	  This is the driver for Loongson LS2H/LS2K/LS7A spi master controller.
+
 endif # SPI_MASTER
 
 #
