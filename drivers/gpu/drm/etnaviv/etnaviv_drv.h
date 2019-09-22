@@ -51,6 +51,8 @@ struct etnaviv_drm_private {
 	struct list_head gem_list;
 };
 
+extern struct thermal_cooling_device_ops cooling_ops;
+
 int etnaviv_ioctl_gem_submit(struct drm_device *dev, void *data,
 		struct drm_file *file);
 
@@ -87,6 +89,8 @@ void etnaviv_validate_init(void);
 bool etnaviv_cmd_validate_one(struct etnaviv_gpu *gpu,
 	u32 *stream, unsigned int size,
 	struct drm_etnaviv_gem_submit_reloc *relocs, unsigned int reloc_size);
+irqreturn_t irq_handler(int irq, void *data);
+void sync_point_worker(struct work_struct *work);
 
 #ifdef CONFIG_DEBUG_FS
 void etnaviv_gem_describe_objects(struct etnaviv_drm_private *priv,
