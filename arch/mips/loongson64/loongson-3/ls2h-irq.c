@@ -158,11 +158,12 @@ void ls2h_init_irq(void)
 	/* Route INTn0 to Core0 INT1 */
 	LOONGSON_INT_ROUTER_ENTRY(0) = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 1);
 
-	/* Route the LPC interrupt to Core0 INT0 */
-	LOONGSON_INT_ROUTER_LPC = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
+	/* Route the UART interrupt to Core0 INT0 */
+	LOONGSON_INT_ROUTER_UART0 = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
+	LOONGSON_INT_ROUTER_UART1 = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
 
 	/* Enable UART and INT0 interrupts */
-	LOONGSON_INT_ROUTER_INTENSET = (0x1 << 10) | (1 << 0);
+	LOONGSON_INT_ROUTER_INTENSET = (0x1 << 15) | (0x1 << 10) | (0x1 << 0);
 
 	/* uart, keyboard, and mouse are active high */
 	(int_ctrl_regs + 0)->int_edge	= 0x00000000;

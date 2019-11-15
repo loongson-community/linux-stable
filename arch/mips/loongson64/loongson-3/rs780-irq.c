@@ -62,16 +62,17 @@ void rs780_init_irq(void)
 	int i;
 	struct irq_chip *chip;
 
-	/* Route LPC int to cpu Core0 INT0 */
-	LOONGSON_INT_ROUTER_LPC = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
+	/* Route UART int to cpu Core0 INT0 */
+	LOONGSON_INT_ROUTER_UART0 = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
+	LOONGSON_INT_ROUTER_UART1 = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 0);
 	/* Route HT1 int0 ~ int3 to cpu Core0 INT1 */
 	for (i = 0; i < 4; i++)
 		LOONGSON_INT_ROUTER_HT1(i) = LOONGSON_INT_COREx_INTy(loongson_sysconf.boot_cpu_id, 1);
 	/* Enable HT1 interrupts */
 	LOONGSON_HT1_INTN_EN(0) = 0xffffffff;
 	/* Enable router interrupt intenset */
-	LOONGSON_INT_ROUTER_INTENSET =
-		LOONGSON_INT_ROUTER_INTEN | (0xffff << 16) | 0x1 << 10;
+	LOONGSON_INT_ROUTER_INTENSET = LOONGSON_INT_ROUTER_INTEN |
+				       (0xffff << 16) | (0x1 << 15) | (0x1 << 10);
 
 	chip = irq_get_chip(I8259A_IRQ_BASE);
 	chip->irq_set_affinity = plat_set_irq_affinity;
