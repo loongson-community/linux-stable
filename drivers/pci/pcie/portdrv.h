@@ -110,7 +110,7 @@ int pcie_port_device_suspend(struct device *dev);
 int pcie_port_device_resume_noirq(struct device *dev);
 int pcie_port_device_resume(struct device *dev);
 #endif
-void pcie_port_device_remove(struct pci_dev *dev);
+void pcie_port_device_remove(struct pci_dev *dev, bool disable);
 int __must_check pcie_port_bus_register(void);
 void pcie_port_bus_unregister(void);
 

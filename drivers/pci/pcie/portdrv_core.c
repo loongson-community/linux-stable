@@ -474,11 +474,13 @@ struct device *pcie_port_find_device(struct pci_dev *dev,
  * Remove PCI Express port service devices associated with given port and
  * disable MSI-X or MSI for the port.
  */
-void pcie_port_device_remove(struct pci_dev *dev)
+void pcie_port_device_remove(struct pci_dev *dev, bool disable)
 {
 	device_for_each_child(&dev->dev, NULL, remove_iter);
 	pci_free_irq_vectors(dev);
-	pci_disable_device(dev);
+
+	if (disable)
+		pci_disable_device(dev);
 }
 
 /**
