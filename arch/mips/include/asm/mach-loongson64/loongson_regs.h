@@ -199,7 +199,9 @@ static inline void csr_writeq(u64 val, u32 reg)
 #define LOONGSON_CSR_VENDOR	0x10 /* Vendor name string, should be "Loongson" */
 #define LOONGSON_CSR_CPUNAME	0x20 /* Processor name string */
 #define LOONGSON_CSR_NODECNT	0x408
+#define LOONGSON_CSR_SMCINT	0x420
 #define LOONGSON_CSR_CPUTEMP	0x428
+#define LOONGSON_CSR_SMCMBX	0x51c
 
 /* PerCore CSR, only accessable by local cores */
 #define LOONGSON_CSR_IPI_STATUS	0x1000
