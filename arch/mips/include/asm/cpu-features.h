@@ -596,6 +596,10 @@
 # define cpu_has_mipsmt_pertccounters 0
 #endif /* CONFIG_MIPS_MT_SMP */
 
+#ifndef cpu_has_constant_timer
+# define cpu_has_constant_timer	__opt(MIPS_CPU_CONST_TIMER)
+#endif
+
 /*
  * Guest capabilities
  */

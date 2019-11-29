@@ -377,22 +377,24 @@ static void loongson3_init_secondary(void)
 	cpu_data[cpu].package =
 		cpu_logical_map(cpu) / loongson_sysconf.cores_per_package;
 
-	i = 0;
-	core0_c0count[cpu] = 0;
-	loongson3_send_ipi_single(0, SMP_ASK_C0COUNT);
-	while (!core0_c0count[cpu]) {
-		i++;
-		cpu_relax();
+	if (!cpu_has_constant_timer) {
+		i = 0;
+		core0_c0count[cpu] = 0;
+		loongson3_send_ipi_single(0, SMP_ASK_C0COUNT);
+		while (!core0_c0count[cpu]) {
+			i++;
+			cpu_relax();
+		}
+
+		if (i > MAX_LOOPS)
+			i = MAX_LOOPS;
+		if (cpu_data[cpu].package)
+			initcount = core0_c0count[cpu] + i;
+		else /* Local access is faster for loops */
+			initcount = core0_c0count[cpu] + i/2;
+
+		write_c0_count(initcount);
 	}
-
-	if (i > MAX_LOOPS)
-		i = MAX_LOOPS;
-	if (cpu_data[cpu].package)
-		initcount = core0_c0count[cpu] + i;
-	else /* Local access is faster for loops */
-		initcount = core0_c0count[cpu] + i/2;
-
-	write_c0_count(initcount);
 	__cpu_full_name[cpu] = cpu_full_name;
 }
 
@@ -400,7 +402,9 @@ static void loongson3_smp_finish(void)
 {
 	int cpu = smp_processor_id();
 
-	write_c0_compare(read_c0_count() + mips_hpt_frequency/HZ);
+	if (!cpu_has_constant_timer)
+		write_c0_compare(read_c0_count() + mips_hpt_frequency/HZ);
+
 	local_irq_enable();
 	loongson3_ipi_write64(0,
 			(void *)(ipi_mailbox_buf[cpu_logical_map(cpu)]+0x0));

@@ -134,6 +134,24 @@ static __always_inline u64 read_gic_count(const union mips_vdso_data *data)
 
 #endif
 
+#ifdef CONFIG_CPU_LOONGSON3
+
+static __always_inline u64 read_const_count(void)
+{
+	unsigned long count;
+
+	__asm__ __volatile__(
+	"	.set push\n"
+	"	.set mips32r2\n"
+	"	rdhwr	%0, $30\n"
+	"	.set pop\n"
+	: "=r" (count));
+
+	return count;
+}
+
+#endif
+
 static __always_inline u64 get_ns(const union mips_vdso_data *data)
 {
 	u64 cycle_now, delta, nsec;
@@ -147,6 +165,11 @@ static __always_inline u64 get_ns(const union mips_vdso_data *data)
 #ifdef CONFIG_CLKSRC_MIPS_GIC
 	case VDSO_CLOCK_GIC:
 		cycle_now = read_gic_count(data);
+		break;
+#endif
+#ifdef CONFIG_CPU_LOONGSON3
+	case VDSO_CLOCK_CONST:
+		cycle_now = read_const_count();
 		break;
 #endif
 	default:

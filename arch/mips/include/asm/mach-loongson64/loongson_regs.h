@@ -110,6 +110,9 @@ static inline u32 read_cpucfg(u32 reg)
 #define LOONGSON_CFG7_GCCAEQRP	BIT(0)
 #define LOONGSON_CFG7_UCAWINP	BIT(1)
 
+#define CSR_TO_RAW_ADDR(cpu, csr) ((0x900000003ff00000 | csr | \
+		(((u64)cpu & 0xc) << 42)) | (((u64)cpu & 0x3) << 8))
+
 static inline bool cpu_has_csr(void)
 {
 	if (cpu_has_cfg())
@@ -208,6 +211,12 @@ static inline void csr_writeq(u64 val, u32 reg)
 #define CSR_IPI_SEND_CPU_SHIFT	16
 #define CSR_IPI_SEND_BLOCK	BIT(31)
 
+#define LOONGSON_CSR_TIMER_CFG	0x1060
+#define LOONGSON_CSR_TIMER_TICK	0x1070
+#define CONSTANT_TIMER_CFG_PERIODIC	(_ULCAST_(1) << 62)
+#define CONSTANT_TIMER_CFG_EN		(_ULCAST_(1) << 61)
+#define CONSTANT_TIMER_INITVAL_RESET	(_ULCAST_(0xffff) << 48)
+
 static inline u64 drdtime(void)
 {
 	int rID = 0;
@@ -222,6 +231,27 @@ static inline u64 drdtime(void)
 		:
 		);
 	return val;
+}
+
+static inline unsigned int calc_const_freq(void)
+{
+	unsigned int res;
+	unsigned int base_freq;
+	unsigned int cfm, cfd;
+
+	res = read_cpucfg(LOONGSON_CFG2);
+	if (!(res & LOONGSON_CFG2_LLFTP))
+		return 0;
+
+	res = read_cpucfg(LOONGSON_CFG5);
+	cfm = res & 0xffff;
+	cfd = (res >> 16) & 0xffff;
+	base_freq = read_cpucfg(LOONGSON_CFG4);
+
+	if (!base_freq || !cfm || !cfd)
+		return 0;
+	else
+		return (base_freq * cfm / cfd);
 }
 
 #endif

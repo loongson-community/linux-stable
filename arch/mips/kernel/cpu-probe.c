@@ -32,6 +32,10 @@
 #include <asm/spram.h>
 #include <linux/uaccess.h>
 
+#ifdef CONFIG_CPU_LOONGSON3
+#include <loongson_regs.h>
+#endif
+
 /* Hardware capabilities */
 unsigned int elf_hwcap __read_mostly;
 EXPORT_SYMBOL_GPL(elf_hwcap);
@@ -1855,6 +1859,17 @@ platform:
 	}
 }
 
+static void decode_loongson_cpucfg(struct cpuinfo_mips *c)
+{
+#ifdef CONFIG_CPU_LOONGSON3
+	unsigned int cpucfg;
+
+	cpucfg = read_cpucfg(LOONGSON_CFG2);
+	if (cpucfg & LOONGSON_CFG2_LLFTP)
+		c->options |= MIPS_CPU_CONST_TIMER;
+#endif
+}
+
 static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	switch (c->processor_id & PRID_IMP_MASK) {
@@ -1891,6 +1906,7 @@ static inline void cpu_probe_loongson(struct cpuinfo_mips *c, unsigned int cpu)
 		set_isa(c, MIPS_CPU_ISA_M64R2);
 		__cpu_full_name[cpu] = "Loongson-3A R4 (Loongson-3A4000)";
 		decode_configs(c);
+		decode_loongson_cpucfg(c);
 		c->options |= MIPS_CPU_FTLB | MIPS_CPU_TLBINV | MIPS_CPU_LDPTE;
 		c->writecombine = _CACHE_UNCACHED_ACCELERATED;
 		c->ases |= (MIPS_ASE_LOONGSON_MMI | MIPS_ASE_LOONGSON_CAM |

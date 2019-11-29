@@ -46,11 +46,19 @@ extern int __weak get_c0_perfcount_int(void);
  */
 extern unsigned int get_c0_compare_int(void);
 extern int r4k_clockevent_init(void);
+#ifdef CONFIG_CPU_LOONGSON3
+extern int constant_clockevent_init(void);
+#else
+static inline int constant_clockevent_init(void) { return 0; }
+#endif
 
 static inline int mips_clockevent_init(void)
 {
 #ifdef CONFIG_CEVT_R4K
-	return r4k_clockevent_init();
+	if (!cpu_has_constant_timer)
+		return r4k_clockevent_init();
+	else
+		return constant_clockevent_init();
 #else
 	return -ENXIO;
 #endif
@@ -60,11 +68,19 @@ static inline int mips_clockevent_init(void)
  * Initialize the count register as a clocksource
  */
 extern int init_r4k_clocksource(void);
+#ifdef CONFIG_CPU_LOONGSON3
+extern int init_constant_clocksource(void);
+#else
+static inline int init_constant_clocksource(void) { return 0; }
+#endif
 
 static inline int init_mips_clocksource(void)
 {
 #ifdef CONFIG_CSRC_R4K
-	return init_r4k_clocksource();
+	if (!cpu_has_constant_timer)
+		return init_r4k_clocksource();
+	else
+		return init_constant_clocksource();
 #else
 	return 0;
 #endif
