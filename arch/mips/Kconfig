@@ -1391,6 +1391,7 @@ config CPU_LOONGSON3
 	select MIPS_L1_CACHE_SHIFT_6
 	select GPIOLIB
 	select SWIOTLB
+	select HAVE_KVM
 	help
 		The Loongson 3 processor implements the MIPS64R2 instruction
 		set with many extensions.
