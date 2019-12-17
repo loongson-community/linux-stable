@@ -243,6 +243,8 @@ void __init setup_hpet_timer(void)
 		hpet_mmio_base = RS780_HPET_BASE;
 		hpet_irq_flags = 0;
 		break;
+	default:
+		return;
 	}
 
 	hpet_setup();
@@ -300,6 +302,9 @@ static struct clocksource csrc_hpet = {
 
 int __init init_hpet_clocksource(void)
 {
+	if (!hpet_mmio_base)
+		return -ENODEV;
+
 	csrc_hpet.mult = clocksource_hz2mult(hpet_freq, csrc_hpet.shift);
 	return clocksource_register_hz(&csrc_hpet, hpet_freq);
 }

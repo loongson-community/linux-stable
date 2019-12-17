@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+#include "loongson3.dtsi"
+/ {
+	model = "loongson,generic";
+	compatible = "loongson,loongson3";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+	};
+
+	cpuic: interrupt-controller {
+		compatible = "mti,cpu-interrupt-controller";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+	};
+
+	i8259: interrupt-controller@20 {
+		compatible = "intel,i8259";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupts = <3>;
+		interrupt-parent = <&cpuic>;
+	};
+
+	hypervisor {
+		compatible = "linux,kvm";
+	};
+};

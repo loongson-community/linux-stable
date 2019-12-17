@@ -26,6 +26,7 @@
 #include <linux/pci.h>
 #include <irq.h>
 #include <boot_param.h>
+#include <loongson-pch.h>
 #include <workarounds.h>
 
 static void print_fixup_info(const struct pci_dev *pdev)
@@ -34,10 +35,22 @@ static void print_fixup_info(const struct pci_dev *pdev)
 			pdev->vendor, pdev->device, pdev->irq);
 }
 
+#define VIRT_PCI_IRQ_BASE 3
+
 int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	print_fixup_info(dev);
-	return dev->irq;
+
+	switch (loongson_pch->type) {
+	case LS2H:
+	case LS7A:
+	case RS780E:
+		return dev->irq;
+	case VIRTUAL:
+	default:
+		/* Use the same swizzle method as QEMU */
+		return VIRT_PCI_IRQ_BASE + (slot + pin - 1) % 4;
+	}
 }
 
 static void pci_fixup_radeon(struct pci_dev *pdev)

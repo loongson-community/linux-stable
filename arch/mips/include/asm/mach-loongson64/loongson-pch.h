@@ -192,9 +192,10 @@
 /* ============== Data structrues =============== */
 
 enum b_type { /* BoardType(BridgeType) */
-	LS2H   = 1,
-	LS7A   = 2,
-	RS780E = 3
+	LS2H	= 1,
+	LS7A	= 2,
+	RS780E	= 3,
+	VIRTUAL	= 4
 };
 
 struct platform_controller_hub {
@@ -216,6 +217,7 @@ struct platform_controller_hub {
 extern struct platform_controller_hub ls2h_pch;
 extern struct platform_controller_hub ls7a_pch;
 extern struct platform_controller_hub rs780_pch;
+extern struct platform_controller_hub virtual_pch;
 extern struct platform_controller_hub *loongson_pch;
 
 extern bool cpu_support_msi(void);
@@ -240,5 +242,9 @@ extern void rs780_irq_dispatch(void);
 extern int rs780_pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 extern int rs780_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc);
 extern void rs780_teardown_msi_irq(unsigned int irq);
+
+extern struct pci_ops virtio_pci_ops;
+extern void virtio_init_irq(void);
+extern void virtio_irq_dispatch(void);
 
 #endif

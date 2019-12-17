@@ -242,6 +242,16 @@ static phys_addr_t loongson_rs780_dma_to_phys(struct device *dev, dma_addr_t dad
 	return ((nid << 37) ^ daddr) | (nid << 44);
 }
 
+static dma_addr_t loongson_virtio_phys_to_dma(struct device *dev, phys_addr_t paddr)
+{
+	return paddr;
+}
+
+static phys_addr_t loongson_virtio_dma_to_phys(struct device *dev, dma_addr_t daddr)
+{
+	return daddr;
+}
+
 struct loongson_addr_xlate_ops {
 	dma_addr_t (*phys_to_dma)(struct device *dev, phys_addr_t paddr);
 	phys_addr_t (*dma_to_phys)(struct device *dev, dma_addr_t daddr);
@@ -292,6 +302,10 @@ void __init plat_swiotlb_setup(void)
 	case RS780E:
 		xlate_ops.phys_to_dma = loongson_rs780_phys_to_dma;
 		xlate_ops.dma_to_phys = loongson_rs780_dma_to_phys;
+		break;
+	default:
+		xlate_ops.phys_to_dma = loongson_virtio_phys_to_dma;
+		xlate_ops.dma_to_phys = loongson_virtio_dma_to_phys;
 		break;
 	}
 }

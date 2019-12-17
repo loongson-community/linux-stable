@@ -190,7 +190,10 @@ void __init prom_init_env(void)
 	hw_coherentio = !eirq_source->dma_noncoherent;
 	pr_info("BIOS configured I/O coherency: %s\n", hw_coherentio?"ON":"OFF");
 
-	if (strstr(eboard->name,"2H")) {
+	if (strstr(eboard->name,"VIRT")) {
+		loongson_pch = &virtual_pch;
+		loongson_fdt_blob = __dtb_loongson3_virtual_begin;
+	} else if (strstr(eboard->name,"2H")) {
 		loongson_pch = &ls2h_pch;
 		loongson_sysconf.ec_sci_irq = 0x80;
 		loongson_fdt_blob = __dtb_loongson3_ls2h_begin;
@@ -198,7 +201,7 @@ void __init prom_init_env(void)
 		loongson_pch = &ls7a_pch;
 		loongson_sysconf.ec_sci_irq = 0x7b;
 		loongson_fdt_blob = __dtb_loongson3_ls7a_begin;
-	} else {
+	} else { /* Default to RS780 because of missing "780" */
 		loongson_pch = &rs780_pch;
 		loongson_sysconf.ec_sci_irq = 0x07;
 		loongson_fdt_blob = __dtb_loongson3_rs780_begin;
