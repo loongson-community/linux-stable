@@ -51,6 +51,7 @@
 #define RA		31
 
 /* Some CP0 registers */
+#define C0_PAGEMASK	5, 0
 #define C0_PWBASE	5, 5
 #define C0_HWRENA	7, 0
 #define C0_BADVADDR	8, 0
@@ -529,6 +530,17 @@ void *kvm_mips_build_tlb_refill_exception(void *addr, void *handler)
 	build_update_entries(&p, K0, K1);
 	build_tlb_write_entry(&p, &l, &r, tlb_random);
 #endif
+	/* restore page mask */
+	if (PM_DEFAULT_MASK >> 16) {
+		uasm_i_lui(&p, K0, PM_DEFAULT_MASK >> 16);
+		uasm_i_ori(&p, K0, K0, PM_DEFAULT_MASK & 0xffff);
+		uasm_i_mtc0(&p, K0, C0_PAGEMASK);
+	} else if (PM_DEFAULT_MASK) {
+		uasm_i_ori(&p, K0, 0, PM_DEFAULT_MASK);
+		uasm_i_mtc0(&p, K0, C0_PAGEMASK);
+	} else {
+		uasm_i_mtc0(&p, 0, C0_PAGEMASK);
+	}
 
 	preempt_enable();
 

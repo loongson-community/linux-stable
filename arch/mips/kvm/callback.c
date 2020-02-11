@@ -12,3 +12,9 @@
 
 struct kvm_mips_callbacks *kvm_mips_callbacks;
 EXPORT_SYMBOL_GPL(kvm_mips_callbacks);
+#ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
+extern int pmd_huge(pmd_t pmd);
+EXPORT_SYMBOL(pmd_huge);
+extern int pud_huge(pud_t pud);
+EXPORT_SYMBOL(pud_huge);
+#endif
