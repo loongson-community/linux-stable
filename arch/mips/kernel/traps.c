@@ -1477,25 +1477,8 @@ asmlinkage void do_watch(struct pt_regs *regs)
 	enum ctx_state prev_state;
 
 	prev_state = exception_enter();
-	/*
-	 * Clear WP (bit 22) bit of cause register so we don't loop
-	 * forever.
-	 */
-	clear_c0_cause(CAUSEF_WP);
-
-	/*
-	 * If the current thread has the watch registers loaded, save
-	 * their values and send SIGTRAP.  Otherwise another thread
-	 * left the registers set, clear them and continue.
-	 */
-	if (test_tsk_thread_flag(current, TIF_LOAD_WATCH)) {
-		mips_read_watch_registers();
-		local_irq_enable();
-		force_sig_fault(SIGTRAP, TRAP_HWBKPT, NULL, current);
-	} else {
-		mips_clear_watch_registers();
-		local_irq_enable();
-	}
+	local_irq_enable();
+	force_sig_fault(SIGTRAP, TRAP_HWBKPT, NULL, current);
 	exception_exit(prev_state);
 }
 
@@ -1837,10 +1820,48 @@ void ejtag_exception_handler(struct pt_regs *regs)
 	unsigned long depc, old_epc, old_ra;
 	unsigned int debug;
 
-	printk(KERN_DEBUG "SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
-	depc = read_c0_depc();
 	debug = read_c0_debug();
+	depc = read_c0_depc();
+
+	/* Not SDBBP */
+	if ((debug & 0x2) == 0) {
+		/*
+		 * If the current thread has the watch registers loaded, save
+		 * their values and go to handle_watch.  Otherwise another thread
+		 * left the registers set, clear them and continue.
+		 */
+		if (user_mode(regs) && test_tsk_thread_flag(current, TIF_LOAD_WATCH)) {
+			mips_read_ejtag_watch_registers();
+			regs->cp0_epc = depc;
+			regs->cp0_status |= ST0_EXL;
+			write_c0_depc((uintptr_t)&handle_watch);
+		} else {
+			mips_clear_ejtag_watch_registers();
+		}
+		return;
+	}
+
+	if (!user_mode(regs)) {
+		switch (regs->regs[5]) {
+		case 1:
+			mips_probe_ejtag_watch_registers((struct cpuinfo_mips *)regs->regs[6]);
+			goto skip_sdbbp;
+		case 2:
+			mips_read_ejtag_watch_registers();
+			goto skip_sdbbp;
+		case 3:
+			mips_install_ejtag_watch_registers((struct task_struct *)regs->regs[6]);
+			goto skip_sdbbp;
+		case 4:
+			mips_clear_ejtag_watch_registers();
+			goto skip_sdbbp;
+		}
+	}
+
+	printk(KERN_DEBUG "SDBBP EJTAG debug exception - not handled yet, just ignored!\n");
 	printk(KERN_DEBUG "c0_depc = %0*lx, DEBUG = %08x\n", field, depc, debug);
+
+skip_sdbbp:
 	if (debug & 0x80000000) {
 		/*
 		 * In branch delay slot.
@@ -2182,6 +2203,9 @@ void per_cpu_trap_init(bool is_boot_cpu)
 		cp0_fdc_irq = -1;
 	}
 
+	if (!is_boot_cpu)
+		mips_probe_ejtag_watch_registers_trigger(&cpu_data[cpu]);
+
 	if (!cpu_data[cpu].asid_cache)
 		cpu_data[cpu].asid_cache = asid_first_version(cpu);
 
@@ -2307,6 +2331,7 @@ void __init trap_init(void)
 	 */
 	if (cpu_has_ejtag && board_ejtag_handler_setup)
 		board_ejtag_handler_setup();
+	mips_probe_ejtag_watch_registers_trigger(&current_cpu_data);
 
 	/*
 	 * Only some CPUs have the watch exceptions.

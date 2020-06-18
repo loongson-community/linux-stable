@@ -17,6 +17,12 @@ void mips_read_watch_registers(void);
 void mips_clear_watch_registers(void);
 void mips_probe_watch_registers(struct cpuinfo_mips *c);
 
+void mips_install_ejtag_watch_registers(struct task_struct *t);
+void mips_read_ejtag_watch_registers(void);
+void mips_clear_ejtag_watch_registers(void);
+void mips_probe_ejtag_watch_registers_trigger(struct cpuinfo_mips *c);
+void mips_probe_ejtag_watch_registers(struct cpuinfo_mips *c);
+
 #ifdef CONFIG_HARDWARE_WATCHPOINTS
 #define __restore_watch(task) do {					\
 	if (unlikely(test_bit(TIF_LOAD_WATCH,				\

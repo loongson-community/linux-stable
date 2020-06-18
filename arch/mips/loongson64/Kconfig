@@ -96,6 +96,7 @@ config LOONGSON_MACH3X
 	select LEFI_FIRMWARE_INTERFACE
 	select USE_OF
 	select BUILTIN_DTB
+	select HARDWARE_WATCHPOINTS
 	help
 		Generic Loongson 3 family machines utilize the 3A/3B revision
 		of Loongson processor and RS780/SBX00 chipset.
