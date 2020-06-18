@@ -318,16 +318,16 @@ void mips_install_ejtag_watch_registers(struct task_struct *t)
 
 	for (i = 0; i < current_cpu_data.watch_reg_use_cnt; i++) {
 		if (watches->watchlo[i] & MIPS_WATCHHI_I) {
-			write_iba(i, watches->watchlo[i] & ~MIPS_WATCHHI_IRW);
-			write_ibm(i, watches->watchhi[i] & MIPS_WATCHHI_MASK);
+			write_iba(i, (watches->watchlo[i] & ~MIPS_WATCHHI_IRW) >> 3);
+			write_ibm(i, (watches->watchhi[i] & MIPS_WATCHHI_MASK) >> 3);
 			write_ibc(i, 1);
 		}
 
 		if (watches->watchlo[i] & (MIPS_WATCHHI_R | MIPS_WATCHHI_W)) {
 			unsigned int dbc = 0x3c3ff1u;
 
-			write_dba(i, watches->watchlo[i] & ~MIPS_WATCHHI_IRW);
-			write_dbm(i, watches->watchhi[i] & MIPS_WATCHHI_MASK);
+			write_dba(i, (watches->watchlo[i] & ~MIPS_WATCHHI_IRW) >> 3);
+			write_dbm(i, (watches->watchhi[i] & MIPS_WATCHHI_MASK) >> 3);
 			if (watches->watchlo[i] & MIPS_WATCHHI_R)
 				dbc &= ~0x1000u;
 			if (watches->watchlo[i] & MIPS_WATCHHI_W)
@@ -345,13 +345,13 @@ void mips_read_ejtag_watch_registers(void)
 
 	for (i = 0; i < current_cpu_data.watch_reg_use_cnt; i++) {
 		if (watches->watchlo[i] & MIPS_WATCHHI_I) {
-			watches->watchhi[i] = read_ibm(i);
+			watches->watchhi[i] = (read_ibm(i) << 3);
 			if (read_ibs() & (1u << i))
 				watches->watchhi[i] |= MIPS_WATCHHI_I;
 		}
 
 		if (watches->watchlo[i] & (MIPS_WATCHHI_R | MIPS_WATCHHI_W)) {
-			watches->watchhi[i] |= read_dbm(i);
+			watches->watchhi[i] |= (read_dbm(i) << 3);
 			if (read_dbs() & (1u << i)) {
 				watches->watchhi[i] |= MIPS_WATCHHI_R | MIPS_WATCHHI_W;
 				if (read_dbc(i) & 0x1000u)
