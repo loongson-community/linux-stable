@@ -370,7 +370,6 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 
 	ASM_CPUID_MFC0 k1, ASM_SMP_CPUID_REG
 	PTR_SRL	k1, SMP_CPUID_PTRSHIFT
-	PTR_SLL	k1, LONGLOG
 	PTR_LA	k0, ejtag_debug_buffer_per_cpu
 	PTR_ADDU k0, k1
 
@@ -393,7 +392,6 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 #ifdef CONFIG_SMP
 	ASM_CPUID_MFC0 k1, ASM_SMP_CPUID_REG
 	PTR_SRL	k1, SMP_CPUID_PTRSHIFT
-	PTR_SLL	k1, LONGLOG
 	PTR_LA	k0, ejtag_debug_buffer_per_cpu
 	PTR_ADDU k0, k1
 	LONG_L	k1, 0(k0)
